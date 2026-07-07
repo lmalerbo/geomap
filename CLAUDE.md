@@ -83,6 +83,10 @@ novos downloads imediatamente.
 
 ## Estado atual
 
-Fase 0 em andamento: stack de backend decidida (Node/Express). Estrutura de
-pastas, pipeline e esqueleto do backend sendo montados. Ver
-`docs/ROADMAP.md` para o checklist de execução do MVP.
+Fase 0 concluída e início da Fase 1: repositório no GitHub
+(github.com/lmalerbo/geomap), pipeline `.shp` sintético → `tippecanoe` →
+`.pmtiles` validado via GitHub Actions (roda em runner Linux, já que
+`tippecanoe` não compila no Windows), e esqueleto do backend (tabelas do
+`docs/SCHEMA_BANCO.md` + endpoint `POST /login` com JWT/bcrypt) testado
+localmente contra PostgreSQL real. Falta: endpoints de catálogo e download,
+depois frontend/PWA. Ver `docs/ROADMAP.md` para o checklist completo.
