@@ -59,8 +59,9 @@ novos downloads imediatamente.
 
 ## Stack
 
-- **Frontend**: MapLibre GL JS + PWA (vanilla JS ou React, a definir na
-  primeira sessão) + Workbox para o service worker
+- **Frontend**: React + Vite (decidido em 2026-07-07) + MapLibre GL JS +
+  biblioteca `pmtiles` (leitura via IndexedDB/Blob, offline) + `vite-plugin-pwa`
+  (Workbox) para o service worker
 - **Backend**: Node.js/Express (decidido em 2026-07-07)
 - **Banco**: PostgreSQL (schema simples, sem PostGIS na v1)
 - **Pipeline**: `tippecanoe` (CLI) + `ogr2ogr`/GDAL + script de empacotamento em
@@ -83,13 +84,25 @@ novos downloads imediatamente.
 
 ## Estado atual
 
-Fase 0 concluída e Fase 1 do backend concluída: repositório no GitHub
-(github.com/lmalerbo/geomap), pipeline `.shp` sintético → `tippecanoe` →
-`.pmtiles` validado via GitHub Actions (roda em runner Linux, já que
-`tippecanoe` não compila no Windows), e backend completo — tabelas do
-`docs/SCHEMA_BANCO.md`, `POST /login` (JWT/bcrypt), `GET /mapas` (catálogo
-filtrado por grupo) e `GET /mapas/:id/download` (confere permissão de novo
-e grava log) — testado localmente de ponta a ponta contra PostgreSQL real,
-incluindo o caso de mapa fora da permissão do usuário (404). Falta:
-frontend/PWA (MapLibre + IndexedDB + service worker). Ver
+MVP da Fase 1 completo e testado de ponta a ponta:
+
+- **Repositório**: github.com/lmalerbo/geomap.
+- **Pipeline**: `.shp` sintético → `ogr2ogr` → `tippecanoe` → `.pmtiles`,
+  validado via GitHub Actions (runner Linux, já que `tippecanoe` não
+  compila no Windows).
+- **Backend**: tabelas do `docs/SCHEMA_BANCO.md`, `POST /login`
+  (JWT/bcrypt), `GET /mapas` (catálogo filtrado por grupo) e
+  `GET /mapas/:id/download` (confere permissão de novo e grava log).
+  Testado localmente contra PostgreSQL real, incluindo mapa fora de
+  permissão (404).
+- **Frontend/PWA**: React + Vite, telas de login/catálogo/mapa, MapLibre
+  GL JS lendo `.pmtiles` do IndexedDB via `Source` customizado
+  (`BlobSource`, sem range request HTTP), service worker (Workbox)
+  cacheando o app shell. Testado no navegador via Playwright, **incluindo
+  offline real** (rede desligada de verdade: app shell, catálogo local e
+  clique em talhão com atributos todos funcionando sem nenhuma chamada
+  de rede).
+
+Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
+refinadas, ícones PNG do manifest (hoje só o favicon SVG). Ver
 `docs/ROADMAP.md` para o checklist completo.

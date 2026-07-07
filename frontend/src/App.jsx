@@ -1,0 +1,39 @@
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
+import Login from "./pages/Login.jsx";
+import Catalogo from "./pages/Catalogo.jsx";
+import Mapa from "./pages/Mapa.jsx";
+
+function RotaProtegida({ children }) {
+  const { sessao } = useAuth();
+  return sessao ? children : <Navigate to="/login" replace />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/catalogo"
+            element={
+              <RotaProtegida>
+                <Catalogo />
+              </RotaProtegida>
+            }
+          />
+          <Route
+            path="/mapa/:mapaId"
+            element={
+              <RotaProtegida>
+                <Mapa />
+              </RotaProtegida>
+            }
+          />
+          <Route path="*" element={<Navigate to="/catalogo" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  );
+}

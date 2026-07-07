@@ -1,0 +1,221 @@
+:root {
+  --text: #1f2933;
+  --text-muted: #52606d;
+  --bg: #f7f9fa;
+  --border: #d9e2e6;
+  --accent: #2c6b47;
+  --accent-hover: #23593a;
+  --erro: #b3261e;
+  --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+
+  font: 16px/1.5 var(--sans);
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1 {
+  font-size: 28px;
+  margin: 0 0 24px;
+}
+
+button,
+.botao {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+button:hover,
+.botao:hover {
+  background: var(--accent-hover);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.erro {
+  color: var(--erro);
+}
+
+.aviso {
+  background: #fff4e5;
+  border: 1px solid #f0c36d;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+/* Login */
+.tela-login {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.form-login {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 320px;
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.form-login label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.form-login input {
+  font: inherit;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* Catálogo */
+.tela-catalogo {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 16px;
+  width: 100%;
+}
+
+.tela-catalogo header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.lista-mapas {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item-mapa {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.item-mapa .meta {
+  display: block;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.item-mapa .acoes {
+  display: flex;
+  gap: 8px;
+}
+
+/* Mapa */
+.tela-mapa {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.barra-mapa {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+
+.mapa-container {
+  flex: 1;
+  position: relative;
+}
+
+.tela-mapa-erro {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.painel-atributos {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 260px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.painel-atributos .fechar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  padding: 4px 8px;
+}
+
+.painel-atributos dl {
+  margin: 0;
+}
+
+.linha-atributo {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.linha-atributo dt {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.linha-atributo dd {
+  margin: 0;
+  font-size: 15px;
+}
