@@ -63,7 +63,10 @@ novos downloads imediatamente.
   primeira sessão) + Workbox para o service worker
 - **Backend**: Node.js/Express (decidido em 2026-07-07)
 - **Banco**: PostgreSQL (schema simples, sem PostGIS na v1)
-- **Pipeline**: `tippecanoe` (CLI) + script de empacotamento em Python ou Node
+- **Pipeline**: `tippecanoe` (CLI) + `ogr2ogr`/GDAL + script de empacotamento em
+  Python (decidido em 2026-07-07 — `pyshp` facilita gerar o shapefile
+  sintético sem depender de GDAL local). Roda via GitHub Actions (runner
+  Linux), já que `tippecanoe` não compila nativamente no Windows.
 
 ## Convenções do projeto
 

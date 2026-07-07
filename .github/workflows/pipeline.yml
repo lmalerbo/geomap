@@ -1,0 +1,47 @@
+name: Pipeline .shp -> .pmtiles
+
+on:
+  push:
+    paths:
+      - "pipeline/**"
+      - ".github/workflows/pipeline.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build-pmtiles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar GDAL (ogr2ogr) e dependências de build do tippecanoe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin build-essential libsqlite3-dev zlib1g-dev
+
+      - name: Compilar e instalar tippecanoe
+        run: |
+          git clone --depth 1 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+          cd /tmp/tippecanoe
+          make -j"$(nproc)"
+          sudo make install
+
+      - name: Instalar dependências Python do pipeline
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Gerar .shp sintético de teste (dado fictício)
+        run: python pipeline/fixtures/gerar_shp_sintetico.py
+
+      - name: Rodar pipeline .shp -> .pmtiles
+        run: |
+          chmod +x pipeline/shp_para_pmtiles.sh
+          pipeline/shp_para_pmtiles.sh pipeline/fixtures/output/talhoes_teste.shp pipeline/output
+
+      - name: Upload do .pmtiles gerado (artefato de verificação)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmtiles-teste
+          path: pipeline/output/*.pmtiles

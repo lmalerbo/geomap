@@ -7,6 +7,8 @@ __pycache__/
 *.shx
 *.dbf
 *.prj
+*.geojson
+pipeline/output/
 dist/
 build/
 .DS_Store
