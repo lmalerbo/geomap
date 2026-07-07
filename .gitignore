@@ -1,0 +1,14 @@
+node_modules/
+__pycache__/
+*.pyc
+.env
+*.pmtiles
+*.shp
+*.shx
+*.dbf
+*.prj
+dist/
+build/
+.DS_Store
+.claude/
+geoportal-starter.zip
