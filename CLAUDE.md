@@ -83,10 +83,13 @@ novos downloads imediatamente.
 
 ## Estado atual
 
-Fase 0 concluída e início da Fase 1: repositório no GitHub
+Fase 0 concluída e Fase 1 do backend concluída: repositório no GitHub
 (github.com/lmalerbo/geomap), pipeline `.shp` sintético → `tippecanoe` →
 `.pmtiles` validado via GitHub Actions (roda em runner Linux, já que
-`tippecanoe` não compila no Windows), e esqueleto do backend (tabelas do
-`docs/SCHEMA_BANCO.md` + endpoint `POST /login` com JWT/bcrypt) testado
-localmente contra PostgreSQL real. Falta: endpoints de catálogo e download,
-depois frontend/PWA. Ver `docs/ROADMAP.md` para o checklist completo.
+`tippecanoe` não compila no Windows), e backend completo — tabelas do
+`docs/SCHEMA_BANCO.md`, `POST /login` (JWT/bcrypt), `GET /mapas` (catálogo
+filtrado por grupo) e `GET /mapas/:id/download` (confere permissão de novo
+e grava log) — testado localmente de ponta a ponta contra PostgreSQL real,
+incluindo o caso de mapa fora da permissão do usuário (404). Falta:
+frontend/PWA (MapLibre + IndexedDB + service worker). Ver
+`docs/ROADMAP.md` para o checklist completo.
