@@ -1,7 +1,10 @@
 # Frontend — GeoPortal
 
 React + Vite + MapLibre GL JS + `pmtiles`, PWA via `vite-plugin-pwa`
-(Workbox). Três telas: login, catálogo, visualizador de mapa offline.
+(Workbox). Duas telas: login e mapa. Não existe tela de catálogo — o
+login já leva direto pro visualizador, que mostra todos os mapas
+permitidos como **camadas do mesmo mapa** (liga/desliga cada uma), não
+como uma lista de arquivos pra escolher/baixar.
 
 ## Setup local
 
@@ -9,24 +12,31 @@ React + Vite + MapLibre GL JS + `pmtiles`, PWA via `vite-plugin-pwa`
    em `http://localhost:3000`.
 2. `npm install`
 3. `npm run dev` (porta 5173). Precisa do backend rodando (ver
-   `../backend/README.md`) pra login e catálogo funcionarem.
+   `../backend/README.md`) pra login e sincronização funcionarem.
 
-## Como o offline funciona de verdade
+## Como funciona (sem "portal de download")
 
-- **App shell**: `vite-plugin-pwa` gera um service worker (Workbox) que
-  cacheia HTML/JS/CSS no build de produção. Só existe em `npm run build`
-  seguido de `npm run preview` (ou deploy) — o `npm run dev` não registra
-  service worker.
-- **Mapas**: ao clicar "Baixar" no catálogo, o `.pmtiles` retornado por
-  `GET /mapas/:id/download` é salvo como `Blob` no IndexedDB
-  (`src/lib/db.js`). O visualizador (`src/pages/Mapa.jsx`) lê esse Blob
-  via `src/lib/pmtilesBlobSource.js`, uma implementação da interface
-  `Source` da lib `pmtiles` que fatia o Blob em memória em vez de fazer
-  range request HTTP — por isso o MapLibre renderiza os talhões sem
-  nenhuma chamada de rede depois do download inicial.
-- **Catálogo offline**: se `GET /mapas` falhar (sem rede), a tela mostra
-  os mapas já baixados localmente (lidos do IndexedDB) em vez de uma
-  tela de erro.
+- **Login → mapa direto**: não tem tela intermediária de catálogo.
+- **Sincronização automática e silenciosa** (`src/lib/sync.js`): ao abrir
+  o mapa, se houver internet, o app busca `GET /mapas` e baixa/atualiza
+  em segundo plano qualquer mapa novo ou com `versao` diferente da que já
+  está salva localmente. Não existe botão "Baixar" — só um indicador
+  discreto no topo ("Atualizado às HH:MM" ou "Offline — usando último
+  mapa salvo").
+- **Camadas, não arquivos**: cada mapa permitido vira uma camada vetorial
+  no mesmo `MapLibre.Map`, com um controle de liga/desliga
+  (`.painel-camadas`). O nome da camada vetorial dentro do `.pmtiles` é
+  lido do próprio metadata (`vector_layers[0].id`), não é hardcoded.
+- **Clique**: consulta todas as camadas visíveis ao mesmo tempo
+  (`queryRenderedFeatures`) e mostra os atributos da camada
+  correspondente à feição clicada.
+- **App shell offline**: `vite-plugin-pwa` gera o service worker (Workbox)
+  só no build de produção — `npm run dev` não registra service worker.
+- **Mapas offline**: os `.pmtiles` baixados ficam como `Blob` no IndexedDB
+  (`src/lib/db.js`), lidos via `src/lib/pmtilesBlobSource.js` (implementação
+  de `Source` da lib `pmtiles` que fatia o Blob em memória, sem range
+  request HTTP) — por isso o MapLibre renderiza tudo sem nenhuma chamada
+  de rede depois da primeira sincronização.
 
 ## Testar offline de verdade
 
@@ -35,11 +45,11 @@ npm run build
 npm run preview -- --port 4173
 ```
 
-Abra `http://localhost:4173`, faça login, baixe um mapa, recarregue a
-página (pra garantir que o service worker assumiu controle), depois
-desligue a rede (DevTools → Network → Offline, ou desconecte o
-Wi-Fi/dados) e confirme que o catálogo, o mapa e o clique nos talhões
-continuam funcionando.
+Abra `http://localhost:4173`, faça login (o mapa já sincroniza sozinho),
+recarregue a página uma vez (pra garantir que o service worker assumiu
+controle), depois desligue a rede (DevTools → Network → Offline, ou
+desconecte o Wi-Fi/dados) e confirme que o mapa, as camadas e o clique
+nos talhões continuam funcionando sem internet.
 
 ## Debug
 

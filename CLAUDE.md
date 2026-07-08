@@ -6,8 +6,13 @@ Visualizador web (PWA) de mapas geoespaciais das fazendas — talhões, sulcaç�
 frentes de colheita — que substitui o modelo atual baseado em arquivos CarryMap
 (.cmf2) distribuídos com senha compartilhada.
 
-Funciona com login próprio, catálogo de mapas filtrado por permissão, e
-funcionamento **100% offline em campo** depois do download inicial autenticado.
+Funciona com login próprio e funcionamento **100% offline em campo** depois
+da sincronização inicial autenticada. Não é um "portal de download de
+arquivos" — é um mapa interativo único, com os dados permitidos pro grupo
+do usuário aparecendo como camadas (liga/desliga), sincronizadas sozinhas
+em segundo plano sempre que há internet. O controle de permissão por grupo
+existe no backend (decide o que cada usuário pode sincronizar), mas não
+aparece como uma tela de "catálogo" pro usuário escolher/baixar.
 
 ## Problema que resolve
 
@@ -22,8 +27,10 @@ Fluxo novo:
 ArcGIS Pro → .shp (já gerado hoje, antes do CarryMap)
 → tippecanoe → .pmtiles
 → Portal Web (login JWT, permissão por grupo)
-→ usuário autenticado baixa o .pmtiles pro navegador (IndexedDB)
-→ PWA funciona offline a partir daí, sem depender de nenhum app nativo
+→ app sincroniza sozinho os .pmtiles permitidos pro navegador (IndexedDB),
+  sem botão de download visível
+→ PWA renderiza tudo como camadas de um único mapa, funciona offline a
+  partir daí, sem depender de nenhum app nativo
 ```
 
 Importante: isso **não é DRM**. Uma vez baixado, o arquivo pode em tese ser
@@ -40,9 +47,11 @@ novos downloads imediatamente.
    usuários/grupos/mapas/permissões/logs (ver `docs/SCHEMA_BANCO.md`),
    endpoint de catálogo (só retorna mapas que o grupo do usuário pode ver),
    endpoint de download (registra log no momento do download).
-3. **PWA**: tela de catálogo autenticada → botão "baixar mapa" (salva o
-   `.pmtiles` no IndexedDB) → visualizador MapLibre GL JS lendo o `.pmtiles`
-   local → clique num talhão mostra os atributos.
+3. **PWA**: login → mapa único (sem tela de catálogo). Sincronização
+   automática em segundo plano (sem botão "baixar") salva os `.pmtiles`
+   permitidos no IndexedDB; cada um vira uma camada do mesmo
+   `MapLibre.Map`, com controle de liga/desliga; clique num talhão mostra
+   os atributos da camada correspondente.
 4. **Offline de verdade**: service worker cacheia o app shell; uma vez que o
    mapa foi baixado, tudo funciona sem rede nenhuma (sem chamada ao backend).
 
@@ -105,19 +114,24 @@ MVP da Fase 1 completo e testado de ponta a ponta:
   `GET /mapas/:id/download` (confere permissão de novo e grava log).
   Testado localmente contra PostgreSQL real, incluindo mapa fora de
   permissão (404).
-- **Frontend/PWA**: React + Vite, telas de login/catálogo/mapa, MapLibre
-  GL JS lendo `.pmtiles` do IndexedDB via `Source` customizado
-  (`BlobSource`, sem range request HTTP), service worker (Workbox)
-  cacheando o app shell. Testado no navegador via Playwright, **incluindo
-  offline real** (rede desligada de verdade: app shell, catálogo local e
-  clique em talhão com atributos todos funcionando sem nenhuma chamada
-  de rede).
+- **Frontend/PWA**: React + Vite. Só duas telas: login e mapa — **sem
+  catálogo visível**. `src/lib/sync.js` sincroniza os mapas permitidos em
+  segundo plano (sem botão "baixar"), comparando `versao` local x remota.
+  Cada mapa vira uma camada do mesmo `MapLibre.Map` (fonte + fill + linha),
+  com painel de liga/desliga por camada; clique consolidado
+  (`queryRenderedFeatures` em todas as camadas visíveis) identifica de
+  qual camada veio a feição clicada. MapLibre lê `.pmtiles` do IndexedDB
+  via `Source` customizado (`BlobSource`, sem range request HTTP), nome
+  da camada vetorial lido do metadata (`vector_layers[0].id`, nunca
+  hardcoded), service worker (Workbox) cacheando o app shell. Testado no
+  navegador via Playwright, **incluindo offline real** (rede desligada de
+  verdade: sincronização, camadas e clique com atributos todos
+  funcionando sem nenhuma chamada de rede).
 
 Pipeline também validado com **dado real de produção** (rodado localmente
-via Cygwin, nunca via GitHub — ver seção Pipeline em Stack acima); o
-visualizador não tem mais nome de camada hardcoded, lê `vector_layers[0].id`
-do metadata do próprio `.pmtiles`, então qualquer mapa real ou sintético
-funciona sem mudança de código.
+via Cygwin, nunca via GitHub — ver seção Pipeline em Stack acima), inclusive
+renderizado no visualizador como duas camadas simultâneas (Talhões +
+Limites) sobre o mesmo mapa.
 
 Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
 refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem

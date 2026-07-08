@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import Login from "./pages/Login.jsx";
-import Catalogo from "./pages/Catalogo.jsx";
 import Mapa from "./pages/Mapa.jsx";
 
 function RotaProtegida({ children }) {
@@ -16,22 +15,14 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
-            path="/catalogo"
-            element={
-              <RotaProtegida>
-                <Catalogo />
-              </RotaProtegida>
-            }
-          />
-          <Route
-            path="/mapa/:mapaId"
+            path="/mapa"
             element={
               <RotaProtegida>
                 <Mapa />
               </RotaProtegida>
             }
           />
-          <Route path="*" element={<Navigate to="/catalogo" replace />} />
+          <Route path="*" element={<Navigate to="/mapa" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

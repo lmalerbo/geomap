@@ -11,9 +11,9 @@ function abrirDb() {
   });
 }
 
-export async function salvarMapaBaixado(mapaId, nome, blob) {
+export async function salvarMapaBaixado(mapaId, nome, versao, blob) {
   const db = await abrirDb();
-  await db.put(STORE, { id: mapaId, nome, blob, baixadoEm: new Date().toISOString() });
+  await db.put(STORE, { id: mapaId, nome, versao, blob, baixadoEm: new Date().toISOString() });
 }
 
 export async function buscarMapaBaixado(mapaId) {

@@ -19,10 +19,15 @@
 - [x] Backend: endpoint de catálogo (retorna só mapas do grupo do usuário)
 - [x] Backend: endpoint de download do `.pmtiles` (registra log)
 - [x] Frontend: tela de login
-- [x] Frontend: tela de catálogo (lista de mapas permitidos)
-- [x] Frontend: botão "baixar mapa" → salva `.pmtiles` no IndexedDB
-- [x] Frontend: visualizador MapLibre GL JS lendo o `.pmtiles` do IndexedDB
-- [x] Frontend: clique num talhão mostra atributos (painel ou popup)
+- [x] Frontend: ~~tela de catálogo~~ — revisado: sem tela de catálogo,
+      login leva direto pro mapa (ver CLAUDE.md, decisão de 2026-07-08)
+- [x] Frontend: ~~botão "baixar mapa"~~ — revisado: sincronização
+      automática em segundo plano (`src/lib/sync.js`), salva `.pmtiles`
+      no IndexedDB sem interação do usuário
+- [x] Frontend: visualizador MapLibre GL JS lendo o `.pmtiles` do IndexedDB,
+      cada mapa permitido como uma camada com controle de liga/desliga
+- [x] Frontend: clique num talhão mostra atributos (painel), identifica a
+      camada de origem quando há múltiplas camadas sobrepostas
 - [x] PWA: service worker cacheando o app shell (funciona offline pra abrir)
 - [x] Teste real: baixar o mapa com internet, desligar o Wi-Fi/dados, reabrir
       o app e confirmar que o mapa e os atributos funcionam normalmente —

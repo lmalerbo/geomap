@@ -18,7 +18,7 @@ export default function Login() {
     try {
       const { token, usuario } = await login(email, senha);
       entrar(token, usuario);
-      navigate("/catalogo");
+      navigate("/mapa");
     } catch (err) {
       setErro(err.message);
     } finally {
