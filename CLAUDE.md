@@ -145,14 +145,31 @@ mapas no futuro, aí sim vale formalizar isso como campo explícito em
 número do talhão (aparece só a partir do zoom 13); não havendo, fica só
 contorno (é o caso de "Limites").
 
+**Correções pós-CarryMap (2026-07-08)**: Limites virou camada só-visual
+(contorno + nome da fazenda) — clique nela não abre mais painel de
+atributos, só Talhões é consultável (`consultavel: ehTalhao` em
+`Mapa.jsx`). Rótulos (número do talhão / nome da fazenda) agora usam
+`pipeline/rotulos/` (`gerar_rotulos.py`, `gerar_rotulos_por_atributo.py`
+e `polylabel.py`) em vez de centroide simples: cada rótulo é 1 ponto na
+maior parte (por área) de cada talhão/grupo, posicionado pelo algoritmo
+*pole of inaccessibility* (mesma técnica da Mapbox) — garante que o
+ponto sempre cai dentro do polígono e fica visualmente centralizado
+mesmo em formas côncavas (o centroide antigo colocava ~8% dos rótulos
+fora do próprio polígono, até 174 m de distância). Além disso, o
+`.pmtiles` da camada de rótulos precisa ser gerado **separado** da
+camada de polígonos com a flag `-r1` do tippecanoe (desliga o
+"drop-rate" padrão de 2.5, que enxuga pontos densos em zooms baixos
+achando que são POIs redundantes — como cada rótulo aqui é único e
+obrigatório, isso apagava a maioria dos números em zooms intermediários)
+e depois juntado com `tile-join`. Ver `pipeline/rotulos/README.md`.
+
 Pendente do pedido do CarryMap (fica pra próxima sessão, exige mexer no
-pipeline de novo): (1) nome da fazenda centralizado usando a tabela de
-Limites — precisa dissolver os polígonos de limite num único contorno e
-calcular seu centroide (ogr2ogr/GDAL), não dá pra fazer só no frontend
-sem rótulos duplicados por seção; (2) busca por talhão/seção — precisa de
-um índice leve (json com id + centróide + atributos-chave) gerado no
-pipeline e baixado junto com o `.pmtiles`, já que o vector tile só carrega
-features do viewport atual, não o dataset inteiro.
+pipeline de novo): busca por talhão/seção — precisa de um índice leve
+(json com id + centróide + atributos-chave) gerado no pipeline e
+baixado junto com o `.pmtiles`, já que o vector tile só carrega
+features do viewport atual, não o dataset inteiro (índices já gerados
+como prova de conceito em sessão anterior, falta a UI de busca no
+frontend).
 
 Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
 refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem
