@@ -470,6 +470,64 @@ button:disabled {
   flex: 1;
 }
 
+.painel-busca {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(360px, calc(100vw - 32px));
+  z-index: 1;
+}
+
+.painel-busca input[type="search"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  font-size: 15px;
+}
+
+.resultados-busca {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.resultados-busca button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  min-height: 40px;
+  background: none;
+  color: var(--text);
+  border-radius: 6px;
+}
+
+.resultados-busca button:hover {
+  background: #f7f9fa;
+}
+
+.sem-resultados-busca {
+  margin: 4px 0 0;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
 .aviso-sem-mapas {
   position: absolute;
   top: 50%;
@@ -587,6 +645,13 @@ button:disabled {
     left: 8px;
     top: 8px;
     max-width: calc(100vw - 16px);
+  }
+
+  .painel-busca {
+    top: 60px;
+    left: 8px;
+    transform: none;
+    width: calc(100vw - 16px);
   }
 
   .painel-atributos {

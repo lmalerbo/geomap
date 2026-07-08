@@ -263,6 +263,31 @@ acentuado via comando de shell, revalidar depois com
 `length()`/`octet_length()` no Postgres — não confiar só na
 inspeção visual do terminal.
 
+**Busca por talhão/fazenda (2026-07-08, Fase 2 antecipada)**: sem
+nenhuma mudança de pipeline/backend — reaproveita o que já está no
+`.pmtiles` baixado. `querySourceFeatures` do MapLibre só enxerga tiles
+que o mapa já carregou pro viewport/zoom atual (não serve pra indexar
+o dataset inteiro), então o índice é montado lendo os tiles direto da
+lib `pmtiles` (`PMTiles.getZxy(z,x,y)`, decodificados com
+`@mapbox/vector-tile` + `pbf`) no **menor zoom do próprio tileset**
+(`header.minZoom`) — a área inteira cabe em poucos tiles nesse zoom, e
+como os rótulos foram gerados com `-r1` (sem thinning por densidade,
+ver seção de rótulos acima) cada talhão/fazenda aparece garantido.
+Enriquece o texto de busca dos talhões com `DESC_SECAO` (lido da
+camada de polígono, cruzado por `SECAO+TALHAO`) — sem isso a busca só
+acharia o número do talhão, inútil sem saber de qual fazenda/seção.
+Resultado ordenado por tamanho do texto (mais curto primeiro): buscar
+"Santa Lydia" deve achar a fazenda em si antes dos 20+ talhões que têm
+esse nome no texto. Índice remontado só quando alguma camada muda de
+verdade (assinatura), não a cada render. Testado offline real (build
+de produção + `vite preview`, sem nenhuma chamada de rede) — funciona
+igual, já que tudo vem do `.pmtiles` já baixado.
+
+Nota de dependência: `pbf` v5 (puxado pelo `@mapbox/vector-tile`)
+exporta `PbfReader` como named export, não mais um `Pbf` default como
+em versões antigas — `new Protobuf(...)` (import default) quebra o
+build; usar `import { PbfReader } from "pbf"`.
+
 Falta: telas de erro/loading mais
 refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem
 de produção (backend rodando no PC de alguém não é sustentável — avaliado

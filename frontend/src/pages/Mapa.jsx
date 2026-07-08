@@ -3,6 +3,8 @@ import { useNavigate, Link } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { PMTiles, Protocol } from "pmtiles";
+import { VectorTile } from "@mapbox/vector-tile";
+import { PbfReader } from "pbf";
 import { listarMapasBaixados } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
@@ -72,6 +74,84 @@ function aplicarConfigAtributos(propriedades, config) {
     if (visivel && campo in propriedades) resultado[campo] = propriedades[campo];
   }
   return resultado;
+}
+
+// Converte lon/lat pro tile x/y da grade slippy-map num zoom dado.
+function lonLatParaTile(lon, lat, z) {
+  const n = 2 ** z;
+  const x = Math.floor(((lon + 180) / 360) * n);
+  const rad = (lat * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n
+  );
+  return [x, y];
+}
+
+// Sem acento, minúsculo — pra buscar "Sao Joao" e achar "São João".
+function normalizarTexto(texto) {
+  return texto
+    .normalize("NFD")
+    .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+    .toLowerCase();
+}
+
+// Monta o índice de busca lendo os tiles do menor zoom disponível
+// DIRETO da lib pmtiles (não via MapLibre — querySourceFeatures só
+// enxerga tiles que o mapa já carregou pro viewport/zoom atual, não o
+// dataset inteiro). No zoom mais baixo a área inteira cabe em poucos
+// tiles, e como os rótulos foram gerados com -r1 (sem thinning por
+// densidade), cada talhão/fazenda aparece garantido em algum tile.
+async function montarIndiceBusca(infos) {
+  const indice = [];
+
+  for (const info of infos) {
+    if (!info.temRotulos) continue;
+    const { pmtiles, header } = info;
+    const z = header.minZoom;
+    const [x0, y0] = lonLatParaTile(header.minLon, header.maxLat, z);
+    const [x1, y1] = lonLatParaTile(header.maxLon, header.minLat, z);
+
+    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
+      for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
+        const resp = await pmtiles.getZxy(z, x, y);
+        if (!resp) continue;
+        const tile = new VectorTile(new PbfReader(new Uint8Array(resp.data)));
+
+        // Enriquece com DESC_SECAO da camada principal — só faz sentido
+        // pra talhões (a camada de rótulos de limites já É o nome da
+        // fazenda). Degrada bem: sem match, mostra só "Talhão N".
+        const descPorChave = new Map();
+        const camadaPrincipal = info.consultavel && tile.layers[info.sourceLayerPrincipal];
+        if (camadaPrincipal) {
+          for (let i = 0; i < camadaPrincipal.length; i++) {
+            const props = camadaPrincipal.feature(i).properties;
+            const chave = `${props.SECAO}|${props.TALHAO}`;
+            if (!descPorChave.has(chave)) descPorChave.set(chave, props.DESC_SECAO);
+          }
+        }
+
+        const camadaRotulos = tile.layers[CAMADA_ROTULOS];
+        if (!camadaRotulos) continue;
+        for (let i = 0; i < camadaRotulos.length; i++) {
+          const feature = camadaRotulos.feature(i);
+          const props = feature.properties;
+          const [lng, lat] = feature.toGeoJSON(x, y, z).geometry.coordinates;
+
+          let texto;
+          if ("talhao" in props && "secao" in props) {
+            const desc = descPorChave.get(`${props.secao}|${props.talhao}`);
+            texto = `Talhão ${props.talhao}${desc ? ` — ${desc}` : ""}`;
+          } else {
+            texto = String(props.rotulo);
+          }
+
+          indice.push({ texto, buscavel: normalizarTexto(texto), lng, lat, mapaId: info.id });
+        }
+      }
+    }
+  }
+
+  return indice;
 }
 
 async function adicionarCamada(map, protocol, mapa) {
@@ -190,7 +270,18 @@ async function adicionarCamada(map, protocol, mapa) {
     // rótulo de nome — não abrem painel de atributos ao clicar.
     consultavel: ehTalhao,
     atributosConfig: mapa.atributosConfig,
+    // Pra montar o índice de busca (a partir dos dados já baixados, sem
+    // pipeline/back-end extra): temRotulos independe de mostrarRotulo (o
+    // texto/posição existe no tile mesmo com o rótulo visual desligado),
+    // e sourceLayerPrincipal permite consultar DESC_SECAO/TALHAO direto
+    // do polígono.
+    temRotulos,
+    sourceLayerPrincipal: camadaPrincipal.id,
     header,
+    // Mantém a instância pra montar o índice de busca lendo tiles direto
+    // (querySourceFeatures só enxerga o que o MapLibre já carregou pro
+    // viewport/zoom atual — não serve pra indexar o dataset inteiro).
+    pmtiles,
   };
 }
 
@@ -221,6 +312,8 @@ export default function Mapa() {
   const [offline, setOffline] = useState(false);
   const [selecao, setSelecao] = useState(null);
   const [painelCamadasAberto, setPainelCamadasAberto] = useState(true);
+  const [indiceBusca, setIndiceBusca] = useState([]);
+  const [buscaTexto, setBuscaTexto] = useState("");
 
   // 1) cria o mapa uma única vez, com controles de navegação e localização
   useEffect(() => {
@@ -320,11 +413,13 @@ export default function Mapa() {
     async function aplicar() {
       const carregadas = camadasCarregadasRef.current;
       const idsAtuais = new Set(mapasLocais.map((m) => m.id));
+      let mudou = false;
 
       for (const [id, info] of carregadas) {
         if (!idsAtuais.has(id)) {
           removerCamada(map, info);
           carregadas.delete(id);
+          mudou = true;
         }
       }
 
@@ -336,7 +431,10 @@ export default function Mapa() {
 
         const info = await adicionarCamada(map, protocol, mapa);
         if (cancelado) return;
-        if (info) carregadas.set(mapa.id, info);
+        if (info) {
+          carregadas.set(mapa.id, info);
+          mudou = true;
+        }
       }
 
       const headers = [...carregadas.values()].map((c) => c.header);
@@ -353,6 +451,15 @@ export default function Mapa() {
           map.fitBounds(extensaoAtualRef.current, { padding: 40, duration: 900 });
           jaEnquadrouRef.current = true;
         }
+      }
+
+      // Índice de busca: só remonta quando alguma camada foi adicionada/
+      // trocada de verdade — ler tiles direto da lib pmtiles é barato (tudo
+      // local, poucos tiles no zoom mínimo) mas não precisa repetir à toa.
+      if (mudou) {
+        montarIndiceBusca([...carregadas.values()]).then((novo) => {
+          if (!cancelado) setIndiceBusca(novo);
+        });
       }
     }
 
@@ -486,7 +593,26 @@ export default function Mapa() {
     navigate("/login");
   }
 
+  function selecionarResultadoBusca(resultado) {
+    const map = mapRef.current;
+    if (!map) return;
+    map.flyTo({ center: [resultado.lng, resultado.lat], zoom: 16, duration: 1200 });
+    setBuscaTexto("");
+  }
+
   const itemSelecionado = selecao?.itens[selecao.indice];
+
+  const buscaNormalizada = normalizarTexto(buscaTexto.trim());
+  const resultadosBusca =
+    buscaNormalizada.length >= 2
+      ? indiceBusca
+          .filter((r) => r.buscavel.includes(buscaNormalizada))
+          // Buscar "Santa Lydia" deveria achar a fazenda em si, não só os
+          // 20+ talhões que têm esse nome no texto — texto mais curto
+          // (mais específico) primeiro.
+          .sort((a, b) => a.texto.length - b.texto.length)
+          .slice(0, 8)
+      : [];
 
   return (
     <main className="tela-mapa">
@@ -517,6 +643,31 @@ export default function Mapa() {
 
       <div className="area-mapa">
         <div ref={containerRef} className="mapa-container" />
+
+        {indiceBusca.length > 0 && (
+          <div className="painel-busca">
+            <input
+              type="search"
+              placeholder="Buscar talhão ou fazenda…"
+              value={buscaTexto}
+              onChange={(e) => setBuscaTexto(e.target.value)}
+            />
+            {resultadosBusca.length > 0 && (
+              <ul className="resultados-busca">
+                {resultadosBusca.map((r, i) => (
+                  <li key={`${r.mapaId}-${i}`}>
+                    <button type="button" onClick={() => selecionarResultadoBusca(r)}>
+                      {r.texto}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {buscaNormalizada.length >= 2 && resultadosBusca.length === 0 && (
+              <p className="sem-resultados-busca">Nada encontrado.</p>
+            )}
+          </div>
+        )}
 
         {mapasLocais.length > 0 && (
           <aside className="painel-camadas">

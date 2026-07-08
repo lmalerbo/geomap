@@ -38,7 +38,7 @@
 ## Fase 2 — Funcionalidades de uso (depois do MVP validado)
 
 - [ ] Medição de distância/área (Turf.js)
-- [ ] Busca por atributo (nome do talhão, fazenda)
+- [x] Busca por atributo (nome do talhão, fazenda) (2026-07-08)
 - [ ] Legenda dinâmica por camada
 - [ ] Bookmarks de extensão do mapa
 - [ ] "Minha localização" (Geolocation API) — funciona offline também
