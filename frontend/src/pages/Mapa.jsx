@@ -6,8 +6,6 @@ import { PMTiles, Protocol } from "pmtiles";
 import { buscarMapaBaixado } from "../lib/db.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 
-const CAMADA = "talhoes";
-
 export default function Mapa() {
   const { mapaId } = useParams();
   const containerRef = useRef(null);
@@ -38,6 +36,12 @@ export default function Mapa() {
       protocol.add(pmtiles);
 
       const header = await pmtiles.getHeader();
+      const metadata = await pmtiles.getMetadata();
+      const camada = metadata?.vector_layers?.[0]?.id;
+      if (!camada) {
+        setErro("Não foi possível identificar a camada vetorial deste .pmtiles.");
+        return;
+      }
 
       map = new maplibregl.Map({
         container: containerRef.current,
@@ -53,24 +57,24 @@ export default function Mapa() {
       if (import.meta.env.DEV) window.__map = map;
 
       map.on("load", () => {
-        map.addSource(CAMADA, {
+        map.addSource(camada, {
           type: "vector",
           url: `pmtiles://${source.getKey()}`,
         });
 
         map.addLayer({
-          id: "talhoes-preenchimento",
+          id: "camada-preenchimento",
           type: "fill",
-          source: CAMADA,
-          "source-layer": CAMADA,
+          source: camada,
+          "source-layer": camada,
           paint: { "fill-color": "#3a8f5f", "fill-opacity": 0.35 },
         });
 
         map.addLayer({
-          id: "talhoes-borda",
+          id: "camada-borda",
           type: "line",
-          source: CAMADA,
-          "source-layer": CAMADA,
+          source: camada,
+          "source-layer": camada,
           paint: { "line-color": "#2c6b47", "line-width": 1.5 },
         });
 
@@ -82,15 +86,15 @@ export default function Mapa() {
           { padding: 30, duration: 0 }
         );
 
-        map.on("click", "talhoes-preenchimento", (e) => {
+        map.on("click", "camada-preenchimento", (e) => {
           const feature = e.features?.[0];
           if (feature) setAtributos(feature.properties);
         });
 
-        map.on("mouseenter", "talhoes-preenchimento", () => {
+        map.on("mouseenter", "camada-preenchimento", () => {
           map.getCanvas().style.cursor = "pointer";
         });
-        map.on("mouseleave", "talhoes-preenchimento", () => {
+        map.on("mouseleave", "camada-preenchimento", () => {
           map.getCanvas().style.cursor = "";
         });
       });
@@ -126,7 +130,7 @@ export default function Mapa() {
           <button type="button" className="fechar" onClick={() => setAtributos(null)}>
             ×
           </button>
-          <h2>Talhão</h2>
+          <h2>Atributos</h2>
           <dl>
             {Object.entries(atributos).map(([chave, valor]) => (
               <div key={chave} className="linha-atributo">
