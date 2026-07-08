@@ -29,7 +29,9 @@ export default defineConfig({
       workbox: {
         // O app shell (HTML/JS/CSS) é cacheado pelo Workbox. Os .pmtiles
         // baixados ficam no IndexedDB (lib/db.js), não passam pelo SW.
-        globPatterns: ['**/*.{js,css,html,svg}'],
+        // .pbf são os glyphs de fonte (public/fonts/) — sem cachear isso,
+        // os rótulos do mapa não apareceriam offline.
+        globPatterns: ['**/*.{js,css,html,svg,pbf}'],
       },
     }),
   ],

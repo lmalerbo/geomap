@@ -50,6 +50,36 @@ class HomeControl {
   }
 }
 
+// Nome de camada convencionado, gerado pelo pipeline (ver
+// gerar_rotulos_conectores.py): "rotulos" = 1 ponto por feição lógica
+// (mesmo quando a geometria original tem várias partes desconexas —
+// MapLibre/tippecanoe rotulariam cada parte separadamente, causando
+// número repetido no mapa). Não é obrigatória — um .pmtiles sem ela
+// simplesmente não ganha rótulo.
+const CAMADA_ROTULOS = "rotulos";
+
+// Filtro que nunca casa com nenhuma feição — usado pra "desligar" o
+// highlight de grupo sem precisar remover/recriar a camada.
+const FILTRO_NENHUM = ["==", ["literal", 1], ["literal", 2]];
+
+// Monta o filtro que seleciona todas as partes do mesmo talhão/seção, a
+// partir dos campos que já existem na camada principal (sem precisar de
+// nenhum id estável — tippecanoe não gera um por padrão).
+function construirFiltroGrupo(propriedades) {
+  if (!propriedades) return null;
+  if ("TALHAO" in propriedades && "SECAO" in propriedades) {
+    return [
+      "all",
+      ["==", ["get", "SECAO"], propriedades.SECAO],
+      ["==", ["get", "TALHAO"], propriedades.TALHAO],
+    ];
+  }
+  if ("DESC_SECAO" in propriedades) {
+    return ["==", ["get", "DESC_SECAO"], propriedades.DESC_SECAO];
+  }
+  return null;
+}
+
 async function adicionarCamada(map, protocol, mapa) {
   const source = new BlobSource(`mapa-${mapa.id}-${mapa.versao}`, mapa.blob);
   const pmtiles = new PMTiles(source);
@@ -57,27 +87,33 @@ async function adicionarCamada(map, protocol, mapa) {
 
   const header = await pmtiles.getHeader();
   const metadata = await pmtiles.getMetadata();
-  const camadaVetor = metadata?.vector_layers?.[0]?.id;
-  if (!camadaVetor) return null;
+  const todasCamadas = metadata?.vector_layers || [];
+  const camadaPrincipal = todasCamadas.find((l) => l.id !== CAMADA_ROTULOS);
+  if (!camadaPrincipal) return null;
+
+  const temRotulos = todasCamadas.some((l) => l.id === CAMADA_ROTULOS);
 
   // Sem campo de estilo explícito no schema ainda — decide pela presença do
   // campo TALHAO no próprio metadata: camadas de talhão ganham preenchimento
-  // + número do talhão; as demais (limites/contornos) ficam só com a linha.
-  const campos = metadata?.vector_layers?.[0]?.fields || {};
+  // + rótulo com zoom mais alto; as demais (limites/contornos) ficam só com
+  // a linha + rótulo (nome) a partir de um zoom mais baixo.
+  const campos = camadaPrincipal.fields || {};
   const ehTalhao = "TALHAO" in campos;
   const opacidadePreenchimento = ehTalhao ? 0.35 : 0;
+  const zoomRotulo = ehTalhao ? 13 : 10;
 
   const sourceId = `fonte-${mapa.id}`;
   const fillLayerId = `camada-${mapa.id}-preenchimento`;
   const lineLayerId = `camada-${mapa.id}-borda`;
-  const labelLayerId = `camada-${mapa.id}-rotulo`;
+  const rotuloLayerId = `camada-${mapa.id}-rotulo`;
+  const highlightLayerId = `camada-${mapa.id}-highlight`;
   const cor = corDaCamada(mapa.id);
 
   // Idempotente: efeitos concorrentes (carga inicial offline-first + sync em
   // segundo plano) podem tentar aplicar a mesma camada quase ao mesmo tempo.
-  if (map.getLayer(labelLayerId)) map.removeLayer(labelLayerId);
-  if (map.getLayer(fillLayerId)) map.removeLayer(fillLayerId);
-  if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
+  for (const id of [rotuloLayerId, highlightLayerId, fillLayerId, lineLayerId]) {
+    if (map.getLayer(id)) map.removeLayer(id);
+  }
   if (map.getSource(sourceId)) map.removeSource(sourceId);
 
   map.addSource(sourceId, { type: "vector", url: `pmtiles://${source.getKey()}` });
@@ -85,7 +121,7 @@ async function adicionarCamada(map, protocol, mapa) {
     id: fillLayerId,
     type: "fill",
     source: sourceId,
-    "source-layer": camadaVetor,
+    "source-layer": camadaPrincipal.id,
     paint: {
       "fill-color": cor,
       "fill-opacity": opacidadePreenchimento,
@@ -96,7 +132,7 @@ async function adicionarCamada(map, protocol, mapa) {
     id: lineLayerId,
     type: "line",
     source: sourceId,
-    "source-layer": camadaVetor,
+    "source-layer": camadaPrincipal.id,
     paint: {
       "line-color": cor,
       "line-width": 1.5,
@@ -105,22 +141,36 @@ async function adicionarCamada(map, protocol, mapa) {
     },
   });
 
-  if (ehTalhao) {
+  // Highlight de grupo: ao clicar num talhão com várias partes, todas as
+  // partes irmãs (mesma SECAO+TALHAO) ganham essa borda — sem precisar de
+  // linha conectando geometria nenhuma. Começa sem casar com nada.
+  map.addLayer({
+    id: highlightLayerId,
+    type: "line",
+    source: sourceId,
+    "source-layer": camadaPrincipal.id,
+    paint: { "line-color": "#ffd400", "line-width": 3 },
+    filter: FILTRO_NENHUM,
+  });
+
+  if (temRotulos) {
     map.addLayer({
-      id: labelLayerId,
+      id: rotuloLayerId,
       type: "symbol",
       source: sourceId,
-      "source-layer": camadaVetor,
-      minzoom: 13,
+      "source-layer": CAMADA_ROTULOS,
+      minzoom: zoomRotulo,
       layout: {
-        "text-field": ["to-string", ["get", "TALHAO"]],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 13, 9, 17, 15],
+        "text-field": ["get", "rotulo"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], zoomRotulo, 9, zoomRotulo + 4, 15],
         "text-allow-overlap": false,
       },
       paint: {
         "text-color": "#1f2933",
         "text-halo-color": "#ffffff",
         "text-halo-width": 1.2,
+        "text-opacity-transition": { duration: 300 },
       },
     });
   }
@@ -134,13 +184,15 @@ async function adicionarCamada(map, protocol, mapa) {
     sourceId,
     fillLayerId,
     lineLayerId,
-    labelLayerId: ehTalhao ? labelLayerId : null,
+    highlightLayerId,
+    rotuloLayerId: temRotulos ? rotuloLayerId : null,
     header,
   };
 }
 
 function removerCamada(map, info) {
-  if (info.labelLayerId && map.getLayer(info.labelLayerId)) map.removeLayer(info.labelLayerId);
+  if (info.rotuloLayerId && map.getLayer(info.rotuloLayerId)) map.removeLayer(info.rotuloLayerId);
+  if (map.getLayer(info.highlightLayerId)) map.removeLayer(info.highlightLayerId);
   if (map.getLayer(info.fillLayerId)) map.removeLayer(info.fillLayerId);
   if (map.getLayer(info.lineLayerId)) map.removeLayer(info.lineLayerId);
   if (map.getSource(info.sourceId)) map.removeSource(info.sourceId);
@@ -176,6 +228,9 @@ export default function Mapa() {
       container: containerRef.current,
       style: {
         version: 8,
+        // Hospedado localmente (public/fonts/) pra funcionar 100% offline —
+        // sem isso, symbol layers com text-field não renderizam nada.
+        glyphs: "/fonts/{fontstack}/{range}.pbf",
         sources: {},
         layers: [{ id: "fundo", type: "background", paint: { "background-color": "#e8eef1" } }],
       },
@@ -311,8 +366,8 @@ export default function Mapa() {
       const visivel = camadasVisiveis.has(id);
       map.setPaintProperty(info.fillLayerId, "fill-opacity", visivel ? info.opacidadePreenchimento : 0);
       map.setPaintProperty(info.lineLayerId, "line-opacity", visivel ? 1 : 0);
-      if (info.labelLayerId) {
-        map.setLayoutProperty(info.labelLayerId, "visibility", visivel ? "visible" : "none");
+      if (info.rotuloLayerId) {
+        map.setPaintProperty(info.rotuloLayerId, "text-opacity", visivel ? 1 : 0);
       }
     }
   }, [camadasVisiveis, mapaPronto, mapasLocais]);
@@ -349,7 +404,13 @@ export default function Mapa() {
         const info = [...camadasCarregadasRef.current.values()].find(
           (c) => c.fillLayerId === feature.layer.id
         );
-        itens.push({ camada: info?.nome, cor: info?.cor, propriedades: feature.properties });
+        itens.push({
+          mapaId: info?.id,
+          camada: info?.nome,
+          cor: info?.cor,
+          propriedades: feature.properties,
+          grupoFiltro: construirFiltroGrupo(feature.properties),
+        });
       }
       if (itens.length === 0) return;
 
@@ -360,7 +421,29 @@ export default function Mapa() {
     return () => map.off("click", handleClick);
   }, [mapaPronto, camadasVisiveis]);
 
-  // 7) marcador no ponto exato clicado
+  // 7) highlight de grupo: destaca todas as partes do talhão/seção
+  // selecionado (mesma SECAO+TALHAO ou DESC_SECAO), sem desenhar nada
+  // extra além da borda amarela nas partes irmãs já carregadas.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto) return;
+
+    for (const info of camadasCarregadasRef.current.values()) {
+      if (map.getLayer(info.highlightLayerId)) {
+        map.setFilter(info.highlightLayerId, FILTRO_NENHUM);
+      }
+    }
+
+    const atual = selecao?.itens[selecao.indice];
+    if (atual?.grupoFiltro && atual.mapaId != null) {
+      const info = camadasCarregadasRef.current.get(atual.mapaId);
+      if (info && map.getLayer(info.highlightLayerId)) {
+        map.setFilter(info.highlightLayerId, atual.grupoFiltro);
+      }
+    }
+  }, [selecao, mapaPronto]);
+
+  // 8) marcador no ponto exato clicado
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
