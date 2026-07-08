@@ -66,8 +66,18 @@ novos downloads imediatamente.
 - **Banco**: PostgreSQL (schema simples, sem PostGIS na v1)
 - **Pipeline**: `tippecanoe` (CLI) + `ogr2ogr`/GDAL + script de empacotamento em
   Python (decidido em 2026-07-07 — `pyshp` facilita gerar o shapefile
-  sintético sem depender de GDAL local). Roda via GitHub Actions (runner
-  Linux), já que `tippecanoe` não compila nativamente no Windows.
+  sintético sem depender de GDAL local). Dado **sintético** roda via GitHub
+  Actions (runner Linux) — só isso, nunca dado real, porque o repositório é
+  público e artefato de workflow em repo público fica baixável por
+  qualquer um. Dado **real** roda localmente via Cygwin instalado sem
+  admin em `C:\Users\lmalerbo\cygwin-portable` (`gcc`, `make`, `gdal`,
+  `proj` via pacotes Cygwin + `tippecanoe` compilado do source com
+  `-D_GNU_SOURCE` no CFLAGS/CXXFLAGS, necessário pro Cygwin expor
+  `fdopen`/`pwrite`/`fileno`/`M_PI`/`O_CLOEXEC` em modo C++17 estrito).
+  GitHub Codespaces foi cogitado mas está bloqueado por guardrail de
+  segurança do Claude Code (classificado como exfiltração de dado
+  confidencial) — não tentar de novo sem o usuário liberar isso
+  explicitamente nas configurações.
 
 ## Convenções do projeto
 
@@ -103,6 +113,14 @@ MVP da Fase 1 completo e testado de ponta a ponta:
   clique em talhão com atributos todos funcionando sem nenhuma chamada
   de rede).
 
+Pipeline também validado com **dado real de produção** (rodado localmente
+via Cygwin, nunca via GitHub — ver seção Pipeline em Stack acima); o
+visualizador não tem mais nome de camada hardcoded, lê `vector_layers[0].id`
+do metadata do próprio `.pmtiles`, então qualquer mapa real ou sintético
+funciona sem mudança de código.
+
 Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
-refinadas, ícones PNG do manifest (hoje só o favicon SVG). Ver
-`docs/ROADMAP.md` para o checklist completo.
+refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem
+de produção (backend rodando no PC de alguém não é sustentável — avaliado
+Oracle Cloud Always Free como opção, adiado). Ver `docs/ROADMAP.md` para o
+checklist completo.
