@@ -235,7 +235,35 @@ serializados) — vale lembrar que esse tipo de bug tende a voltar se
 qualquer config nova for adicionada no futuro sem entrar na
 assinatura.
 
-Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
+**Adicionar/remover camadas, terceira e última seção implementada
+(2026-07-08)**: painel de upload de mapas da Fase 3, antecipado. Rota
+`POST /admin/mapas` recebe multipart (`multer`, disco em `storage/`,
+nome de arquivo `crypto.randomUUID().pmtiles` — nunca o nome original
+do upload, evita colisão/path traversal), confere a assinatura
+`"PMTiles"` nos primeiros bytes do arquivo antes de aceitar (extensão
+`.pmtiles` sozinha não garante conteúdo válido), cria o registro em
+`mapas` e a permissão pros grupos escolhidos. `DELETE /admin/mapas/:id`
+apaga o registro (permissões em cascata) e o arquivo físico. Precisou
+de uma migration (005) pra trocar a FK de `logs.mapa_id` de `NO ACTION`
+pra `ON DELETE SET NULL` — sem isso, apagar um mapa que já tinha log de
+download quebraria por violação de FK; o log em si é mantido (só perde
+a referência) porque auditoria de download é um valor central do
+projeto. Tela `AdminMapas.jsx` (`/admin/mapas`) tem o formulário de
+upload (nome, versão, categoria, checkboxes de grupo, arquivo) e a
+lista de camadas existentes com botão remover (confirmação via
+`window.confirm`, aceitável pra uma ferramenta interna de admin).
+
+Lição registrada por segurança: strings com acento/travessão passando
+por comandos de shell neste ambiente (Bash em Windows) correm risco
+real de corromper encoding — já aconteceu 2x nesta sessão (nome de
+mapa truncado no meio do trabalho de "editar camadas" e de novo aqui).
+Prefira sempre editar via arquivo (Write/Edit) ou Node com a string
+inteira dentro do próprio código, e sempre que mexer em texto
+acentuado via comando de shell, revalidar depois com
+`length()`/`octet_length()` no Postgres — não confiar só na
+inspeção visual do terminal.
+
+Falta: telas de erro/loading mais
 refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem
 de produção (backend rodando no PC de alguém não é sustentável — avaliado
 Oracle Cloud Always Free como opção, adiado). Ver `docs/ROADMAP.md` para o

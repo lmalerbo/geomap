@@ -49,6 +49,41 @@ export async function listarMapasAdmin(token) {
   return resp.json();
 }
 
+export async function listarGruposAdmin(token) {
+  const resp = await fetch(`${API_URL}/admin/grupos`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function enviarMapaAdmin(token, { nome, versao, categoria, grupoIds, arquivo }) {
+  const dados = new FormData();
+  dados.append("nome", nome);
+  dados.append("versao", versao);
+  dados.append("categoria", categoria);
+  dados.append("grupoIds", JSON.stringify(grupoIds));
+  dados.append("arquivo", arquivo);
+
+  const resp = await fetch(`${API_URL}/admin/mapas`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: dados,
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function removerMapaAdmin(token, mapaId) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 export async function baixarMapaAdmin(token, mapaId) {
   const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/arquivo`, {
     headers: { Authorization: `Bearer ${token}` },

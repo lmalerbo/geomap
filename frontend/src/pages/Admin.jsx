@@ -7,6 +7,7 @@ const SECOES = [
   {
     titulo: "Adicionar/remover camadas",
     descricao: "Upload de novos .pmtiles gerados pelo pipeline (Fase 3).",
+    rota: "/admin/mapas",
   },
   {
     titulo: "Editar camadas",

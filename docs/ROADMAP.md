@@ -45,7 +45,10 @@
 
 ## Fase 3 — Administração
 
-- [ ] Painel de upload de novos `.pmtiles` (substitui upload manual)
+- [x] Papel admin/usuario + painel protegido (2026-07-08)
+- [x] Editar quais atributos aparecem por camada e em que ordem (2026-07-08)
+- [x] Editar camadas: simbologia, rótulo, nomenclatura (2026-07-08)
+- [x] Painel de upload de novos `.pmtiles` (substitui upload manual) (2026-07-08)
 - [ ] Controle de versão de mapas (manter histórico / só última versão)
 - [ ] Dashboard de estatísticas (mapas mais baixados, usuários ativos)
 
