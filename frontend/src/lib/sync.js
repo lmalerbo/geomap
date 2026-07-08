@@ -32,13 +32,21 @@ export async function sincronizarMapas(token) {
     ...catalogo.map(async (mapa) => {
       const local = porId.get(mapa.id);
       if (local && local.versao === mapa.versao) {
-        // Geometria/tiles não mudaram, mas nome ou config de atributos podem
-        // ter mudado (ex: admin reordenou campos) — atualiza sem rebaixar.
-        await atualizarMetadadosMapa(mapa.id, mapa.nome, mapa.atributos_config);
+        // Geometria/tiles não mudaram, mas nome, atributos ou estilo podem
+        // ter mudado (ex: admin reordenou campos ou trocou a cor) — atualiza
+        // sem rebaixar.
+        await atualizarMetadadosMapa(mapa.id, mapa.nome, mapa.atributos_config, mapa.estilo_config);
         return;
       }
       const blob = await baixarMapa(token, mapa.id);
-      await salvarMapaBaixado(mapa.id, mapa.nome, mapa.versao, blob, mapa.atributos_config);
+      await salvarMapaBaixado(
+        mapa.id,
+        mapa.nome,
+        mapa.versao,
+        blob,
+        mapa.atributos_config,
+        mapa.estilo_config
+      );
     }),
     ...removidos.map((m) => removerMapaBaixado(m.id)),
   ]);

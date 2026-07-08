@@ -11,6 +11,7 @@ const SECOES = [
   {
     titulo: "Editar camadas",
     descricao: "Simbologia, rótulos e nomenclatura por camada.",
+    rota: "/admin/camadas",
   },
   {
     titulo: "Editar atributos",

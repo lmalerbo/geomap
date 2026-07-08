@@ -4,6 +4,7 @@ import Login from "./pages/Login.jsx";
 import Mapa from "./pages/Mapa.jsx";
 import Admin from "./pages/Admin.jsx";
 import AdminAtributos from "./pages/AdminAtributos.jsx";
+import AdminCamadas from "./pages/AdminCamadas.jsx";
 
 function RotaProtegida({ children }) {
   const { sessao } = useAuth();
@@ -43,6 +44,14 @@ export default function App() {
             element={
               <RotaAdmin>
                 <AdminAtributos />
+              </RotaAdmin>
+            }
+          />
+          <Route
+            path="/admin/camadas"
+            element={
+              <RotaAdmin>
+                <AdminCamadas />
               </RotaAdmin>
             }
           />

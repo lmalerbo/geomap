@@ -6,26 +6,8 @@ import { PMTiles, Protocol } from "pmtiles";
 import { listarMapasBaixados } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
+import { corDaCamada } from "../lib/paleta.js";
 import { useAuth } from "../context/AuthContext.jsx";
-
-// Paleta categórica validada (dataviz skill): ordem fixa, checada pra
-// separação CVD e contraste contra o fundo do mapa. A cor é atribuída pelo
-// id do mapa (identidade), nunca pela posição na lista — assim uma camada
-// não muda de cor só porque outra camada foi sincronizada antes/depois.
-const PALETA_HEX = [
-  "#2a78d6", // azul
-  "#1baf7a", // água
-  "#eda100", // amarelo
-  "#008300", // verde
-  "#4a3aa7", // violeta
-  "#e34948", // vermelho
-  "#e87ba4", // magenta
-  "#eb6834", // laranja
-];
-
-function corDaCamada(mapaId) {
-  return PALETA_HEX[mapaId % PALETA_HEX.length];
-}
 
 // Botão "Home" — volta pra extensão combinada de todas as camadas carregadas.
 class HomeControl {
@@ -105,21 +87,23 @@ async function adicionarCamada(map, protocol, mapa) {
 
   const temRotulos = todasCamadas.some((l) => l.id === CAMADA_ROTULOS);
 
-  // Sem campo de estilo explícito no schema ainda — decide pela presença do
-  // campo TALHAO no próprio metadata: camadas de talhão ganham preenchimento
-  // + rótulo com zoom mais alto; as demais (limites/contornos) ficam só com
-  // a linha + rótulo (nome) a partir de um zoom mais baixo.
+  // Sem config salva (mapa ainda não editado no admin), decide pela presença
+  // do campo TALHAO no próprio metadata: camadas de talhão ganham
+  // preenchimento + rótulo com zoom mais alto; as demais (limites/contornos)
+  // ficam só com a linha + rótulo (nome) a partir de um zoom mais baixo.
   const campos = camadaPrincipal.fields || {};
   const ehTalhao = "TALHAO" in campos;
-  const opacidadePreenchimento = ehTalhao ? 0.35 : 0;
-  const zoomRotulo = ehTalhao ? 13 : 10;
+  const estilo = mapa.estiloConfig || {};
+  const opacidadePreenchimento = estilo.opacidadePreenchimento ?? (ehTalhao ? 0.35 : 0);
+  const zoomRotulo = estilo.zoomRotulo ?? (ehTalhao ? 13 : 10);
+  const mostrarRotulo = (estilo.mostrarRotulo ?? true) && temRotulos;
+  const cor = estilo.cor || corDaCamada(mapa.id);
 
   const sourceId = `fonte-${mapa.id}`;
   const fillLayerId = `camada-${mapa.id}-preenchimento`;
   const lineLayerId = `camada-${mapa.id}-borda`;
   const rotuloLayerId = `camada-${mapa.id}-rotulo`;
   const highlightLayerId = `camada-${mapa.id}-highlight`;
-  const cor = corDaCamada(mapa.id);
 
   // Idempotente: efeitos concorrentes (carga inicial offline-first + sync em
   // segundo plano) podem tentar aplicar a mesma camada quase ao mesmo tempo.
@@ -165,7 +149,7 @@ async function adicionarCamada(map, protocol, mapa) {
     filter: FILTRO_NENHUM,
   });
 
-  if (temRotulos) {
+  if (mostrarRotulo) {
     map.addLayer({
       id: rotuloLayerId,
       type: "symbol",
@@ -191,13 +175,17 @@ async function adicionarCamada(map, protocol, mapa) {
     id: mapa.id,
     nome: mapa.nome,
     versao: mapa.versao,
+    // versao só muda quando a geometria muda; atributos/estilo podem mudar
+    // independente disso (painel de admin) — a assinatura cobre os três,
+    // pra saber quando vale reconstruir a camada sem rebaixar nada.
+    assinatura: `${mapa.versao}|${JSON.stringify(mapa.atributosConfig)}|${JSON.stringify(mapa.estiloConfig)}`,
     cor,
     opacidadePreenchimento,
     sourceId,
     fillLayerId,
     lineLayerId,
     highlightLayerId,
-    rotuloLayerId: temRotulos ? rotuloLayerId : null,
+    rotuloLayerId: mostrarRotulo ? rotuloLayerId : null,
     // Camadas de contorno (sem preenchimento, ex: Limites) são só visuais +
     // rótulo de nome — não abrem painel de atributos ao clicar.
     consultavel: ehTalhao,
@@ -342,7 +330,8 @@ export default function Mapa() {
 
       for (const mapa of mapasLocais) {
         const existente = carregadas.get(mapa.id);
-        if (existente && existente.versao === mapa.versao) continue;
+        const assinaturaAtual = `${mapa.versao}|${JSON.stringify(mapa.atributosConfig)}|${JSON.stringify(mapa.estiloConfig)}`;
+        if (existente && existente.assinatura === assinaturaAtual) continue;
         if (existente) removerCamada(map, existente);
 
         const info = await adicionarCamada(map, protocol, mapa);
@@ -550,7 +539,10 @@ export default function Mapa() {
                     checked={camadasVisiveis.has(m.id)}
                     onChange={() => alternarCamada(m.id)}
                   />
-                  <span className="swatch-camada" style={{ backgroundColor: corDaCamada(m.id) }} />
+                  <span
+                    className="swatch-camada"
+                    style={{ backgroundColor: m.estiloConfig?.cor || corDaCamada(m.id) }}
+                  />
                   <span className="nome-camada">{m.nome}</span>
                 </label>
               ))}

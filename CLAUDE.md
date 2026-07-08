@@ -209,6 +209,32 @@ a config no painel de atributos via `aplicarConfigAtributos()` — sem
 config salva (mapa ainda não configurado), comportamento é o de
 sempre (mostra tudo, ordem bruta do vector tile).
 
+**Editar camadas, segunda seção implementada (2026-07-08)**: coluna
+`estilo_config` (jsonb) em `mapas` (migration 004) guarda
+`{cor, opacidadePreenchimento, mostrarRotulo, zoomRotulo}`. Rotas
+`GET/PUT /admin/mapas/:id/estilo` e `PUT /admin/mapas/:id` (só nome —
+nomenclatura). Tela `AdminCamadas.jsx` (`/admin/camadas`) reusa o
+mesmo padrão de seletor de mapa da tela de atributos; lê `ehTalhao` e
+`temRotulos` do metadata do `.pmtiles` (mesma técnica) só pra
+pré-preencher o formulário com os valores padrão atuais quando o mapa
+ainda não tem `estilo_config` salvo. `corDaCamada`/`PALETA_HEX` saíram
+de `Mapa.jsx` pra `lib/paleta.js` (módulo compartilhado, sem puxar as
+dependências de mapa/maplibre pro bundle do admin). Mesmo princípio do
+`atributos_config`: salvar não bumpa `versao`.
+
+Bug encontrado e corrigido no meio do caminho, importante registrar:
+o efeito que aplica `mapasLocais` como layers do MapLibre (`Mapa.jsx`)
+tinha uma otimização "só reconstrói a camada se a `versao` mudou" —
+que ficou **errada** assim que atributos/estilo passaram a poder mudar
+sem bumpar `versao`: o admin salvava, o `sync.js`/IndexedDB
+atualizavam certinho, mas a camada já carregada na sessão continuava
+com o estilo antigo até um reload que por acaso batesse a config nova
+logo na primeira carga. Corrigido trocando a comparação de `versao`
+por uma `assinatura` (`versao + atributosConfig + estiloConfig`
+serializados) — vale lembrar que esse tipo de bug tende a voltar se
+qualquer config nova for adicionada no futuro sem entrar na
+assinatura.
+
 Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
 refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem
 de produção (backend rodando no PC de alguém não é sustentável — avaliado

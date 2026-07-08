@@ -79,3 +79,60 @@ adminRouter.put("/admin/mapas/:id/atributos", async (req, res) => {
   }
   res.json({ atributos: rows[0].atributos_config });
 });
+
+// Nomenclatura — renomeia o mapa (nome de exibição, não o arquivo).
+adminRouter.put("/admin/mapas/:id", async (req, res) => {
+  const mapaId = Number(req.params.id);
+  if (!Number.isInteger(mapaId)) {
+    return res.status(400).json({ erro: "id de mapa inválido" });
+  }
+  const nome = (req.body.nome || "").trim();
+  if (!nome) {
+    return res.status(400).json({ erro: "nome não pode ser vazio" });
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE mapas SET nome = $1 WHERE id = $2 RETURNING id, nome`,
+    [nome, mapaId]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ erro: "mapa não encontrado" });
+  }
+  res.json(rows[0]);
+});
+
+// Simbologia/rótulo — cor, opacidade de preenchimento, exibir rótulo e o
+// zoom mínimo em que ele aparece. NULL = usa a heurística padrão (ver
+// adicionarCamada em Mapa.jsx).
+adminRouter.get("/admin/mapas/:id/estilo", async (req, res) => {
+  const mapaId = Number(req.params.id);
+  if (!Number.isInteger(mapaId)) {
+    return res.status(400).json({ erro: "id de mapa inválido" });
+  }
+
+  const { rows } = await pool.query("SELECT estilo_config FROM mapas WHERE id = $1", [mapaId]);
+  if (!rows[0]) {
+    return res.status(404).json({ erro: "mapa não encontrado" });
+  }
+  res.json({ estilo: rows[0].estilo_config || null });
+});
+
+adminRouter.put("/admin/mapas/:id/estilo", async (req, res) => {
+  const mapaId = Number(req.params.id);
+  if (!Number.isInteger(mapaId)) {
+    return res.status(400).json({ erro: "id de mapa inválido" });
+  }
+  const { estilo } = req.body;
+  if (!estilo || typeof estilo !== "object" || Array.isArray(estilo)) {
+    return res.status(400).json({ erro: "estilo precisa ser um objeto" });
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE mapas SET estilo_config = $1 WHERE id = $2 RETURNING estilo_config`,
+    [JSON.stringify(estilo), mapaId]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ erro: "mapa não encontrado" });
+  }
+  res.json({ estilo: rows[0].estilo_config });
+});

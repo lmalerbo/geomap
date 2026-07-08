@@ -19,8 +19,12 @@ export async function login(email, senha) {
 }
 
 export async function buscarCatalogo(token) {
+  // no-store: o catálogo (nome/atributos/estilo) pode mudar a qualquer
+  // sync via painel de admin, mesmo sem bumpar a versão do .pmtiles — não
+  // pode arriscar servir uma resposta antiga do cache HTTP do navegador.
   const resp = await fetch(`${API_URL}/mapas`, {
     headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
   });
   await tratarResposta(resp);
   return resp.json();
@@ -39,6 +43,7 @@ export async function baixarMapa(token, mapaId) {
 export async function listarMapasAdmin(token) {
   const resp = await fetch(`${API_URL}/admin/mapas`, {
     headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
   });
   await tratarResposta(resp);
   return resp.json();
@@ -55,6 +60,7 @@ export async function baixarMapaAdmin(token, mapaId) {
 export async function buscarConfigAtributos(token, mapaId) {
   const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/atributos`, {
     headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
   });
   await tratarResposta(resp);
   const { atributos } = await resp.json();
@@ -70,4 +76,35 @@ export async function salvarConfigAtributos(token, mapaId, atributos) {
   await tratarResposta(resp);
   const { atributos: salvos } = await resp.json();
   return salvos;
+}
+
+export async function renomearMapaAdmin(token, mapaId, nome) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nome }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function buscarConfigEstilo(token, mapaId) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/estilo`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  const { estilo } = await resp.json();
+  return estilo;
+}
+
+export async function salvarConfigEstilo(token, mapaId, estilo) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/estilo`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ estilo }),
+  });
+  await tratarResposta(resp);
+  const { estilo: salvo } = await resp.json();
+  return salvo;
 }
