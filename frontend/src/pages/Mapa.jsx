@@ -8,14 +8,26 @@ import { sincronizarMapas } from "../lib/sync.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
-const PALETA = [
-  { preenchimento: "#3a8f5f", borda: "#2c6b47" },
-  { preenchimento: "#3a6f9f", borda: "#264d73" },
-  { preenchimento: "#9f7a3a", borda: "#735826" },
-  { preenchimento: "#8a3a9f", borda: "#5f2673" },
+// Paleta categórica validada (dataviz skill): ordem fixa, checada pra
+// separação CVD e contraste contra o fundo do mapa. A cor é atribuída pelo
+// id do mapa (identidade), nunca pela posição na lista — assim uma camada
+// não muda de cor só porque outra camada foi sincronizada antes/depois.
+const PALETA_HEX = [
+  "#2a78d6", // azul
+  "#1baf7a", // água
+  "#eda100", // amarelo
+  "#008300", // verde
+  "#4a3aa7", // violeta
+  "#e34948", // vermelho
+  "#e87ba4", // magenta
+  "#eb6834", // laranja
 ];
 
-async function adicionarCamada(map, protocol, mapa, cores) {
+function corDaCamada(mapaId) {
+  return PALETA_HEX[mapaId % PALETA_HEX.length];
+}
+
+async function adicionarCamada(map, protocol, mapa) {
   const source = new BlobSource(`mapa-${mapa.id}-${mapa.versao}`, mapa.blob);
   const pmtiles = new PMTiles(source);
   protocol.add(pmtiles);
@@ -28,6 +40,7 @@ async function adicionarCamada(map, protocol, mapa, cores) {
   const sourceId = `fonte-${mapa.id}`;
   const fillLayerId = `camada-${mapa.id}-preenchimento`;
   const lineLayerId = `camada-${mapa.id}-borda`;
+  const cor = corDaCamada(mapa.id);
 
   // Idempotente: efeitos concorrentes (carga inicial offline-first + sync em
   // segundo plano) podem tentar aplicar a mesma camada quase ao mesmo tempo.
@@ -41,17 +54,26 @@ async function adicionarCamada(map, protocol, mapa, cores) {
     type: "fill",
     source: sourceId,
     "source-layer": camadaVetor,
-    paint: { "fill-color": cores.preenchimento, "fill-opacity": 0.35 },
+    paint: {
+      "fill-color": cor,
+      "fill-opacity": 0.35,
+      "fill-opacity-transition": { duration: 300 },
+    },
   });
   map.addLayer({
     id: lineLayerId,
     type: "line",
     source: sourceId,
     "source-layer": camadaVetor,
-    paint: { "line-color": cores.borda, "line-width": 1.5 },
+    paint: {
+      "line-color": cor,
+      "line-width": 1.5,
+      "line-opacity": 1,
+      "line-opacity-transition": { duration: 300 },
+    },
   });
 
-  return { id: mapa.id, nome: mapa.nome, versao: mapa.versao, sourceId, fillLayerId, lineLayerId, header };
+  return { id: mapa.id, nome: mapa.nome, versao: mapa.versao, cor, sourceId, fillLayerId, lineLayerId, header };
 }
 
 function removerCamada(map, info) {
@@ -77,7 +99,7 @@ export default function Mapa() {
   const [offline, setOffline] = useState(false);
   const [atributos, setAtributos] = useState(null);
 
-  // 1) cria o mapa uma única vez
+  // 1) cria o mapa uma única vez, com controles de navegação e localização
   useEffect(() => {
     const protocol = new Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -95,6 +117,16 @@ export default function Mapa() {
     });
     mapRef.current = map;
     if (import.meta.env.DEV) window.__map = map;
+
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
+    map.addControl(
+      new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+        showUserHeading: true,
+      }),
+      "top-right"
+    );
 
     map.on("load", () => setMapaPronto(true));
 
@@ -155,14 +187,12 @@ export default function Mapa() {
         }
       }
 
-      for (let i = 0; i < mapasLocais.length; i++) {
-        const mapa = mapasLocais[i];
+      for (const mapa of mapasLocais) {
         const existente = carregadas.get(mapa.id);
         if (existente && existente.versao === mapa.versao) continue;
         if (existente) removerCamada(map, existente);
 
-        const cores = PALETA[i % PALETA.length];
-        const info = await adicionarCamada(map, protocol, mapa, cores);
+        const info = await adicionarCamada(map, protocol, mapa);
         if (cancelado) return;
         if (info) carregadas.set(mapa.id, info);
       }
@@ -178,7 +208,7 @@ export default function Mapa() {
             [minLon, minLat],
             [maxLon, maxLat],
           ],
-          { padding: 30, duration: 0 }
+          { padding: 40, duration: 900 }
         );
         jaEnquadrouRef.current = true;
       }
@@ -190,26 +220,27 @@ export default function Mapa() {
     };
   }, [mapasLocais, mapaPronto]);
 
-  // 5) liga/desliga camadas
+  // 5) liga/desliga camadas com transição suave (opacidade, não visibilidade)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapaPronto) return;
     for (const [id, info] of camadasCarregadasRef.current) {
       if (!map.getLayer(info.fillLayerId)) continue;
-      const visivel = camadasVisiveis.has(id) ? "visible" : "none";
-      map.setLayoutProperty(info.fillLayerId, "visibility", visivel);
-      map.setLayoutProperty(info.lineLayerId, "visibility", visivel);
+      const visivel = camadasVisiveis.has(id);
+      map.setPaintProperty(info.fillLayerId, "fill-opacity", visivel ? 0.35 : 0);
+      map.setPaintProperty(info.lineLayerId, "line-opacity", visivel ? 1 : 0);
     }
   }, [camadasVisiveis, mapaPronto, mapasLocais]);
 
-  // 6) clique consolidado em todas as camadas visíveis
+  // 6) clique consolidado nas camadas visíveis
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapaPronto) return;
 
     function handleClick(e) {
-      const fillLayerIds = [...camadasCarregadasRef.current.values()]
-        .map((c) => c.fillLayerId)
+      const fillLayerIds = [...camadasCarregadasRef.current.entries()]
+        .filter(([id]) => camadasVisiveis.has(id))
+        .map(([, info]) => info.fillLayerId)
         .filter((id) => map.getLayer(id));
       if (fillLayerIds.length === 0) return;
 
@@ -220,12 +251,12 @@ export default function Mapa() {
       const info = [...camadasCarregadasRef.current.values()].find(
         (c) => c.fillLayerId === feature.layer.id
       );
-      setAtributos({ camada: info?.nome, propriedades: feature.properties });
+      setAtributos({ camada: info?.nome, cor: info?.cor, propriedades: feature.properties });
     }
 
     map.on("click", handleClick);
     return () => map.off("click", handleClick);
-  }, [mapaPronto]);
+  }, [mapaPronto, camadasVisiveis]);
 
   function alternarCamada(id) {
     setCamadasVisiveis((atual) => {
@@ -246,6 +277,7 @@ export default function Mapa() {
       <header className="barra-mapa">
         <strong>GeoPortal</strong>
         <span className="status-sync">
+          {sincronizando && <span className="spinner" aria-hidden="true" />}
           {sincronizando
             ? "Sincronizando…"
             : offline
@@ -262,46 +294,54 @@ export default function Mapa() {
         </button>
       </header>
 
-      <div ref={containerRef} className="mapa-container" />
+      <div className="area-mapa">
+        <div ref={containerRef} className="mapa-container" />
 
-      {mapasLocais.length > 0 && (
-        <aside className="painel-camadas">
-          <h2>Camadas</h2>
-          {mapasLocais.map((m) => (
-            <label key={m.id} className="linha-camada">
-              <input
-                type="checkbox"
-                checked={camadasVisiveis.has(m.id)}
-                onChange={() => alternarCamada(m.id)}
-              />
-              {m.nome}
-            </label>
-          ))}
-        </aside>
-      )}
-
-      {mapasLocais.length === 0 && !sincronizando && (
-        <p className="aviso-sem-mapas">
-          Nenhum mapa disponível ainda. Conecte-se à internet pra sincronizar.
-        </p>
-      )}
-
-      {atributos && (
-        <aside className="painel-atributos">
-          <button type="button" className="fechar" onClick={() => setAtributos(null)}>
-            ×
-          </button>
-          <h2>{atributos.camada}</h2>
-          <dl>
-            {Object.entries(atributos.propriedades).map(([chave, valor]) => (
-              <div key={chave} className="linha-atributo">
-                <dt>{chave}</dt>
-                <dd>{String(valor)}</dd>
-              </div>
+        {mapasLocais.length > 0 && (
+          <aside className="painel-camadas">
+            <h2>Camadas</h2>
+            {mapasLocais.map((m) => (
+              <label key={m.id} className="linha-camada">
+                <input
+                  type="checkbox"
+                  checked={camadasVisiveis.has(m.id)}
+                  onChange={() => alternarCamada(m.id)}
+                />
+                <span className="swatch-camada" style={{ backgroundColor: corDaCamada(m.id) }} />
+                <span className="nome-camada">{m.nome}</span>
+              </label>
             ))}
-          </dl>
+          </aside>
+        )}
+
+        {mapasLocais.length === 0 && !sincronizando && (
+          <p className="aviso-sem-mapas">
+            Nenhum mapa disponível ainda. Conecte-se à internet pra sincronizar.
+          </p>
+        )}
+
+        <aside className={`painel-atributos${atributos ? " painel-atributos--aberto" : ""}`}>
+          {atributos && (
+            <>
+              <button type="button" className="fechar" onClick={() => setAtributos(null)}>
+                ×
+              </button>
+              <h2>
+                <span className="swatch-camada" style={{ backgroundColor: atributos.cor }} />
+                {atributos.camada}
+              </h2>
+              <dl>
+                {Object.entries(atributos.propriedades).map(([chave, valor]) => (
+                  <div key={chave} className="linha-atributo">
+                    <dt>{chave}</dt>
+                    <dd>{String(valor)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          )}
         </aside>
-      )}
+      </div>
     </main>
   );
 }

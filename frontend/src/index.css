@@ -35,14 +35,18 @@ h1 {
 button,
 .botao {
   font: inherit;
-  padding: 8px 16px;
+  padding: 10px 18px;
+  min-height: 44px;
   border-radius: 6px;
   border: 1px solid var(--accent);
   background: var(--accent);
   color: #fff;
   cursor: pointer;
   text-decoration: none;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 150ms ease;
 }
 
 button:hover,
@@ -53,6 +57,24 @@ button:hover,
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: girar 0.8s linear infinite;
 }
 
 .erro {
@@ -96,7 +118,8 @@ button:disabled {
 
 .form-login input {
   font: inherit;
-  padding: 8px;
+  padding: 10px 12px;
+  min-height: 44px;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
@@ -124,19 +147,26 @@ button:disabled {
 }
 
 .botao-sair {
-  padding: 6px 12px;
+  padding: 8px 14px;
+  min-height: 40px;
   font-size: 14px;
+}
+
+.area-mapa {
+  flex: 1;
+  position: relative;
+  display: flex;
 }
 
 .mapa-container {
   flex: 1;
-  position: relative;
 }
 
 .painel-camadas {
   position: absolute;
   top: 16px;
   left: 16px;
+  max-width: min(280px, calc(100vw - 32px));
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -155,10 +185,31 @@ button:disabled {
 .linha-camada {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  padding: 4px 0;
+  gap: 10px;
+  font-size: 15px;
+  padding: 8px 0;
+  min-height: 36px;
   cursor: pointer;
+}
+
+.linha-camada input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.swatch-camada {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.nome-camada {
+  flex: 1;
 }
 
 .aviso-sem-mapas {
@@ -184,25 +235,86 @@ button:disabled {
 
 .painel-atributos {
   position: absolute;
-  top: 16px;
+  bottom: 16px;
   right: 16px;
-  width: 260px;
+  width: 280px;
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.painel-atributos--aberto {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.painel-atributos h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
 }
 
 .painel-atributos .fechar {
   position: absolute;
   top: 8px;
   right: 8px;
+  min-height: 36px;
+  min-width: 36px;
   border: none;
   background: none;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: 20px;
   padding: 4px 8px;
+}
+
+/* Botões nativos do MapLibre (zoom, bússola, localização) — maiores pra toque */
+.maplibregl-ctrl-group button {
+  width: 40px;
+  height: 40px;
+}
+
+.maplibregl-ctrl-icon {
+  background-size: 20px 20px;
+}
+
+/* Ergonomia de campo: telas estreitas (celular) */
+@media (max-width: 640px) {
+  .barra-mapa {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .status-sync {
+    order: 3;
+    flex-basis: 100%;
+    font-size: 14px;
+  }
+
+  .painel-camadas {
+    left: 8px;
+    top: 8px;
+    max-width: calc(100vw - 16px);
+  }
+
+  .painel-atributos {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: 45vh;
+  }
 }
 
 .painel-atributos dl {
