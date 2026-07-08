@@ -27,6 +27,29 @@ function corDaCamada(mapaId) {
   return PALETA_HEX[mapaId % PALETA_HEX.length];
 }
 
+// Botão "Home" — volta pra extensão combinada de todas as camadas carregadas.
+class HomeControl {
+  constructor(aoClicar) {
+    this._aoClicar = aoClicar;
+  }
+  onAdd() {
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.title = "Voltar à visão inicial";
+    botao.setAttribute("aria-label", "Voltar à visão inicial");
+    botao.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9"/></svg>';
+    botao.onclick = () => this._aoClicar();
+    this._container.appendChild(botao);
+    return this._container;
+  }
+  onRemove() {
+    this._container.parentNode?.removeChild(this._container);
+  }
+}
+
 async function adicionarCamada(map, protocol, mapa) {
   const source = new BlobSource(`mapa-${mapa.id}-${mapa.versao}`, mapa.blob);
   const pmtiles = new PMTiles(source);
@@ -37,13 +60,22 @@ async function adicionarCamada(map, protocol, mapa) {
   const camadaVetor = metadata?.vector_layers?.[0]?.id;
   if (!camadaVetor) return null;
 
+  // Sem campo de estilo explícito no schema ainda — decide pela presença do
+  // campo TALHAO no próprio metadata: camadas de talhão ganham preenchimento
+  // + número do talhão; as demais (limites/contornos) ficam só com a linha.
+  const campos = metadata?.vector_layers?.[0]?.fields || {};
+  const ehTalhao = "TALHAO" in campos;
+  const opacidadePreenchimento = ehTalhao ? 0.35 : 0;
+
   const sourceId = `fonte-${mapa.id}`;
   const fillLayerId = `camada-${mapa.id}-preenchimento`;
   const lineLayerId = `camada-${mapa.id}-borda`;
+  const labelLayerId = `camada-${mapa.id}-rotulo`;
   const cor = corDaCamada(mapa.id);
 
   // Idempotente: efeitos concorrentes (carga inicial offline-first + sync em
   // segundo plano) podem tentar aplicar a mesma camada quase ao mesmo tempo.
+  if (map.getLayer(labelLayerId)) map.removeLayer(labelLayerId);
   if (map.getLayer(fillLayerId)) map.removeLayer(fillLayerId);
   if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
   if (map.getSource(sourceId)) map.removeSource(sourceId);
@@ -56,7 +88,7 @@ async function adicionarCamada(map, protocol, mapa) {
     "source-layer": camadaVetor,
     paint: {
       "fill-color": cor,
-      "fill-opacity": 0.35,
+      "fill-opacity": opacidadePreenchimento,
       "fill-opacity-transition": { duration: 300 },
     },
   });
@@ -73,10 +105,42 @@ async function adicionarCamada(map, protocol, mapa) {
     },
   });
 
-  return { id: mapa.id, nome: mapa.nome, versao: mapa.versao, cor, sourceId, fillLayerId, lineLayerId, header };
+  if (ehTalhao) {
+    map.addLayer({
+      id: labelLayerId,
+      type: "symbol",
+      source: sourceId,
+      "source-layer": camadaVetor,
+      minzoom: 13,
+      layout: {
+        "text-field": ["to-string", ["get", "TALHAO"]],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 13, 9, 17, 15],
+        "text-allow-overlap": false,
+      },
+      paint: {
+        "text-color": "#1f2933",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2,
+      },
+    });
+  }
+
+  return {
+    id: mapa.id,
+    nome: mapa.nome,
+    versao: mapa.versao,
+    cor,
+    opacidadePreenchimento,
+    sourceId,
+    fillLayerId,
+    lineLayerId,
+    labelLayerId: ehTalhao ? labelLayerId : null,
+    header,
+  };
 }
 
 function removerCamada(map, info) {
+  if (info.labelLayerId && map.getLayer(info.labelLayerId)) map.removeLayer(info.labelLayerId);
   if (map.getLayer(info.fillLayerId)) map.removeLayer(info.fillLayerId);
   if (map.getLayer(info.lineLayerId)) map.removeLayer(info.lineLayerId);
   if (map.getSource(info.sourceId)) map.removeSource(info.sourceId);
@@ -90,6 +154,8 @@ export default function Mapa() {
   const protocolRef = useRef(null);
   const camadasCarregadasRef = useRef(new Map());
   const jaEnquadrouRef = useRef(false);
+  const extensaoAtualRef = useRef(null);
+  const marcadorRef = useRef(null);
 
   const [mapaPronto, setMapaPronto] = useState(false);
   const [mapasLocais, setMapasLocais] = useState([]);
@@ -97,7 +163,8 @@ export default function Mapa() {
   const [sincronizando, setSincronizando] = useState(true);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [offline, setOffline] = useState(false);
-  const [atributos, setAtributos] = useState(null);
+  const [selecao, setSelecao] = useState(null);
+  const [painelCamadasAberto, setPainelCamadasAberto] = useState(true);
 
   // 1) cria o mapa uma única vez, com controles de navegação e localização
   useEffect(() => {
@@ -119,16 +186,31 @@ export default function Mapa() {
     if (import.meta.env.DEV) window.__map = map;
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
+    const geolocate = new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+      showUserHeading: true,
+    });
+    map.addControl(geolocate, "top-right");
     map.addControl(
-      new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-        showUserHeading: true,
+      new HomeControl(() => {
+        if (extensaoAtualRef.current) {
+          map.fitBounds(extensaoAtualRef.current, { padding: 40, duration: 800 });
+        }
       }),
       "top-right"
     );
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
 
-    map.on("load", () => setMapaPronto(true));
+    map.on("load", () => {
+      setMapaPronto(true);
+      // Rastreamento de localização em tempo real, sem precisar clicar no botão.
+      try {
+        geolocate.trigger();
+      } catch {
+        // permissão negada/indisponível — usuário ainda pode clicar manualmente
+      }
+    });
 
     return () => {
       map.remove();
@@ -198,19 +280,19 @@ export default function Mapa() {
       }
 
       const headers = [...carregadas.values()].map((c) => c.header);
-      if (headers.length > 0 && !jaEnquadrouRef.current) {
+      if (headers.length > 0) {
         const minLon = Math.min(...headers.map((h) => h.minLon));
         const minLat = Math.min(...headers.map((h) => h.minLat));
         const maxLon = Math.max(...headers.map((h) => h.maxLon));
         const maxLat = Math.max(...headers.map((h) => h.maxLat));
-        map.fitBounds(
-          [
-            [minLon, minLat],
-            [maxLon, maxLat],
-          ],
-          { padding: 40, duration: 900 }
-        );
-        jaEnquadrouRef.current = true;
+        extensaoAtualRef.current = [
+          [minLon, minLat],
+          [maxLon, maxLat],
+        ];
+        if (!jaEnquadrouRef.current) {
+          map.fitBounds(extensaoAtualRef.current, { padding: 40, duration: 900 });
+          jaEnquadrouRef.current = true;
+        }
       }
     }
 
@@ -227,12 +309,16 @@ export default function Mapa() {
     for (const [id, info] of camadasCarregadasRef.current) {
       if (!map.getLayer(info.fillLayerId)) continue;
       const visivel = camadasVisiveis.has(id);
-      map.setPaintProperty(info.fillLayerId, "fill-opacity", visivel ? 0.35 : 0);
+      map.setPaintProperty(info.fillLayerId, "fill-opacity", visivel ? info.opacidadePreenchimento : 0);
       map.setPaintProperty(info.lineLayerId, "line-opacity", visivel ? 1 : 0);
+      if (info.labelLayerId) {
+        map.setLayoutProperty(info.labelLayerId, "visibility", visivel ? "visible" : "none");
+      }
     }
   }, [camadasVisiveis, mapaPronto, mapasLocais]);
 
-  // 6) clique consolidado nas camadas visíveis
+  // 6) clique consolidado nas camadas visíveis — junta todas as feições no
+  // ponto clicado (mesmo de camadas diferentes sobrepostas) com paginação.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapaPronto) return;
@@ -242,21 +328,52 @@ export default function Mapa() {
         .filter(([id]) => camadasVisiveis.has(id))
         .map(([, info]) => info.fillLayerId)
         .filter((id) => map.getLayer(id));
-      if (fillLayerIds.length === 0) return;
+      if (fillLayerIds.length === 0) {
+        setSelecao(null);
+        return;
+      }
 
       const features = map.queryRenderedFeatures(e.point, { layers: fillLayerIds });
-      if (features.length === 0) return;
+      if (features.length === 0) {
+        setSelecao(null);
+        return;
+      }
 
-      const feature = features[0];
-      const info = [...camadasCarregadasRef.current.values()].find(
-        (c) => c.fillLayerId === feature.layer.id
-      );
-      setAtributos({ camada: info?.nome, cor: info?.cor, propriedades: feature.properties });
+      // Tiles vizinhos podem repetir a mesma feição na borda — deduplica.
+      const vistos = new Set();
+      const itens = [];
+      for (const feature of features) {
+        const chave = `${feature.layer.id}:${JSON.stringify(feature.properties)}`;
+        if (vistos.has(chave)) continue;
+        vistos.add(chave);
+        const info = [...camadasCarregadasRef.current.values()].find(
+          (c) => c.fillLayerId === feature.layer.id
+        );
+        itens.push({ camada: info?.nome, cor: info?.cor, propriedades: feature.properties });
+      }
+      if (itens.length === 0) return;
+
+      setSelecao({ lngLat: e.lngLat, itens, indice: 0 });
     }
 
     map.on("click", handleClick);
     return () => map.off("click", handleClick);
   }, [mapaPronto, camadasVisiveis]);
+
+  // 7) marcador no ponto exato clicado
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    marcadorRef.current?.remove();
+    marcadorRef.current = null;
+    if (selecao) {
+      marcadorRef.current = new maplibregl.Marker({ color: "#6b3fa0" }).setLngLat(selecao.lngLat).addTo(map);
+    }
+    return () => {
+      marcadorRef.current?.remove();
+      marcadorRef.current = null;
+    };
+  }, [selecao]);
 
   function alternarCamada(id) {
     setCamadasVisiveis((atual) => {
@@ -267,15 +384,26 @@ export default function Mapa() {
     });
   }
 
+  function irParaItem(delta) {
+    setSelecao((atual) => {
+      if (!atual) return atual;
+      const total = atual.itens.length;
+      const indice = (atual.indice + delta + total) % total;
+      return { ...atual, indice };
+    });
+  }
+
   function handleSair() {
     sair();
     navigate("/login");
   }
 
+  const itemSelecionado = selecao?.itens[selecao.indice];
+
   return (
     <main className="tela-mapa">
       <header className="barra-mapa">
-        <strong>GeoPortal</strong>
+        <strong>GeoMap</strong>
         <span className="status-sync">
           {sincronizando && <span className="spinner" aria-hidden="true" />}
           {sincronizando
@@ -299,18 +427,30 @@ export default function Mapa() {
 
         {mapasLocais.length > 0 && (
           <aside className="painel-camadas">
-            <h2>Camadas</h2>
-            {mapasLocais.map((m) => (
-              <label key={m.id} className="linha-camada">
-                <input
-                  type="checkbox"
-                  checked={camadasVisiveis.has(m.id)}
-                  onChange={() => alternarCamada(m.id)}
-                />
-                <span className="swatch-camada" style={{ backgroundColor: corDaCamada(m.id) }} />
-                <span className="nome-camada">{m.nome}</span>
-              </label>
-            ))}
+            <button
+              type="button"
+              className="cabecalho-painel-camadas"
+              onClick={() => setPainelCamadasAberto((a) => !a)}
+              aria-expanded={painelCamadasAberto}
+            >
+              <span>Camadas</span>
+              <span className={`seta${painelCamadasAberto ? " seta--aberta" : ""}`} aria-hidden="true">
+                ›
+              </span>
+            </button>
+            <div className={`conteudo-painel-camadas${painelCamadasAberto ? " aberto" : ""}`}>
+              {mapasLocais.map((m) => (
+                <label key={m.id} className="linha-camada">
+                  <input
+                    type="checkbox"
+                    checked={camadasVisiveis.has(m.id)}
+                    onChange={() => alternarCamada(m.id)}
+                  />
+                  <span className="swatch-camada" style={{ backgroundColor: corDaCamada(m.id) }} />
+                  <span className="nome-camada">{m.nome}</span>
+                </label>
+              ))}
+            </div>
           </aside>
         )}
 
@@ -320,24 +460,37 @@ export default function Mapa() {
           </p>
         )}
 
-        <aside className={`painel-atributos${atributos ? " painel-atributos--aberto" : ""}`}>
-          {atributos && (
+        <aside className={`painel-atributos${selecao ? " painel-atributos--aberto" : ""}`}>
+          {itemSelecionado && (
             <>
-              <button type="button" className="fechar" onClick={() => setAtributos(null)}>
+              <button type="button" className="fechar" onClick={() => setSelecao(null)}>
                 ×
               </button>
               <h2>
-                <span className="swatch-camada" style={{ backgroundColor: atributos.cor }} />
-                {atributos.camada}
+                <span className="swatch-camada" style={{ backgroundColor: itemSelecionado.cor }} />
+                {itemSelecionado.camada}
               </h2>
               <dl>
-                {Object.entries(atributos.propriedades).map(([chave, valor]) => (
+                {Object.entries(itemSelecionado.propriedades).map(([chave, valor]) => (
                   <div key={chave} className="linha-atributo">
                     <dt>{chave}</dt>
                     <dd>{String(valor)}</dd>
                   </div>
                 ))}
               </dl>
+              {selecao.itens.length > 1 && (
+                <div className="paginacao-atributos">
+                  <button type="button" onClick={() => irParaItem(-1)} aria-label="Feição anterior">
+                    ‹
+                  </button>
+                  <span>
+                    {selecao.indice + 1} / {selecao.itens.length}
+                  </span>
+                  <button type="button" onClick={() => irParaItem(1)} aria-label="Próxima feição">
+                    ›
+                  </button>
+                </div>
+              )}
             </>
           )}
         </aside>

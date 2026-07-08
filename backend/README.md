@@ -1,4 +1,4 @@
-# Backend — GeoPortal
+# Backend — GeoMap
 
 Node.js/Express + PostgreSQL. Endpoints da Fase 1: login (JWT + bcrypt),
 catálogo (`GET /mapas`) e download (`GET /mapas/:id/download`), ambos

@@ -1,4 +1,4 @@
--- Schema inicial do GeoPortal — ver docs/SCHEMA_BANCO.md
+-- Schema inicial do GeoMap — ver docs/SCHEMA_BANCO.md
 
 CREATE TABLE IF NOT EXISTS usuarios (
     id SERIAL PRIMARY KEY,

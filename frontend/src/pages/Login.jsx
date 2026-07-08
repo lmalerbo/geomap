@@ -29,7 +29,7 @@ export default function Login() {
   return (
     <main className="tela-login">
       <form onSubmit={handleSubmit} className="form-login">
-        <h1>GeoPortal</h1>
+        <h1>GeoMap</h1>
         <label>
           E-mail
           <input

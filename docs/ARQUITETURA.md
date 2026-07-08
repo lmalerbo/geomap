@@ -1,4 +1,4 @@
-# Arquitetura — GeoPortal
+# Arquitetura — GeoMap
 
 ## Os dois mundos: online (publicação/login) e offline (uso em campo)
 

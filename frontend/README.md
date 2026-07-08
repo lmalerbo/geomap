@@ -1,4 +1,4 @@
-# Frontend — GeoPortal
+# Frontend — GeoMap
 
 React + Vite + MapLibre GL JS + `pmtiles`, PWA via `vite-plugin-pwa`
 (Workbox). Duas telas: login e mapa. Não existe tela de catálogo — o

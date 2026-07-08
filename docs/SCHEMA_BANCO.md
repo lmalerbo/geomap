@@ -1,4 +1,4 @@
-# Schema do Banco — GeoPortal (v1 / MVP)
+# Schema do Banco — GeoMap (v1 / MVP)
 
 Baseado no desenho original do estudo de viabilidade, adaptado pro fluxo
 web/PWA (sem CarryMap Viewer, sem login/logout de app desktop).

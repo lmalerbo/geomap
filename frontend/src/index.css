@@ -170,16 +170,53 @@ button:disabled {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px 16px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
 }
 
-.painel-camadas h2 {
+.cabecalho-painel-camadas {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
   font-size: 13px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-muted);
-  margin: 0 0 8px;
+}
+
+.cabecalho-painel-camadas:hover {
+  background: #f7f9fa;
+}
+
+.cabecalho-painel-camadas .seta {
+  display: inline-block;
+  font-size: 16px;
+  transition: transform 200ms ease;
+}
+
+.cabecalho-painel-camadas .seta--aberta {
+  transform: rotate(90deg);
+}
+
+.conteudo-painel-camadas {
+  max-height: 0;
+  overflow: hidden;
+  padding: 0 16px;
+  transition:
+    max-height 250ms ease,
+    padding 250ms ease;
+}
+
+.conteudo-painel-camadas.aberto {
+  max-height: 400px;
+  padding: 0 16px 12px;
 }
 
 .linha-camada {
@@ -279,10 +316,33 @@ button:disabled {
   padding: 4px 8px;
 }
 
+.paginacao-atributos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.paginacao-atributos button {
+  min-height: 36px;
+  min-width: 36px;
+  padding: 4px 12px;
+  font-size: 18px;
+  line-height: 1;
+}
+
 /* Botões nativos do MapLibre (zoom, bússola, localização) — maiores pra toque */
 .maplibregl-ctrl-group button {
-  width: 40px;
-  height: 40px;
+  width: 40px !important;
+  height: 40px !important;
+  min-height: 0;
+  background-color: #fff !important;
+  color: var(--text) !important;
 }
 
 .maplibregl-ctrl-icon {

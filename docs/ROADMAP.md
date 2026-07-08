@@ -1,4 +1,4 @@
-# Roadmap — GeoPortal
+# Roadmap — GeoMap
 
 ## Fase 0 — Preparação (antes de codar)
 

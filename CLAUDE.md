@@ -1,4 +1,4 @@
-# CLAUDE.md — GeoPortal (nome provisório, renomeie à vontade)
+# CLAUDE.md — GeoMap
 
 ## O que é este projeto
 
@@ -132,6 +132,27 @@ Pipeline também validado com **dado real de produção** (rodado localmente
 via Cygwin, nunca via GitHub — ver seção Pipeline em Stack acima), inclusive
 renderizado no visualizador como duas camadas simultâneas (Talhões +
 Limites) sobre o mesmo mapa.
+
+**UX inspirada no CarryMap (2026-07-08)**: controles nativos do MapLibre
+(zoom, bússola, geolocalização com rastreamento automático ao carregar),
+botão "Home" (volta pra extensão de todas as camadas), barra de escala,
+marcador no ponto clicado com paginação entre feições sobrepostas (ex:
+Talhão + Limite no mesmo lugar), painel de camadas recolhível. Estilo por
+camada decidido pela presença do campo `TALHAO` no metadata do `.pmtiles`
+(sem coluna de estilo no schema ainda — se um painel de admin publicar
+mapas no futuro, aí sim vale formalizar isso como campo explícito em
+`mapas`): havendo `TALHAO`, a camada ganha preenchimento + rótulo com o
+número do talhão (aparece só a partir do zoom 13); não havendo, fica só
+contorno (é o caso de "Limites").
+
+Pendente do pedido do CarryMap (fica pra próxima sessão, exige mexer no
+pipeline de novo): (1) nome da fazenda centralizado usando a tabela de
+Limites — precisa dissolver os polígonos de limite num único contorno e
+calcular seu centroide (ogr2ogr/GDAL), não dá pra fazer só no frontend
+sem rótulos duplicados por seção; (2) busca por talhão/seção — precisa de
+um índice leve (json com id + centróide + atributos-chave) gerado no
+pipeline e baixado junto com o `.pmtiles`, já que o vector tile só carrega
+features do viewport atual, não o dataset inteiro.
 
 Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
 refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem

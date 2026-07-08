@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'GeoPortal',
-        short_name: 'GeoPortal',
-        description: 'Mapas de talhão offline — GeoPortal',
+        name: 'GeoMap',
+        short_name: 'GeoMap',
+        description: 'Mapas de talhão offline — GeoMap',
         theme_color: '#2c6b47',
         background_color: '#f7f9fa',
         display: 'standalone',
