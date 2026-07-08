@@ -12,7 +12,7 @@ mapasRouter.use(exigirAutenticacao);
 // Só retorna mapas que algum grupo do usuário tem permissão de ver.
 mapasRouter.get("/mapas", async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT DISTINCT m.id, m.nome, m.versao, m.categoria, m.publicado_em
+    `SELECT DISTINCT m.id, m.nome, m.versao, m.categoria, m.publicado_em, m.atributos_config
      FROM mapas m
      JOIN permissoes p ON p.mapa_id = m.id
      JOIN usuarios_grupos ug ON ug.grupo_id = p.grupo_id

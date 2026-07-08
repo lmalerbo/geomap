@@ -33,3 +33,41 @@ export async function baixarMapa(token, mapaId) {
   await tratarResposta(resp);
   return resp.blob();
 }
+
+// --- Painel de administração ---
+
+export async function listarMapasAdmin(token) {
+  const resp = await fetch(`${API_URL}/admin/mapas`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function baixarMapaAdmin(token, mapaId) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/arquivo`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.blob();
+}
+
+export async function buscarConfigAtributos(token, mapaId) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/atributos`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  const { atributos } = await resp.json();
+  return atributos;
+}
+
+export async function salvarConfigAtributos(token, mapaId, atributos) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/atributos`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ atributos }),
+  });
+  await tratarResposta(resp);
+  const { atributos: salvos } = await resp.json();
+  return salvos;
+}

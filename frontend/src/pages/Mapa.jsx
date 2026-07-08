@@ -80,6 +80,18 @@ function construirFiltroGrupo(propriedades) {
   return null;
 }
 
+// Filtra/ordena os atributos exibidos no painel conforme configurado no
+// painel de admin. Sem config (mapa ainda não configurado) mostra tudo,
+// na ordem bruta do vector tile — comportamento de sempre.
+function aplicarConfigAtributos(propriedades, config) {
+  if (!config || config.length === 0) return propriedades;
+  const resultado = {};
+  for (const { campo, visivel } of [...config].sort((a, b) => a.ordem - b.ordem)) {
+    if (visivel && campo in propriedades) resultado[campo] = propriedades[campo];
+  }
+  return resultado;
+}
+
 async function adicionarCamada(map, protocol, mapa) {
   const source = new BlobSource(`mapa-${mapa.id}-${mapa.versao}`, mapa.blob);
   const pmtiles = new PMTiles(source);
@@ -189,6 +201,7 @@ async function adicionarCamada(map, protocol, mapa) {
     // Camadas de contorno (sem preenchimento, ex: Limites) são só visuais +
     // rótulo de nome — não abrem painel de atributos ao clicar.
     consultavel: ehTalhao,
+    atributosConfig: mapa.atributosConfig,
     header,
   };
 }
@@ -411,7 +424,7 @@ export default function Mapa() {
           mapaId: info?.id,
           camada: info?.nome,
           cor: info?.cor,
-          propriedades: feature.properties,
+          propriedades: aplicarConfigAtributos(feature.properties, info?.atributosConfig),
           grupoFiltro: construirFiltroGrupo(feature.properties),
         });
       }

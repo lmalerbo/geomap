@@ -41,6 +41,7 @@ Um usuário pode pertencer a mais de um grupo (tabela de associação N:N).
 | versao | text | ex: "1.2" |
 | categoria | text | ex: Agronomia, Infraestrutura |
 | arquivo_path | text | caminho do .pmtiles no servidor |
+| atributos_config | jsonb | `[{campo, visivel, ordem}]` — editável no painel de admin (migration 003); NULL = mostra tudo, ordem bruta do vector tile |
 | publicado_em | timestamp | |
 
 ## permissoes

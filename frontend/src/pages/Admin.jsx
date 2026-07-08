@@ -1,8 +1,8 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
-// Shell do painel de administração — só a navegação/proteção por papel.
-// Cada seção vira uma tela própria nas próximas etapas (ver CLAUDE.md).
+// Shell do painel de administração. Cada seção vira uma tela própria
+// (ver CLAUDE.md) — `rota` presente = já implementada, ausente = "em breve".
 const SECOES = [
   {
     titulo: "Adicionar/remover camadas",
@@ -13,12 +13,9 @@ const SECOES = [
     descricao: "Simbologia, rótulos e nomenclatura por camada.",
   },
   {
-    titulo: "Editar atributos — Limites",
-    descricao: "Quais atributos aparecem no painel e em que ordem.",
-  },
-  {
-    titulo: "Editar atributos — Talhões",
-    descricao: "Quais atributos aparecem no painel e em que ordem.",
+    titulo: "Editar atributos",
+    descricao: "Quais atributos aparecem no painel de cada camada (Limites, Talhões, ...) e em que ordem.",
+    rota: "/admin/atributos",
   },
 ];
 
@@ -45,13 +42,24 @@ export default function Admin() {
       </header>
 
       <div className="painel-admin">
-        {SECOES.map((secao) => (
-          <article key={secao.titulo} className="cartao-admin cartao-admin--em-breve">
-            <h2>{secao.titulo}</h2>
-            <p>{secao.descricao}</p>
-            <span className="etiqueta-em-breve">Em breve</span>
-          </article>
-        ))}
+        {SECOES.map((secao) =>
+          secao.rota ? (
+            <Link
+              key={secao.titulo}
+              to={secao.rota}
+              className="cartao-admin cartao-admin--link"
+            >
+              <h2>{secao.titulo}</h2>
+              <p>{secao.descricao}</p>
+            </Link>
+          ) : (
+            <article key={secao.titulo} className="cartao-admin cartao-admin--em-breve">
+              <h2>{secao.titulo}</h2>
+              <p>{secao.descricao}</p>
+              <span className="etiqueta-em-breve">Em breve</span>
+            </article>
+          )
+        )}
       </div>
     </main>
   );

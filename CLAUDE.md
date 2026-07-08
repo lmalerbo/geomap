@@ -184,6 +184,31 @@ Limites/Talhões: quais aparecem + ordem) ficam "em breve", a implementar
 uma de cada vez nas próximas sessões. Seed cria `admin@geoportal.local`
 / `senha123` além do usuário comum de teste.
 
+**Editar atributos, primeira seção implementada (2026-07-08)**: coluna
+`atributos_config` (jsonb) em `mapas` (migration 003) guarda
+`[{campo, visivel, ordem}]` por mapa. Rotas admin: `GET /admin/mapas`
+(todos os mapas, sem filtro de grupo — admin gerencia qualquer camada,
+não só as dos grupos dele), `GET /admin/mapas/:id/arquivo` (baixa o
+.pmtiles de qualquer mapa sem checar permissão, não loga como
+download), `GET/PUT /admin/mapas/:id/atributos`. Tela
+`AdminAtributos.jsx` (`/admin/atributos`, uma seção única com seletor
+de mapa — não duas telas fixas Limites/Talhões — pra não fixar id de
+mapa no código) baixa o `.pmtiles` do mapa escolhido, lê os campos
+disponíveis via `PMTiles.getMetadata()` (mesma técnica de
+`adicionarCamada` em `Mapa.jsx`), mescla com a config já salva
+(campo novo entra visível no fim; campo removido do dado é
+descartado), e deixa marcar visível/oculto + reordenar (botões
+↑/↓, sem lib de drag-and-drop). Importante: salvar a config **não**
+bumpa a `versao` do mapa — é só metadado de exibição, não teria
+sentido forçar reduzir 100% dos clientes a rebaixar um `.pmtiles` de
+dezenas de MB só por causa disso. Por isso o sync (`sync.js`) agora
+sempre atualiza nome + `atributos_config` no IndexedDB local mesmo
+quando a versão não mudou (`atualizarMetadadosMapa` em `db.js`), só
+baixa o blob de novo quando a versão realmente muda. `Mapa.jsx` aplica
+a config no painel de atributos via `aplicarConfigAtributos()` — sem
+config salva (mapa ainda não configurado), comportamento é o de
+sempre (mostra tudo, ordem bruta do vector tile).
+
 Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
 refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem
 de produção (backend rodando no PC de alguém não é sustentável — avaliado

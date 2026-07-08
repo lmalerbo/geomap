@@ -1,5 +1,10 @@
 import { buscarCatalogo, baixarMapa } from "./api.js";
-import { salvarMapaBaixado, listarMapasBaixados, removerMapaBaixado } from "./db.js";
+import {
+  salvarMapaBaixado,
+  listarMapasBaixados,
+  removerMapaBaixado,
+  atualizarMetadadosMapa,
+} from "./db.js";
 
 // Sincroniza os mapas permitidos em segundo plano: baixa os que ainda não
 // existem localmente ou cuja versão mudou, e remove os que saíram do
@@ -26,9 +31,14 @@ export async function sincronizarMapas(token) {
   await Promise.allSettled([
     ...catalogo.map(async (mapa) => {
       const local = porId.get(mapa.id);
-      if (local && local.versao === mapa.versao) return;
+      if (local && local.versao === mapa.versao) {
+        // Geometria/tiles não mudaram, mas nome ou config de atributos podem
+        // ter mudado (ex: admin reordenou campos) — atualiza sem rebaixar.
+        await atualizarMetadadosMapa(mapa.id, mapa.nome, mapa.atributos_config);
+        return;
+      }
       const blob = await baixarMapa(token, mapa.id);
-      await salvarMapaBaixado(mapa.id, mapa.nome, mapa.versao, blob);
+      await salvarMapaBaixado(mapa.id, mapa.nome, mapa.versao, blob, mapa.atributos_config);
     }),
     ...removidos.map((m) => removerMapaBaixado(m.id)),
   ]);
