@@ -25,3 +25,8 @@ export async function listarMapasBaixados() {
   const db = await abrirDb();
   return db.getAll(STORE);
 }
+
+export async function removerMapaBaixado(mapaId) {
+  const db = await abrirDb();
+  await db.delete(STORE, mapaId);
+}

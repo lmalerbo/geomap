@@ -1,10 +1,12 @@
 import { buscarCatalogo, baixarMapa } from "./api.js";
-import { salvarMapaBaixado, listarMapasBaixados } from "./db.js";
+import { salvarMapaBaixado, listarMapasBaixados, removerMapaBaixado } from "./db.js";
 
 // Sincroniza os mapas permitidos em segundo plano: baixa os que ainda não
-// existem localmente ou cuja versão mudou. Silencioso — nenhum botão,
-// nenhuma tela de espera. Se estiver offline, simplesmente não faz nada
-// e quem chamou continua usando o que já tem no IndexedDB.
+// existem localmente ou cuja versão mudou, e remove os que saíram do
+// catálogo (perda de permissão, mapa despublicado etc) — nunca deixa lixo
+// órfão no IndexedDB. Silencioso — nenhum botão, nenhuma tela de espera.
+// Se estiver offline, simplesmente não faz nada e quem chamou continua
+// usando o que já tem localmente.
 export async function sincronizarMapas(token) {
   const locais = await listarMapasBaixados();
   const porId = new Map(locais.map((m) => [m.id, m]));
@@ -16,16 +18,20 @@ export async function sincronizarMapas(token) {
     return { online: false, mapas: locais };
   }
 
+  const idsNoCatalogo = new Set(catalogo.map((m) => m.id));
+  const removidos = locais.filter((m) => !idsNoCatalogo.has(m.id));
+
   // allSettled: um mapa falhando (ex: perdeu permissão nesse meio-tempo)
   // não pode derrubar a sincronização dos outros.
-  await Promise.allSettled(
-    catalogo.map(async (mapa) => {
+  await Promise.allSettled([
+    ...catalogo.map(async (mapa) => {
       const local = porId.get(mapa.id);
       if (local && local.versao === mapa.versao) return;
       const blob = await baixarMapa(token, mapa.id);
       await salvarMapaBaixado(mapa.id, mapa.nome, mapa.versao, blob);
-    })
-  );
+    }),
+    ...removidos.map((m) => removerMapaBaixado(m.id)),
+  ]);
 
   const atualizados = await listarMapasBaixados();
   return { online: true, mapas: atualizados, sincronizadoEm: new Date() };
