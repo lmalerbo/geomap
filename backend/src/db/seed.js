@@ -51,6 +51,20 @@ async function main() {
     [usuarioId, grupoAgronomia]
   );
 
+  const { rows: adminRows } = await pool.query(
+    `INSERT INTO usuarios (nome, email, senha_hash, departamento, status, papel)
+     VALUES ('Admin de Teste', 'admin@geoportal.local', $1, 'TI', 'ativo', 'admin')
+     ON CONFLICT (email) DO UPDATE SET senha_hash = EXCLUDED.senha_hash, papel = 'admin'
+     RETURNING id`,
+    [senhaHash]
+  );
+  const adminId = adminRows[0].id;
+  await pool.query(
+    `INSERT INTO usuarios_grupos (usuario_id, grupo_id) VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [adminId, grupoAgronomia]
+  );
+
   // Mapa visível pro usuário de teste (grupo Agronomia).
   const mapaVisivel = await upsertMapa(
     "Talhões — Fazenda Fictícia (dado fake)",
@@ -76,7 +90,8 @@ async function main() {
     )
   );
 
-  console.log("Seed aplicado: teste@geoportal.local / senha123");
+  console.log("Seed aplicado: teste@geoportal.local / senha123 (usuario)");
+  console.log("Seed aplicado: admin@geoportal.local / senha123 (admin)");
   console.log(`Mapa visível: id=${mapaVisivel} (arquivo: talhoes_teste.pmtiles)`);
   await pool.end();
 }

@@ -13,7 +13,7 @@ authRouter.post("/login", async (req, res) => {
   }
 
   const { rows } = await pool.query(
-    "SELECT id, nome, email, senha_hash, status FROM usuarios WHERE email = $1",
+    "SELECT id, nome, email, senha_hash, status, papel FROM usuarios WHERE email = $1",
     [email]
   );
   const usuario = rows[0];
@@ -28,7 +28,7 @@ authRouter.post("/login", async (req, res) => {
   }
 
   const token = jwt.sign(
-    { sub: usuario.id, email: usuario.email },
+    { sub: usuario.id, email: usuario.email, papel: usuario.papel },
     process.env.JWT_SECRET,
     { expiresIn: "12h" }
   );
@@ -38,5 +38,8 @@ authRouter.post("/login", async (req, res) => {
     [usuario.id, req.ip]
   );
 
-  res.json({ token, usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email } });
+  res.json({
+    token,
+    usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email, papel: usuario.papel },
+  });
 });

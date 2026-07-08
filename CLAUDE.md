@@ -171,8 +171,31 @@ features do viewport atual, não o dataset inteiro (índices já gerados
 como prova de conceito em sessão anterior, falta a UI de busca no
 frontend).
 
+**Base do painel de administração (2026-07-08)**: usuário ganhou coluna
+`papel` ('admin' / 'usuario', migration 002). JWT carrega o papel;
+middleware `exigirAdmin` protege rotas administrativas no backend (só
+`GET /admin/ping` por enquanto, placeholder). Frontend tem rota
+`/admin` protegida (`RotaAdmin` em `App.jsx`, redireciona pra `/mapa`
+se não for admin) e um link "Admin" no header do mapa, visível só pra
+quem tem o papel. `Admin.jsx` é só o shell/navegação por enquanto — as
+4 seções (adicionar/remover camadas = upload da Fase 3, editar
+camadas: simbologia/rótulo/nomenclatura, editar atributos de
+Limites/Talhões: quais aparecem + ordem) ficam "em breve", a implementar
+uma de cada vez nas próximas sessões. Seed cria `admin@geoportal.local`
+/ `senha123` além do usuário comum de teste.
+
 Falta: painel de upload de mapas (Fase 3), telas de erro/loading mais
 refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem
 de produção (backend rodando no PC de alguém não é sustentável — avaliado
 Oracle Cloud Always Free como opção, adiado). Ver `docs/ROADMAP.md` para o
 checklist completo.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

@@ -13,6 +13,7 @@ web/PWA (sem CarryMap Viewer, sem login/logout de app desktop).
 | senha_hash | text | bcrypt, nunca senha em texto puro |
 | departamento | text | opcional, informativo |
 | status | text | 'ativo' / 'inativo' — inativo = login bloqueado |
+| papel | text | 'admin' / 'usuario' (default) — 'admin' vê o painel de administração (migration 002) |
 | criado_em | timestamp | |
 
 ## grupos

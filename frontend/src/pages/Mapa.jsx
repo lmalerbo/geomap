@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { PMTiles, Protocol } from "pmtiles";
@@ -503,6 +503,11 @@ export default function Mapa() {
                   })}`
                 : null}
         </span>
+        {sessao.usuario.papel === "admin" && (
+          <Link to="/admin" className="botao botao-sair">
+            Admin
+          </Link>
+        )}
         <button type="button" className="botao-sair" onClick={handleSair}>
           Sair
         </button>
