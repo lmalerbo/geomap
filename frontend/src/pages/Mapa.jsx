@@ -186,6 +186,9 @@ async function adicionarCamada(map, protocol, mapa) {
     lineLayerId,
     highlightLayerId,
     rotuloLayerId: temRotulos ? rotuloLayerId : null,
+    // Camadas de contorno (sem preenchimento, ex: Limites) são só visuais +
+    // rótulo de nome — não abrem painel de atributos ao clicar.
+    consultavel: ehTalhao,
     header,
   };
 }
@@ -380,7 +383,7 @@ export default function Mapa() {
 
     function handleClick(e) {
       const fillLayerIds = [...camadasCarregadasRef.current.entries()]
-        .filter(([id]) => camadasVisiveis.has(id))
+        .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .map(([, info]) => info.fillLayerId)
         .filter((id) => map.getLayer(id));
       if (fillLayerIds.length === 0) {
