@@ -114,90 +114,94 @@ export default function AdminCamadas() {
       </header>
 
       <div className="painel-admin-conteudo">
-        <label className="campo-select-mapa">
-          Camada
-          <select value={mapaId} onChange={(e) => setMapaId(e.target.value)}>
-            <option value="">Selecione…</option>
-            {mapas.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.nome}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="cartao-form-admin">
+          <h2>Camada</h2>
+          <label className="campo-select-mapa">
+            Camada
+            <select value={mapaId} onChange={(e) => setMapaId(e.target.value)}>
+              <option value="">Selecione…</option>
+              {mapas.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.nome}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        {erro && <p className="erro">{erro}</p>}
-        {carregando && <p>Carregando…</p>}
+          {erro && <p className="erro">{erro}</p>}
+          {carregando && <p>Carregando…</p>}
 
-        {form && !carregando && (
-          <>
-            <label className="campo-form-admin">
-              Nomenclatura
-              <input
-                type="text"
-                value={form.nome}
-                onChange={(e) => atualizarCampo("nome", e.target.value)}
-              />
-            </label>
+          {form && !carregando && (
+            <>
+              <label className="campo-form-admin">
+                Nomenclatura
+                <input
+                  type="text"
+                  value={form.nome}
+                  onChange={(e) => atualizarCampo("nome", e.target.value)}
+                />
+              </label>
 
-            <label className="campo-form-admin campo-form-admin--cor">
-              Cor da camada
-              <input
-                type="color"
-                value={form.cor}
-                onChange={(e) => atualizarCampo("cor", e.target.value)}
-              />
-            </label>
+              <label className="campo-form-admin campo-form-admin--cor">
+                Cor da camada
+                <input
+                  type="color"
+                  value={form.cor}
+                  onChange={(e) => atualizarCampo("cor", e.target.value)}
+                />
+                <span className="valor-cor-atual">{form.cor}</span>
+              </label>
 
-            <label className="campo-form-admin">
-              Opacidade do preenchimento ({form.opacidadePreenchimento})
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={form.opacidadePreenchimento}
-                onChange={(e) => atualizarCampo("opacidadePreenchimento", e.target.value)}
-              />
-            </label>
+              <label className="campo-form-admin">
+                Opacidade do preenchimento ({form.opacidadePreenchimento})
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={form.opacidadePreenchimento}
+                  onChange={(e) => atualizarCampo("opacidadePreenchimento", e.target.value)}
+                />
+              </label>
 
-            <label className="campo-form-admin campo-form-admin--checkbox">
-              <input
-                type="checkbox"
-                checked={form.mostrarRotulo}
-                disabled={!temRotulosNoDado}
-                onChange={(e) => atualizarCampo("mostrarRotulo", e.target.checked)}
-              />
-              Mostrar rótulo
-              {!temRotulosNoDado && " (este mapa não tem camada de rótulos gerada no pipeline)"}
-            </label>
+              <label className="campo-form-admin campo-form-admin--checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.mostrarRotulo}
+                  disabled={!temRotulosNoDado}
+                  onChange={(e) => atualizarCampo("mostrarRotulo", e.target.checked)}
+                />
+                Mostrar rótulo
+                {!temRotulosNoDado && " (este mapa não tem camada de rótulos gerada no pipeline)"}
+              </label>
 
-            <label className="campo-form-admin">
-              Zoom mínimo do rótulo ({form.zoomRotulo})
-              <input
-                type="range"
-                min="0"
-                max="20"
-                step="1"
-                disabled={!form.mostrarRotulo}
-                value={form.zoomRotulo}
-                onChange={(e) => atualizarCampo("zoomRotulo", e.target.value)}
-              />
-            </label>
+              <label className="campo-form-admin">
+                Zoom mínimo do rótulo ({form.zoomRotulo})
+                <input
+                  type="range"
+                  min="0"
+                  max="20"
+                  step="1"
+                  disabled={!form.mostrarRotulo}
+                  value={form.zoomRotulo}
+                  onChange={(e) => atualizarCampo("zoomRotulo", e.target.value)}
+                />
+              </label>
 
-            <div className="acoes-admin-atributos">
-              <button type="button" onClick={salvar} disabled={salvando}>
-                {salvando ? "Salvando…" : "Salvar"}
-              </button>
-              {salvoEm && (
-                <span className="confirmacao-salvo">
-                  Salvo às{" "}
-                  {salvoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                </span>
-              )}
-            </div>
-          </>
-        )}
+              <div className="acoes-admin-atributos">
+                <button type="button" onClick={salvar} disabled={salvando}>
+                  {salvando ? "Salvando…" : "Salvar"}
+                </button>
+                {salvoEm && (
+                  <span className="confirmacao-salvo">
+                    ✓ Salvo às{" "}
+                    {salvoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </main>
   );

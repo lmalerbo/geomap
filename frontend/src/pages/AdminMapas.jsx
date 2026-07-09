@@ -7,6 +7,7 @@ import {
   removerMapaAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { corDaCamada } from "../lib/paleta.js";
 
 export default function AdminMapas() {
   const { sessao } = useAuth();
@@ -94,7 +95,7 @@ export default function AdminMapas() {
       <div className="painel-admin-conteudo painel-admin-conteudo--largo">
         {erro && <p className="erro">{erro}</p>}
 
-        <form onSubmit={enviar} className="form-upload-mapa">
+        <form onSubmit={enviar} className="cartao-form-admin">
           <h2>Adicionar camada</h2>
 
           <label className="campo-form-admin">
@@ -162,7 +163,12 @@ export default function AdminMapas() {
         <ul className="lista-mapas-admin">
           {mapas.map((m) => (
             <li key={m.id} className="linha-mapa-admin">
-              <div>
+              <span
+                className="swatch-camada"
+                style={{ backgroundColor: m.estilo_config?.cor || corDaCamada(m.id) }}
+                aria-hidden="true"
+              />
+              <div className="info-mapa-admin">
                 <strong>{m.nome}</strong>
                 <span className="detalhe-mapa-admin">
                   {m.categoria ? `${m.categoria} · ` : ""}v{m.versao}

@@ -114,69 +114,78 @@ export default function AdminAtributos() {
       </header>
 
       <div className="painel-admin-conteudo">
-        <label className="campo-select-mapa">
-          Camada
-          <select value={mapaId} onChange={(e) => setMapaId(e.target.value)}>
-            <option value="">Selecione…</option>
-            {mapas.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.nome}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {erro && <p className="erro">{erro}</p>}
-        {carregando && <p>Carregando campos…</p>}
-
-        {linhas && !carregando && (
-          <>
-            <ul className="lista-atributos-admin">
-              {linhas.map((linha, i) => (
-                <li key={linha.campo} className="linha-atributo-admin">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={linha.visivel}
-                      onChange={() => alternarVisivel(i)}
-                    />
-                    {linha.campo}
-                  </label>
-                  <div className="botoes-ordem">
-                    <button
-                      type="button"
-                      onClick={() => mover(i, -1)}
-                      disabled={i === 0}
-                      aria-label={`Mover ${linha.campo} pra cima`}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => mover(i, 1)}
-                      disabled={i === linhas.length - 1}
-                      aria-label={`Mover ${linha.campo} pra baixo`}
-                    >
-                      ↓
-                    </button>
-                  </div>
-                </li>
+        <div className="cartao-form-admin">
+          <h2>Atributos</h2>
+          <label className="campo-select-mapa">
+            Camada
+            <select value={mapaId} onChange={(e) => setMapaId(e.target.value)}>
+              <option value="">Selecione…</option>
+              {mapas.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.nome}
+                </option>
               ))}
-            </ul>
+            </select>
+          </label>
 
-            <div className="acoes-admin-atributos">
-              <button type="button" onClick={salvar} disabled={salvando}>
-                {salvando ? "Salvando…" : "Salvar"}
-              </button>
-              {salvoEm && (
-                <span className="confirmacao-salvo">
-                  Salvo às{" "}
-                  {salvoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                </span>
-              )}
-            </div>
-          </>
-        )}
+          {erro && <p className="erro">{erro}</p>}
+          {carregando && <p>Carregando campos…</p>}
+
+          {linhas && !carregando && (
+            <>
+              <p className="contagem-atributos">
+                {linhas.filter((l) => l.visivel).length} de {linhas.length} visíveis
+              </p>
+              <ul className="lista-atributos-admin">
+                {linhas.map((linha, i) => (
+                  <li
+                    key={linha.campo}
+                    className={`linha-atributo-admin${linha.visivel ? "" : " linha-atributo-admin--oculto"}`}
+                  >
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={linha.visivel}
+                        onChange={() => alternarVisivel(i)}
+                      />
+                      {linha.campo}
+                    </label>
+                    <div className="botoes-ordem">
+                      <button
+                        type="button"
+                        onClick={() => mover(i, -1)}
+                        disabled={i === 0}
+                        aria-label={`Mover ${linha.campo} pra cima`}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => mover(i, 1)}
+                        disabled={i === linhas.length - 1}
+                        aria-label={`Mover ${linha.campo} pra baixo`}
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="acoes-admin-atributos">
+                <button type="button" onClick={salvar} disabled={salvando}>
+                  {salvando ? "Salvando…" : "Salvar"}
+                </button>
+                {salvoEm && (
+                  <span className="confirmacao-salvo">
+                    ✓ Salvo às{" "}
+                    {salvoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </main>
   );

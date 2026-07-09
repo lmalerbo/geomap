@@ -48,7 +48,7 @@ adminRouter.get("/admin/ping", (req, res) => {
 // camada, independente de pertencer aos grupos dele próprio.
 adminRouter.get("/admin/mapas", async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, nome, versao, categoria, publicado_em FROM mapas ORDER BY nome`
+    `SELECT id, nome, versao, categoria, publicado_em, estilo_config FROM mapas ORDER BY nome`
   );
   res.json(rows);
 });

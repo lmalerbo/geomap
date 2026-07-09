@@ -65,6 +65,50 @@ button:disabled {
   }
 }
 
+@keyframes entrada {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+input[type="color"] {
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button {
+  font: inherit;
+  padding: 8px 14px;
+  min-height: 36px;
+  margin-right: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+input[type="file"]::file-selector-button:hover {
+  background: var(--accent-hover);
+}
+
 .spinner {
   display: inline-block;
   width: 12px;
@@ -175,6 +219,32 @@ button:disabled {
   border-radius: 8px;
   padding: 16px;
   background: #fff;
+  animation: entrada 300ms ease backwards;
+}
+
+.painel-admin .cartao-admin:nth-child(1) {
+  animation-delay: 0ms;
+}
+.painel-admin .cartao-admin:nth-child(2) {
+  animation-delay: 40ms;
+}
+.painel-admin .cartao-admin:nth-child(3) {
+  animation-delay: 80ms;
+}
+.painel-admin .cartao-admin:nth-child(4) {
+  animation-delay: 120ms;
+}
+
+.icone-cartao-admin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: #eaf3ee;
+  color: var(--accent);
 }
 
 .cartao-admin h2 {
@@ -198,13 +268,17 @@ button:disabled {
   color: inherit;
   text-decoration: none;
   cursor: pointer;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
 }
 
 .cartao-admin--link:hover {
   border-color: var(--accent);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   background: #fff;
+  transform: translateY(-2px);
 }
 
 .painel-admin-conteudo {
@@ -222,6 +296,12 @@ button:disabled {
   margin-bottom: 20px;
 }
 
+.contagem-atributos {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .campo-form-admin {
   display: flex;
   flex-direction: column;
@@ -230,10 +310,40 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.campo-select-mapa select,
+.campo-form-admin input[type="text"],
+.campo-form-admin select {
+  font: inherit;
+  padding: 10px 12px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.campo-form-admin input[type="text"]:focus,
+.campo-form-admin select:focus,
+.campo-select-mapa select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.campo-form-admin--cor {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
 .campo-form-admin--cor input {
-  width: 64px;
-  padding: 2px;
-  min-height: 36px;
+  width: 56px;
+  height: 36px;
+  padding: 3px;
+}
+
+.valor-cor-atual {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: monospace;
 }
 
 .campo-form-admin--checkbox {
@@ -249,6 +359,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  animation: entrada 250ms ease;
 }
 
 .linha-atributo-admin {
@@ -260,6 +371,17 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
+  transition:
+    opacity 150ms ease,
+    background-color 150ms ease;
+}
+
+.linha-atributo-admin:hover {
+  background: #f7f9fa;
+}
+
+.linha-atributo-admin--oculto {
+  opacity: 0.55;
 }
 
 .linha-atributo-admin label {
@@ -288,23 +410,26 @@ button:disabled {
 }
 
 .confirmacao-salvo {
-  color: var(--text-muted);
+  color: var(--accent);
   font-size: 13px;
+  font-weight: 600;
+  animation: entrada 200ms ease;
 }
 
 .painel-admin-conteudo--largo {
   max-width: 640px;
 }
 
-.form-upload-mapa {
+.cartao-form-admin {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 24px;
   background: #fff;
+  animation: entrada 300ms ease;
 }
 
-.form-upload-mapa h2 {
+.cartao-form-admin h2 {
   font-size: 16px;
   margin: 0 0 16px;
 }
@@ -336,17 +461,31 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  animation: entrada 250ms ease;
 }
 
 .linha-mapa-admin {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
+  transition: background-color 150ms ease;
+}
+
+.linha-mapa-admin:hover {
+  background: #f7f9fa;
+}
+
+.linha-mapa-admin .swatch-camada {
+  flex-shrink: 0;
+}
+
+.info-mapa-admin {
+  flex: 1;
+  min-width: 0;
 }
 
 .detalhe-mapa-admin {
