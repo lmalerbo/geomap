@@ -117,16 +117,24 @@ async function montarIndiceBusca(infos) {
         if (!resp) continue;
         const tile = new VectorTile(new PbfReader(new Uint8Array(resp.data)));
 
-        // Enriquece com DESC_SECAO da camada principal — só faz sentido
-        // pra talhões (a camada de rótulos de limites já É o nome da
-        // fazenda). Degrada bem: sem match, mostra só "Talhão N".
-        const descPorChave = new Map();
-        const camadaPrincipal = info.consultavel && tile.layers[info.sourceLayerPrincipal];
+        // Enriquece com DESC_SECAO/SECAO da camada principal (polígono) —
+        // o rótulo sozinho não carrega isso: em talhões é só o número, em
+        // limites é só o nome (um nome pode ter vários códigos SECAO, ver
+        // gerar_rotulos_por_atributo.py). Degrada bem: sem match no join,
+        // busca só pelo que o rótulo já tinha.
+        const descPorChaveTalhao = new Map(); // "SECAO|TALHAO" -> DESC_SECAO
+        const codigosPorDesc = new Map(); // DESC_SECAO -> Set(SECAO)
+        const camadaPrincipal = tile.layers[info.sourceLayerPrincipal];
         if (camadaPrincipal) {
           for (let i = 0; i < camadaPrincipal.length; i++) {
             const props = camadaPrincipal.feature(i).properties;
-            const chave = `${props.SECAO}|${props.TALHAO}`;
-            if (!descPorChave.has(chave)) descPorChave.set(chave, props.DESC_SECAO);
+            if (info.consultavel) {
+              const chave = `${props.SECAO}|${props.TALHAO}`;
+              if (!descPorChaveTalhao.has(chave)) descPorChaveTalhao.set(chave, props.DESC_SECAO);
+            } else {
+              if (!codigosPorDesc.has(props.DESC_SECAO)) codigosPorDesc.set(props.DESC_SECAO, new Set());
+              codigosPorDesc.get(props.DESC_SECAO).add(props.SECAO);
+            }
           }
         }
 
@@ -138,14 +146,23 @@ async function montarIndiceBusca(infos) {
           const [lng, lat] = feature.toGeoJSON(x, y, z).geometry.coordinates;
 
           let texto;
+          let buscavelExtra = "";
           if ("talhao" in props && "secao" in props) {
-            const desc = descPorChave.get(`${props.secao}|${props.talhao}`);
-            texto = `Talhão ${props.talhao}${desc ? ` — ${desc}` : ""}`;
+            const desc = descPorChaveTalhao.get(`${props.secao}|${props.talhao}`);
+            texto = `Talhão ${props.talhao}${desc ? ` — ${desc}` : ""} (cód. ${props.secao})`;
           } else {
             texto = String(props.rotulo);
+            const codigos = codigosPorDesc.get(props.rotulo);
+            if (codigos) buscavelExtra = ` ${[...codigos].join(" ")}`;
           }
 
-          indice.push({ texto, buscavel: normalizarTexto(texto), lng, lat, mapaId: info.id });
+          indice.push({
+            texto,
+            buscavel: normalizarTexto(texto + buscavelExtra),
+            lng,
+            lat,
+            mapaId: info.id,
+          });
         }
       }
     }

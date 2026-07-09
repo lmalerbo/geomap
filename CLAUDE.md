@@ -276,7 +276,13 @@ ver seção de rótulos acima) cada talhão/fazenda aparece garantido.
 Enriquece o texto de busca dos talhões com `DESC_SECAO` (lido da
 camada de polígono, cruzado por `SECAO+TALHAO`) — sem isso a busca só
 acharia o número do talhão, inútil sem saber de qual fazenda/seção.
-Resultado ordenado por tamanho do texto (mais curto primeiro): buscar
+Busca também por `SECAO` (código numérico), adicionado depois do
+primeiro teste: em Talhões aparece no próprio texto exibido ("Talhão N
+— Fazenda (cód. 12345)"); em Limites o rótulo é só o nome (um nome
+pode ter vários códigos SECAO — mesma fazenda com registros em seções
+diferentes), então os códigos entram só no campo de busca, sem poluir
+o texto exibido. Resultado ordenado por tamanho do texto (mais curto
+primeiro): buscar
 "Santa Lydia" deve achar a fazenda em si antes dos 20+ talhões que têm
 esse nome no texto. Índice remontado só quando alguma camada muda de
 verdade (assinatura), não a cada render. Testado offline real (build
