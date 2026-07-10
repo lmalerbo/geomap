@@ -137,6 +137,15 @@ export async function renomearMapaAdmin(token, mapaId, nome) {
   return resp.json();
 }
 
+export async function buscarEstatisticasAdmin(token) {
+  const resp = await fetch(`${API_URL}/admin/estatisticas`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 export async function buscarConfigEstilo(token, mapaId) {
   const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/estilo`, {
     headers: { Authorization: `Bearer ${token}` },

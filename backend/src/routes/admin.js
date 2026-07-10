@@ -59,6 +59,43 @@ adminRouter.get("/admin/grupos", async (req, res) => {
   res.json(rows);
 });
 
+// Dashboard: agrega a tabela logs (já existia desde o MVP, guarda
+// login/download por usuário+mapa+data) — sem schema novo.
+adminRouter.get("/admin/estatisticas", async (req, res) => {
+  const [totais, maisBaixados, usuariosMaisAtivos] = await Promise.all([
+    pool.query(`
+      SELECT
+        (SELECT count(*)::int FROM mapas) AS total_mapas,
+        (SELECT count(*)::int FROM usuarios WHERE status = 'ativo') AS total_usuarios,
+        (SELECT count(*)::int FROM logs WHERE acao = 'download') AS total_downloads
+    `),
+    pool.query(`
+      SELECT m.nome, count(*)::int AS downloads
+      FROM logs l
+      JOIN mapas m ON m.id = l.mapa_id
+      WHERE l.acao = 'download'
+      GROUP BY m.nome
+      ORDER BY downloads DESC
+      LIMIT 10
+    `),
+    pool.query(`
+      SELECT u.nome, u.email, count(*)::int AS downloads
+      FROM logs l
+      JOIN usuarios u ON u.id = l.usuario_id
+      WHERE l.acao = 'download'
+      GROUP BY u.id, u.nome, u.email
+      ORDER BY downloads DESC
+      LIMIT 10
+    `),
+  ]);
+
+  res.json({
+    totais: totais.rows[0],
+    mapasMaisBaixados: maisBaixados.rows,
+    usuariosMaisAtivos: usuariosMaisAtivos.rows,
+  });
+});
+
 // Adicionar camada: recebe o .pmtiles já gerado pelo pipeline (fora do
 // escopo desta rota — o admin roda o pipeline localmente e faz upload do
 // resultado), cria o registro em mapas e concede permissão aos grupos

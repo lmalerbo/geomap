@@ -341,6 +341,80 @@ input[type="file"]::file-selector-button:hover {
   font-size: 13px;
 }
 
+.tiles-estatisticas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.tile-estatistica {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  animation: entrada 250ms ease;
+}
+
+.tile-estatistica strong {
+  font-size: 28px;
+  color: var(--accent);
+}
+
+.tile-estatistica span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.lista-ranking {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: ranking;
+}
+
+.lista-ranking li {
+  counter-increment: ranking;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.lista-ranking li:last-child {
+  border-bottom: none;
+}
+
+.lista-ranking li::before {
+  content: counter(ranking) ".";
+  color: var(--text-muted);
+  margin-right: 8px;
+  font-size: 13px;
+}
+
+.nome-ranking {
+  flex: 1;
+  min-width: 0;
+}
+
+.contagem-ranking {
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.sem-dados-estatistica {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
 .campo-form-admin {
   display: flex;
   flex-direction: column;
