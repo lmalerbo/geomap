@@ -75,6 +75,20 @@ export async function enviarMapaAdmin(token, { nome, versao, categoria, grupoIds
   return resp.json();
 }
 
+export async function atualizarArquivoMapaAdmin(token, mapaId, { versao, arquivo }) {
+  const dados = new FormData();
+  dados.append("versao", versao);
+  dados.append("arquivo", arquivo);
+
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/arquivo`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: dados,
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 export async function removerMapaAdmin(token, mapaId) {
   const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}`, {
     method: "DELETE",

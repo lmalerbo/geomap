@@ -149,6 +149,53 @@ adminRouter.get("/admin/mapas/:id/arquivo", async (req, res) => {
   });
 });
 
+// Controle de versão: atualiza o .pmtiles de um mapa já existente (nova
+// versão), sem mudar id/nome/config/permissões. O arquivo antigo não é
+// apagado — fica renomeado com sufixo de timestamp como backup leve,
+// caso o upload novo seja ruim (sem UI de navegação por versões antigas,
+// só a garantia de não perder o anterior de imediato).
+adminRouter.put("/admin/mapas/:id/arquivo", upload.single("arquivo"), async (req, res) => {
+  const mapaId = Number(req.params.id);
+  if (!Number.isInteger(mapaId)) {
+    if (req.file) await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ erro: "id de mapa inválido" });
+  }
+  if (!req.file) {
+    return res.status(400).json({ erro: "arquivo .pmtiles é obrigatório" });
+  }
+
+  const versao = (req.body.versao || "").trim();
+  if (!versao) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ erro: "versão é obrigatória" });
+  }
+
+  if (!(await ehPmtilesValido(req.file.path))) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ erro: "arquivo não parece ser um .pmtiles válido" });
+  }
+
+  const { rows } = await pool.query("SELECT arquivo_path FROM mapas WHERE id = $1", [mapaId]);
+  const mapaAtual = rows[0];
+  if (!mapaAtual) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(404).json({ erro: "mapa não encontrado" });
+  }
+
+  const antigoAbsoluto = path.join(storageDir, mapaAtual.arquivo_path);
+  await fs.promises
+    .rename(antigoAbsoluto, `${antigoAbsoluto}.bak-${Date.now()}`)
+    .catch(() => {}); // se o arquivo antigo já não existir no disco, segue o baile
+
+  const atualizado = await pool.query(
+    `UPDATE mapas SET arquivo_path = $1, versao = $2 WHERE id = $3
+     RETURNING id, nome, versao, categoria, publicado_em`,
+    [req.file.filename, versao, mapaId]
+  );
+
+  res.json(atualizado.rows[0]);
+});
+
 adminRouter.get("/admin/mapas/:id/atributos", async (req, res) => {
   const mapaId = Number(req.params.id);
   if (!Number.isInteger(mapaId)) {

@@ -4,6 +4,7 @@ import {
   listarMapasAdmin,
   listarGruposAdmin,
   enviarMapaAdmin,
+  atualizarArquivoMapaAdmin,
   removerMapaAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -18,6 +19,10 @@ export default function AdminMapas() {
   const [enviando, setEnviando] = useState(false);
   const [removendoId, setRemovendoId] = useState(null);
   const [erro, setErro] = useState(null);
+  const [atualizandoId, setAtualizandoId] = useState(null);
+  const [novaVersao, setNovaVersao] = useState("");
+  const [novoArquivo, setNovoArquivo] = useState(null);
+  const [enviandoAtualizacao, setEnviandoAtualizacao] = useState(false);
 
   function carregarMapas() {
     return listarMapasAdmin(sessao.token).then(setMapas);
@@ -63,6 +68,37 @@ export default function AdminMapas() {
       setErro(err.message);
     } finally {
       setEnviando(false);
+    }
+  }
+
+  function abrirAtualizacao(mapa) {
+    setAtualizandoId(mapa.id);
+    setNovaVersao(mapa.versao);
+    setNovoArquivo(null);
+    setErro(null);
+  }
+
+  function fecharAtualizacao() {
+    setAtualizandoId(null);
+    setNovoArquivo(null);
+  }
+
+  async function enviarAtualizacao(e, mapa) {
+    e.preventDefault();
+    if (!novoArquivo) {
+      setErro("Selecione um arquivo .pmtiles");
+      return;
+    }
+    setEnviandoAtualizacao(true);
+    setErro(null);
+    try {
+      await atualizarArquivoMapaAdmin(sessao.token, mapa.id, { versao: novaVersao, arquivo: novoArquivo });
+      fecharAtualizacao();
+      await carregarMapas();
+    } catch (err) {
+      setErro(err.message);
+    } finally {
+      setEnviandoAtualizacao(false);
     }
   }
 
@@ -162,26 +198,57 @@ export default function AdminMapas() {
         <h2 className="titulo-lista-mapas">Camadas existentes</h2>
         <ul className="lista-mapas-admin">
           {mapas.map((m) => (
-            <li key={m.id} className="linha-mapa-admin">
-              <span
-                className="swatch-camada"
-                style={{ backgroundColor: m.estilo_config?.cor || corDaCamada(m.id) }}
-                aria-hidden="true"
-              />
-              <div className="info-mapa-admin">
-                <strong>{m.nome}</strong>
-                <span className="detalhe-mapa-admin">
-                  {m.categoria ? `${m.categoria} · ` : ""}v{m.versao}
-                </span>
+            <li key={m.id} className="item-mapa-admin">
+              <div className="linha-mapa-admin">
+                <span
+                  className="swatch-camada"
+                  style={{ backgroundColor: m.estilo_config?.cor || corDaCamada(m.id) }}
+                  aria-hidden="true"
+                />
+                <div className="info-mapa-admin">
+                  <strong>{m.nome}</strong>
+                  <span className="detalhe-mapa-admin">
+                    {m.categoria ? `${m.categoria} · ` : ""}v{m.versao}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="botao-secundario"
+                  onClick={() => (atualizandoId === m.id ? fecharAtualizacao() : abrirAtualizacao(m))}
+                >
+                  {atualizandoId === m.id ? "Cancelar" : "Atualizar arquivo"}
+                </button>
+                <button
+                  type="button"
+                  className="botao-remover-mapa"
+                  onClick={() => remover(m)}
+                  disabled={removendoId === m.id}
+                >
+                  {removendoId === m.id ? "Removendo…" : "Remover"}
+                </button>
               </div>
-              <button
-                type="button"
-                className="botao-remover-mapa"
-                onClick={() => remover(m)}
-                disabled={removendoId === m.id}
-              >
-                {removendoId === m.id ? "Removendo…" : "Remover"}
-              </button>
+
+              {atualizandoId === m.id && (
+                <form className="form-atualizar-arquivo" onSubmit={(e) => enviarAtualizacao(e, m)}>
+                  <input
+                    type="text"
+                    value={novaVersao}
+                    onChange={(e) => setNovaVersao(e.target.value)}
+                    aria-label="Nova versão"
+                    required
+                  />
+                  <input
+                    type="file"
+                    accept=".pmtiles"
+                    onChange={(e) => setNovoArquivo(e.target.files[0] || null)}
+                    aria-label="Novo arquivo .pmtiles"
+                    required
+                  />
+                  <button type="submit" disabled={enviandoAtualizacao}>
+                    {enviandoAtualizacao ? "Enviando…" : "Enviar nova versão"}
+                  </button>
+                </form>
+              )}
             </li>
           ))}
         </ul>

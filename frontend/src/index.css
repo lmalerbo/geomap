@@ -503,23 +503,50 @@ input[type="file"]::file-selector-button:hover {
   animation: entrada 250ms ease;
 }
 
-.linha-mapa-admin {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+.item-mapa-admin {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
   transition: background-color 150ms ease;
 }
 
-.linha-mapa-admin:hover {
+.item-mapa-admin:hover {
   background: #f7f9fa;
+}
+
+.linha-mapa-admin {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  flex-wrap: wrap;
 }
 
 .linha-mapa-admin .swatch-camada {
   flex-shrink: 0;
+}
+
+.form-atualizar-arquivo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.form-atualizar-arquivo input[type="text"] {
+  width: 100px;
+  font: inherit;
+  padding: 8px 10px;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.form-atualizar-arquivo .botao-secundario {
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
 }
 
 .info-mapa-admin {
