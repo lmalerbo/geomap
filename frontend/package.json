@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",
+    "@turf/area": "^7.3.5",
+    "@turf/length": "^7.3.5",
     "idb": "^8.0.3",
     "maplibre-gl": "^5.24.0",
     "pbf": "^5.1.1",

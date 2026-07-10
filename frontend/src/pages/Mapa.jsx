@@ -5,6 +5,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { PMTiles, Protocol } from "pmtiles";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
+import turfLength from "@turf/length";
+import turfArea from "@turf/area";
 import { listarMapasBaixados } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
@@ -34,6 +36,31 @@ class HomeControl {
   }
 }
 
+// Botão "Medir" — liga/desliga o modo medição (distância/área). A lógica
+// mora em React (precisa de estado pra desenhar o painel/resultado); este
+// controle só dispara o callback, igual o HomeControl.
+class MedicaoControl {
+  constructor(aoClicar) {
+    this._aoClicar = aoClicar;
+  }
+  onAdd() {
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.title = "Medir distância/área";
+    botao.setAttribute("aria-label", "Medir distância/área");
+    botao.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M21.3 8.7 8.7 21.3a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4L15.3 2.7a1 1 0 0 1 1.4 0l4.6 4.6a1 1 0 0 1 0 1.4Z"/><path d="m14.5 5.5 2 2M11.5 8.5l2 2M8.5 11.5l2 2M5.5 14.5l2 2"/></svg>';
+    botao.onclick = () => this._aoClicar();
+    this._container.appendChild(botao);
+    return this._container;
+  }
+  onRemove() {
+    this._container.parentNode?.removeChild(this._container);
+  }
+}
+
 // Nome de camada convencionado, gerado pelo pipeline (ver
 // gerar_rotulos_conectores.py): "rotulos" = 1 ponto por feição lógica
 // (mesmo quando a geometria original tem várias partes desconexas —
@@ -45,6 +72,63 @@ const CAMADA_ROTULOS = "rotulos";
 // Filtro que nunca casa com nenhuma feição — usado pra "desligar" o
 // highlight de grupo sem precisar remover/recriar a camada.
 const FILTRO_NENHUM = ["==", ["literal", 1], ["literal", 2]];
+
+// Medição de distância/área — fonte/camadas próprias, nada a ver com os
+// dados baixados.
+const FONTE_MEDICAO = "fonte-medicao";
+const CAMADA_MEDICAO_LINHA = "camada-medicao-linha";
+const CAMADA_MEDICAO_PONTOS = "camada-medicao-pontos";
+const CAMADA_MEDICAO_AREA = "camada-medicao-area";
+
+// Monta o FeatureCollection renderizado enquanto o usuário vai clicando:
+// pontos sempre, linha a partir de 2 pontos (fechada se for modo área,
+// só pra dar a pista visual do polígono), preenchimento a partir de 3
+// pontos em modo área.
+function geojsonMedicao(pontos, modo) {
+  const features = pontos.map((p) => ({
+    type: "Feature",
+    properties: {},
+    geometry: { type: "Point", coordinates: p },
+  }));
+
+  if (pontos.length >= 2) {
+    const linha = modo === "area" ? [...pontos, pontos[0]] : pontos;
+    features.push({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "LineString", coordinates: linha },
+    });
+  }
+
+  if (modo === "area" && pontos.length >= 3) {
+    features.push({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "Polygon", coordinates: [[...pontos, pontos[0]]] },
+    });
+  }
+
+  return { type: "FeatureCollection", features };
+}
+
+// Texto pronto pra exibir — km/m pra distância (troca a unidade conforme
+// o tamanho, igual a barra de escala do MapLibre já faz), m²/ha pra área.
+function textoResultadoMedicao(pontos, modo) {
+  if (modo === "distancia") {
+    if (pontos.length < 2) return null;
+    const linha = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pontos } };
+    const km = turfLength(linha, { units: "kilometers" });
+    return km < 1 ? `${(km * 1000).toFixed(0)} m` : `${km.toFixed(2)} km`;
+  }
+  if (pontos.length < 3) return null;
+  const poligono = {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "Polygon", coordinates: [[...pontos, pontos[0]]] },
+  };
+  const m2 = turfArea(poligono);
+  return m2 < 10000 ? `${m2.toFixed(0)} m²` : `${(m2 / 10000).toFixed(2)} ha`;
+}
 
 // Monta o filtro que seleciona todas as partes do mesmo talhão/seção, a
 // partir dos campos que já existem na camada principal (sem precisar de
@@ -331,6 +415,9 @@ export default function Mapa() {
   const [painelCamadasAberto, setPainelCamadasAberto] = useState(true);
   const [indiceBusca, setIndiceBusca] = useState([]);
   const [buscaTexto, setBuscaTexto] = useState("");
+  const [medindo, setMedindo] = useState(false);
+  const [modoMedicao, setModoMedicao] = useState("distancia");
+  const [pontosMedicao, setPontosMedicao] = useState([]);
 
   // 1) cria o mapa uma única vez, com controles de navegação e localização
   useEffect(() => {
@@ -369,6 +456,7 @@ export default function Mapa() {
       }),
       "top-right"
     );
+    map.addControl(new MedicaoControl(() => setMedindo((m) => !m)), "top-right");
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
 
     map.on("load", () => {
@@ -508,6 +596,11 @@ export default function Mapa() {
     if (!map || !mapaPronto) return;
 
     function handleClick(e) {
+      if (medindo) {
+        setPontosMedicao((atual) => [...atual, [e.lngLat.lng, e.lngLat.lat]]);
+        return;
+      }
+
       const fillLayerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .map(([, info]) => info.fillLayerId)
@@ -548,7 +641,7 @@ export default function Mapa() {
 
     map.on("click", handleClick);
     return () => map.off("click", handleClick);
-  }, [mapaPronto, camadasVisiveis]);
+  }, [mapaPronto, camadasVisiveis, medindo]);
 
   // 7) highlight de grupo: destaca todas as partes do talhão/seção
   // selecionado (mesma SECAO+TALHAO ou DESC_SECAO), sem desenhar nada
@@ -587,6 +680,66 @@ export default function Mapa() {
     };
   }, [selecao]);
 
+  // 9) modo medição: cria/remove a fonte e as camadas de desenho quando
+  // liga/desliga (uma fonte só, 3 camadas filtradas por tipo de geometria).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto) return;
+
+    if (!medindo) {
+      setPontosMedicao([]);
+      if (map.getLayer(CAMADA_MEDICAO_PONTOS)) map.removeLayer(CAMADA_MEDICAO_PONTOS);
+      if (map.getLayer(CAMADA_MEDICAO_LINHA)) map.removeLayer(CAMADA_MEDICAO_LINHA);
+      if (map.getLayer(CAMADA_MEDICAO_AREA)) map.removeLayer(CAMADA_MEDICAO_AREA);
+      if (map.getSource(FONTE_MEDICAO)) map.removeSource(FONTE_MEDICAO);
+      return;
+    }
+
+    setSelecao(null);
+    map.addSource(FONTE_MEDICAO, { type: "geojson", data: geojsonMedicao([], modoMedicao) });
+    map.addLayer({
+      id: CAMADA_MEDICAO_AREA,
+      type: "fill",
+      source: FONTE_MEDICAO,
+      filter: ["==", ["geometry-type"], "Polygon"],
+      paint: { "fill-color": "#eda100", "fill-opacity": 0.25 },
+    });
+    map.addLayer({
+      id: CAMADA_MEDICAO_LINHA,
+      type: "line",
+      source: FONTE_MEDICAO,
+      filter: ["==", ["geometry-type"], "LineString"],
+      paint: { "line-color": "#eda100", "line-width": 2, "line-dasharray": [2, 1] },
+    });
+    map.addLayer({
+      id: CAMADA_MEDICAO_PONTOS,
+      type: "circle",
+      source: FONTE_MEDICAO,
+      filter: ["==", ["geometry-type"], "Point"],
+      paint: {
+        "circle-radius": 5,
+        "circle-color": "#eda100",
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#fff",
+      },
+    });
+
+    return () => {
+      if (map.getLayer(CAMADA_MEDICAO_PONTOS)) map.removeLayer(CAMADA_MEDICAO_PONTOS);
+      if (map.getLayer(CAMADA_MEDICAO_LINHA)) map.removeLayer(CAMADA_MEDICAO_LINHA);
+      if (map.getLayer(CAMADA_MEDICAO_AREA)) map.removeLayer(CAMADA_MEDICAO_AREA);
+      if (map.getSource(FONTE_MEDICAO)) map.removeSource(FONTE_MEDICAO);
+    };
+  }, [medindo, mapaPronto]);
+
+  // 10) redesenha a medição a cada ponto novo, sem recriar fonte/camadas.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !medindo) return;
+    const fonte = map.getSource(FONTE_MEDICAO);
+    if (fonte) fonte.setData(geojsonMedicao(pontosMedicao, modoMedicao));
+  }, [pontosMedicao, modoMedicao, medindo]);
+
   function alternarCamada(id) {
     setCamadasVisiveis((atual) => {
       const nova = new Set(atual);
@@ -617,6 +770,11 @@ export default function Mapa() {
     setBuscaTexto("");
   }
 
+  function trocarModoMedicao(modo) {
+    setModoMedicao(modo);
+    setPontosMedicao([]);
+  }
+
   const itemSelecionado = selecao?.itens[selecao.indice];
 
   const buscaNormalizada = normalizarTexto(buscaTexto.trim());
@@ -630,6 +788,8 @@ export default function Mapa() {
           .sort((a, b) => a.texto.length - b.texto.length)
           .slice(0, 8)
       : [];
+
+  const resultadoMedicaoAtual = medindo ? textoResultadoMedicao(pontosMedicao, modoMedicao) : null;
 
   return (
     <main className="tela-mapa">
@@ -731,6 +891,39 @@ export default function Mapa() {
           <p className="aviso-sem-mapas">
             Nenhum mapa disponível ainda. Conecte-se à internet pra sincronizar.
           </p>
+        )}
+
+        {medindo && (
+          <aside className="painel-medicao">
+            <button type="button" className="fechar" onClick={() => setMedindo(false)}>
+              ×
+            </button>
+            <div className="opcoes-modo-medicao">
+              <button
+                type="button"
+                className={modoMedicao === "distancia" ? "ativo" : ""}
+                onClick={() => trocarModoMedicao("distancia")}
+              >
+                Distância
+              </button>
+              <button
+                type="button"
+                className={modoMedicao === "area" ? "ativo" : ""}
+                onClick={() => trocarModoMedicao("area")}
+              >
+                Área
+              </button>
+            </div>
+            <p className="resultado-medicao">
+              {resultadoMedicaoAtual ??
+                (modoMedicao === "area" ? "Clique pra marcar o polígono (mín. 3 pontos)" : "Clique pra marcar os pontos")}
+            </p>
+            {pontosMedicao.length > 0 && (
+              <button type="button" className="botao-limpar-medicao" onClick={() => setPontosMedicao([])}>
+                Limpar
+              </button>
+            )}
+          </aside>
         )}
 
         <aside className={`painel-atributos${selecao ? " painel-atributos--aberto" : ""}`}>
