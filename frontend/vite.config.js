@@ -24,6 +24,24 @@ export default defineConfig({
             type: 'image/svg+xml',
             purpose: 'any',
           },
+          {
+            src: 'icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: 'icon-512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
         ],
       },
       workbox: {
@@ -31,7 +49,7 @@ export default defineConfig({
         // baixados ficam no IndexedDB (lib/db.js), não passam pelo SW.
         // .pbf são os glyphs de fonte (public/fonts/) — sem cachear isso,
         // os rótulos do mapa não apareceriam offline.
-        globPatterns: ['**/*.{js,css,html,svg,pbf}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,pbf}'],
       },
     }),
   ],
