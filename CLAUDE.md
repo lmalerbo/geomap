@@ -294,11 +294,29 @@ exporta `PbfReader` como named export, não mais um `Pbf` default como
 em versões antigas — `new Protobuf(...)` (import default) quebra o
 build; usar `import { PbfReader } from "pbf"`.
 
-Falta: telas de erro/loading mais
-refinadas, ícones PNG do manifest (hoje só o favicon SVG), decidir hospedagem
-de produção (backend rodando no PC de alguém não é sustentável — avaliado
-Oracle Cloud Always Free como opção, adiado). Ver `docs/ROADMAP.md` para o
-checklist completo.
+**Leva de Fase 2/3 + polimento (2026-07-10)**: legenda dinâmica (swatch
+preenchido vs contorno, lido de `opacidadePreenchimento` já calculado
+em `camadasCarregadasRef`); medição de distância/área (`@turf/length` +
+`@turf/area`, fonte/camadas próprias no mapa, clique desviado do
+painel de atributos enquanto o modo medição está ativo); telas de
+erro/loading (spinner no carregamento inicial do mapa, mensagem
+diferenciada pra erro de rede vs credenciais no login, `ErrorBoundary`
+novo envolvendo `<App/>`); ícone on-brand + PNGs do manifest (o
+`favicon.svg` antigo era um placeholder roxo sem relação com a marca,
+gerados via Playwright renderizando o SVG, sem lib nova); controle de
+versão de mapas (`PUT /admin/mapas/:id/arquivo`, arquivo antigo vira
+backup `.bak-<timestamp>` em vez de apagado); dashboard de
+estatísticas (`GET /admin/estatisticas`, agrega a tabela `logs` que já
+existia, sem schema novo). "Minha localização" já estava pronto desde
+2026-07-08 (só faltava marcar no roadmap). Bookmarks de extensão do
+mapa foi avaliado e propositalmente **não implementado** — sem caso de
+uso validado, ver `docs/ROADMAP.md`.
+
+Falta: decidir hospedagem de produção (backend rodando no PC de
+alguém não é sustentável — avaliado Oracle Cloud Always Free como
+opção, adiado; decisão de infra, não entra no mesmo fluxo de código
+das outras pendências). Ver `docs/ROADMAP.md` para o checklist
+completo.
 
 ## graphify
 

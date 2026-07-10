@@ -37,11 +37,17 @@
 
 ## Fase 2 — Funcionalidades de uso (depois do MVP validado)
 
-- [ ] Medição de distância/área (Turf.js)
+- [x] Medição de distância/área (Turf.js) (2026-07-10)
 - [x] Busca por atributo (nome do talhão, fazenda) (2026-07-08)
-- [ ] Legenda dinâmica por camada
-- [ ] Bookmarks de extensão do mapa
-- [ ] "Minha localização" (Geolocation API) — funciona offline também
+- [x] Legenda dinâmica por camada (2026-07-10)
+- [x] "Minha localização" (Geolocation API) — funciona offline também
+      (já estava pronto desde a leva de UX inspirada no CarryMap,
+      2026-07-08 — só faltava marcar aqui)
+- [~] Bookmarks de extensão do mapa — avaliado e **não implementado**
+      (2026-07-10): sem um caso de uso concreto validado (o próprio Leo
+      questionou o valor do recurso), não fazia sentido construir. Fica
+      registrado aqui pra não reaparecer como pendência esquecida — se
+      surgir uma necessidade real de campo, volta pra discussão.
 
 ## Fase 3 — Administração
 
@@ -49,8 +55,9 @@
 - [x] Editar quais atributos aparecem por camada e em que ordem (2026-07-08)
 - [x] Editar camadas: simbologia, rótulo, nomenclatura (2026-07-08)
 - [x] Painel de upload de novos `.pmtiles` (substitui upload manual) (2026-07-08)
-- [ ] Controle de versão de mapas (manter histórico / só última versão)
-- [ ] Dashboard de estatísticas (mapas mais baixados, usuários ativos)
+- [x] Controle de versão de mapas — atualizar o arquivo de um mapa já
+      existente, com backup leve do anterior (2026-07-10)
+- [x] Dashboard de estatísticas (mapas mais baixados, usuários ativos) (2026-07-10)
 
 ## Fase 4 — Ideias futuras (não compromissadas)
 
