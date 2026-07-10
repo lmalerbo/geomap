@@ -20,7 +20,14 @@ export default function Login() {
       entrar(token, usuario);
       navigate("/mapa");
     } catch (err) {
-      setErro(err.message);
+      // fetch() falha com TypeError quando nem chega a completar a
+      // requisição (sem internet, servidor fora do ar) — diferente de um
+      // erro HTTP normal (credenciais erradas), que já vem formatado.
+      if (err instanceof TypeError) {
+        setErro("Sem conexão com o servidor. Verifique sua internet e tente de novo.");
+      } else {
+        setErro(err.message);
+      }
     } finally {
       setCarregando(false);
     }
@@ -49,7 +56,16 @@ export default function Login() {
             required
           />
         </label>
-        {erro && <p className="erro">{erro}</p>}
+        {erro && (
+          <p className="alerta-erro" role="alert">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            {erro}
+          </p>
+        )}
         <button type="submit" disabled={carregando}>
           {carregando ? "Entrando..." : "Entrar"}
         </button>

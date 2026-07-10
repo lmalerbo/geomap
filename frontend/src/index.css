@@ -121,8 +121,47 @@ input[type="file"]::file-selector-button:hover {
   animation: girar 0.8s linear infinite;
 }
 
+.spinner--grande {
+  width: 32px;
+  height: 32px;
+  margin-right: 0;
+  border-width: 3px;
+  color: var(--accent);
+}
+
+.carregando-mapa {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
 .erro {
   color: var(--erro);
+}
+
+.alerta-erro {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f3b4ae;
+  border-radius: 6px;
+  background: #fdecea;
+  color: var(--erro);
+  font-size: 14px;
+  animation: entrada 200ms ease;
+}
+
+.alerta-erro svg {
+  flex-shrink: 0;
 }
 
 .aviso {
@@ -692,6 +731,13 @@ input[type="file"]::file-selector-button:hover {
   align-items: center;
   justify-content: center;
   gap: 12px;
+  text-align: center;
+  padding: 24px;
+}
+
+.tela-mapa-erro p {
+  max-width: 360px;
+  color: var(--text-muted);
 }
 
 .painel-atributos {

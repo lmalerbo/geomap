@@ -821,6 +821,13 @@ export default function Mapa() {
       <div className="area-mapa">
         <div ref={containerRef} className="mapa-container" />
 
+        {!mapaPronto && (
+          <div className="carregando-mapa">
+            <span className="spinner spinner--grande" aria-hidden="true" />
+            <p>Carregando mapa…</p>
+          </div>
+        )}
+
         {indiceBusca.length > 0 && (
           <div className="painel-busca">
             <input
