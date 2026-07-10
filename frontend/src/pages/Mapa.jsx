@@ -700,20 +700,29 @@ export default function Mapa() {
               </span>
             </button>
             <div className={`conteudo-painel-camadas${painelCamadasAberto ? " aberto" : ""}`}>
-              {mapasLocais.map((m) => (
-                <label key={m.id} className="linha-camada">
-                  <input
-                    type="checkbox"
-                    checked={camadasVisiveis.has(m.id)}
-                    onChange={() => alternarCamada(m.id)}
-                  />
-                  <span
-                    className="swatch-camada"
-                    style={{ backgroundColor: m.estiloConfig?.cor || corDaCamada(m.id) }}
-                  />
-                  <span className="nome-camada">{m.nome}</span>
-                </label>
-              ))}
+              {mapasLocais.map((m) => {
+                const cor = m.estiloConfig?.cor || corDaCamada(m.id);
+                // Legenda dinâmica: camada com preenchimento (ex: Talhões)
+                // ganha swatch sólido; camada só-contorno (ex: Limites)
+                // ganha swatch vazado — reflete o que aparece de fato no
+                // mapa, não só uma cor genérica.
+                const info = camadasCarregadasRef.current.get(m.id);
+                const preenchido = (info?.opacidadePreenchimento ?? 0) > 0;
+                return (
+                  <label key={m.id} className="linha-camada">
+                    <input
+                      type="checkbox"
+                      checked={camadasVisiveis.has(m.id)}
+                      onChange={() => alternarCamada(m.id)}
+                    />
+                    <span
+                      className={`swatch-camada${preenchido ? "" : " swatch-camada--contorno"}`}
+                      style={preenchido ? { backgroundColor: cor } : { borderColor: cor }}
+                    />
+                    <span className="nome-camada">{m.nome}</span>
+                  </label>
+                );
+              })}
             </div>
           </aside>
         )}

@@ -605,6 +605,12 @@ input[type="file"]::file-selector-button:hover {
   border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
+.swatch-camada--contorno {
+  background: transparent;
+  border-width: 2px;
+  border-style: solid;
+}
+
 .nome-camada {
   flex: 1;
 }
