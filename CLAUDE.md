@@ -1117,6 +1117,81 @@ testando local:
   (apagado logo depois) como canal seguro pra um script de automação
   ler a senha de admin sem expô-la no comando em si.
 
+**Storybook (2026-07-13)**: adicionado em `frontend/` pra isolar
+componentes visuais (estados, transições) sem precisar logar/rodar
+backend+PostgreSQL — pedido do Leo especificamente pra poder testar
+estados e animações isoladas. `npx storybook@latest init` detectou
+sozinho o projeto como `react-vite` e configurou tudo; boilerplate de
+exemplo (`src/stories/Button|Header|Page.*`) foi removido, mantendo só
+a estrutura real do projeto. `npm run storybook` sobe em
+`localhost:6006`.
+
+Duas coisas exigem atenção em qualquer story nova:
+
+1. `.storybook/preview.jsx` importa `../src/index.css` (o único CSS
+   global do projeto, sem CSS Modules/styled-components) — sem isso
+   todo componente renderiza sem nenhum estilo.
+2. Componentes que usam `<Link>`/`useNavigate` (`react-router-dom`)
+   precisam de um decorator com `<MemoryRouter>` por baixo, senão
+   quebram ao montar — ver `decorators: [ComRouter]` em
+   `MenuLateral.stories.jsx` (primeira story criada, serve de modelo).
+   Pro mesmo motivo, componentes que dependem de `AuthContext`
+   (`useAuth()`) vão precisar de um decorator equivalente envolvendo
+   com `<AuthContext.Provider value={...}>` quando ganharem story.
+
+Story de exemplo (`MenuLateral.stories.jsx`) cobre os 3 estados fixos
+(fechado, aberto usuário comum, aberto admin) mais uma story
+interativa (`TransicaoAoVivo`) com um botão fora do componente que liga/
+desliga `aberto` de verdade — é o jeito de ver a transição de
+slide+fade (`transform`/`opacity` com `transition`, `index.css`) rodar
+de ponta a ponta, não só o estado final congelado. Verificado via
+Playwright direto contra `iframe.html?id=<story-id>` (mais confiável
+pra screenshot que a UI do Storybook em si) — as 4 stories aparecem no
+`index.json`, o `.aberto`/os 4 itens de admin renderizam certo, zero
+erro de console.
+
+Detalhe de ambiente: o Storybook 10 exige Node 20.19+/22.12+, mas o
+Node global desta máquina é 22.11.0 (instalado direto do instalador,
+não via Scoop) — atualizar ele afetaria todos os outros projetos.
+Resolvido instalando `fnm` via Scoop (mesmo padrão sem-admin já usado
+pra Postgres/Cygwin) + Node 22.12.0 isolado, fixado em
+`frontend/.nvmrc`. Rodar `fnm use` (ou deixar o shell pegar via
+`.nvmrc`, se tiver o hook do `fnm` no profile) antes de `npm run
+storybook`/`npm run dev`/etc nesta máquina — o Node global (v22.11.0)
+continua sendo o default fora desse diretório.
+
+**Duplicar mapa (2026-07-13)**: o Leo não tinha os `.pmtiles` reais à mão
+pra reenviar todos os mapas de teste/produção depois do deploy, e pediu
+uma função pra facilitar criar um mapa novo a partir de um existente.
+`POST /admin/mapas/:id/duplicar` (`backend/src/routes/admin.js`) copia o
+registro de `mapas` (nome vira `"<nome original> (cópia)"`, mesma
+`descricao`), as `permissoes` (mesmos grupos) e cada `camada` do mapa
+origem (mesmo nome/versao/categoria/atributos_config/estilo_config, só
+o `arquivo_path` muda pra uma chave nova) — o arquivo em si é duplicado
+no R2 via cópia server-side (`CopyObjectCommand`, sem baixar/reenviar),
+nova função `duplicarArquivo` em `storage.js` que **não** engole erro
+(diferente de `copiarArquivo`, usada pro backup `.bak-`, que é
+tolerante a arquivo ausente — aqui o arquivo de origem tem que existir
+de verdade, senão é um 500 claro em vez de criar uma camada órfã
+apontando pra uma chave inexistente no bucket). Botão "Duplicar" novo
+em `AdminMapas.jsx`, ao lado de "Editar"/"Remover".
+
+Testado em produção com o padrão seguro já estabelecido nesta sessão
+(nunca testar contra dado real): criado um mapa descartável vazio
+(`__teste_duplicar__`), duplicado com sucesso (cópia saiu com nome/
+descrição/grupos corretos), depois os dois apagados. Achado no
+processo: a primeira tentativa de teste bateu 404 genérico do Express
+("Cannot POST") — não era bug da rota em si, era o **Render não ter
+auto-implantado o commit ainda** (confirmado comparando os logs do
+serviço: o último deploy real era de um commit anterior, sem nenhum
+evento "Deploying..." novo apesar do push já estar no `origin/master`
+há vários minutos). Resolvido desligando/religando o Auto-Deploy no
+dashboard do Render + disparo manual — depois disso o teste passou
+normalmente. Lição: um 404 novo em produção logo depois de um push nem
+sempre é bug de código — vale checar os logs do serviço antes de
+assumir isso, principalmente no plano free do Render, onde o
+auto-deploy pode não disparar de forma confiável.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
