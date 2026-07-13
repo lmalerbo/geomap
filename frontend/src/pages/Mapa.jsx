@@ -24,6 +24,7 @@ import {
 import { useAuth } from "../context/AuthContext.jsx";
 import { importarArquivoTemporario } from "../lib/importadorTemporario.js";
 import { baixarKmlPercurso } from "../lib/trackLog.js";
+import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
 
 function IconeMenu() {
@@ -182,7 +183,7 @@ const FONTE_TEMPORARIA = "fonte-temporaria";
 const CAMADA_TEMPORARIA_PREENCHIMENTO = "camada-temporaria-preenchimento";
 const CAMADA_TEMPORARIA_LINHA = "camada-temporaria-linha";
 const CAMADA_TEMPORARIA_PONTOS = "camada-temporaria-pontos";
-const COR_TEMPORARIA = "#c026d3";
+const COR_TEMPORARIA = CORES_FERRAMENTAS.temporaria;
 
 // Track log (item 4) — desenha o percurso gravado via GPS. Cor sólida
 // vermelha, bem distinta da medição (laranja tracejado) e da importação
@@ -190,7 +191,7 @@ const COR_TEMPORARIA = "#c026d3";
 // ativas ao mesmo tempo.
 const FONTE_TRACK = "fonte-track";
 const CAMADA_TRACK_LINHA = "camada-track-linha";
-const COR_TRACK = "#dc2626";
+const COR_TRACK = CORES_FERRAMENTAS.track;
 
 // Monta o FeatureCollection renderizado enquanto o usuário vai clicando:
 // pontos sempre, linha a partir de 2 pontos (fechada se for modo área,
@@ -558,7 +559,7 @@ async function adicionarCamada(map, protocol, mapa) {
       type: "line",
       source: sourceId,
       "source-layer": camadaPrincipal.id,
-      paint: { "line-color": "#ffd400", "line-width": 3 },
+      paint: { "line-color": CORES_FERRAMENTAS.destaqueGrupo, "line-width": 3 },
       filter: FILTRO_NENHUM,
     });
   } else {
@@ -567,7 +568,11 @@ async function adicionarCamada(map, protocol, mapa) {
       type: "circle",
       source: sourceId,
       "source-layer": camadaPrincipal.id,
-      paint: { "circle-color": "#ffd400", "circle-radius": 10, "circle-opacity": 0.5 },
+      paint: {
+        "circle-color": CORES_FERRAMENTAS.destaqueGrupo,
+        "circle-radius": 10,
+        "circle-opacity": 0.5,
+      },
       filter: FILTRO_NENHUM,
     });
   }
@@ -682,6 +687,10 @@ export default function Mapa() {
   const [mapaPronto, setMapaPronto] = useState(false);
   const [mapasLocais, setMapasLocais] = useState([]);
   const [camadasVisiveis, setCamadasVisiveis] = useState(new Set());
+  // Camada com dado problemático (estilo malformado, metadata inesperada)
+  // não pode sumir do mapa sem explicação — id -> mensagem de erro, exibida
+  // como aviso na linha correspondente do painel de camadas.
+  const [errosCamada, setErrosCamada] = useState({});
   const [sincronizando, setSincronizando] = useState(true);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [offline, setOffline] = useState(false);
@@ -738,7 +747,13 @@ export default function Mapa() {
         // o arquivo real fica em "/geomap/fonts/...", não na raiz do domínio.
         glyphs: `${import.meta.env.BASE_URL}fonts/{fontstack}/{range}.pbf`,
         sources: {},
-        layers: [{ id: "fundo", type: "background", paint: { "background-color": "#e8eef1" } }],
+        layers: [
+          {
+            id: "fundo",
+            type: "background",
+            paint: { "background-color": CORES_FERRAMENTAS.fundoMapaPadrao },
+          },
+        ],
       },
       center: [-47.9, -22.0],
       zoom: 9,
@@ -901,6 +916,16 @@ export default function Mapa() {
       const idsAtuais = new Set(mapasLocais.map((m) => m.id));
       let mudou = false;
 
+      // Limpa erro de camada que saiu do catálogo por completo (admin
+      // removeu, usuário perdeu permissão) — não faz sentido continuar
+      // mostrando o aviso pra algo que nem existe mais.
+      setErrosCamada((atual) => {
+        const filtrado = Object.fromEntries(
+          Object.entries(atual).filter(([id]) => idsAtuais.has(Number(id)))
+        );
+        return Object.keys(filtrado).length === Object.keys(atual).length ? atual : filtrado;
+      });
+
       for (const [id, info] of carregadas) {
         if (!idsAtuais.has(id)) {
           removerCamada(map, info);
@@ -918,17 +943,25 @@ export default function Mapa() {
         // Uma camada com dado problemático (estilo malformado, metadata
         // inesperada) não pode derrubar a exibição de todas as outras — sem
         // isso, uma exceção aqui interrompe o loop e as camadas seguintes
-        // nunca chegam a ser adicionadas.
+        // nunca chegam a ser adicionadas. O erro também precisa aparecer
+        // pro usuário (não só no console) — sem isso, uma camada some do
+        // mapa sem nenhuma explicação visível.
         let info = null;
         try {
           info = await adicionarCamada(map, protocol, mapa);
         } catch (err) {
           console.error(`Falha ao aplicar a camada "${mapa.nome}" (id ${mapa.id}):`, err);
+          setErrosCamada((atual) => ({ ...atual, [mapa.id]: "Não foi possível carregar esta camada." }));
         }
         if (cancelado) return;
         if (info) {
           carregadas.set(mapa.id, info);
           mudou = true;
+          setErrosCamada((atual) => {
+            if (!(mapa.id in atual)) return atual;
+            const { [mapa.id]: _removido, ...resto } = atual;
+            return resto;
+          });
         }
       }
 
@@ -1092,7 +1125,9 @@ export default function Mapa() {
     marcadorRef.current?.remove();
     marcadorRef.current = null;
     if (selecao) {
-      marcadorRef.current = new maplibregl.Marker({ color: "#6b3fa0" }).setLngLat(selecao.lngLat).addTo(map);
+      marcadorRef.current = new maplibregl.Marker({ color: CORES_FERRAMENTAS.marcadorSelecao })
+        .setLngLat(selecao.lngLat)
+        .addTo(map);
     }
     return () => {
       marcadorRef.current?.remove();
@@ -1122,14 +1157,18 @@ export default function Mapa() {
       type: "fill",
       source: FONTE_MEDICAO,
       filter: ["==", ["geometry-type"], "Polygon"],
-      paint: { "fill-color": "#eda100", "fill-opacity": 0.25 },
+      paint: { "fill-color": CORES_FERRAMENTAS.medicao, "fill-opacity": 0.25 },
     });
     map.addLayer({
       id: CAMADA_MEDICAO_LINHA,
       type: "line",
       source: FONTE_MEDICAO,
       filter: ["==", ["geometry-type"], "LineString"],
-      paint: { "line-color": "#eda100", "line-width": 2, "line-dasharray": [2, 1] },
+      paint: {
+        "line-color": CORES_FERRAMENTAS.medicao,
+        "line-width": 2,
+        "line-dasharray": [2, 1],
+      },
     });
     map.addLayer({
       id: CAMADA_MEDICAO_PONTOS,
@@ -1138,7 +1177,7 @@ export default function Mapa() {
       filter: ["==", ["geometry-type"], "Point"],
       paint: {
         "circle-radius": 5,
-        "circle-color": "#eda100",
+        "circle-color": CORES_FERRAMENTAS.medicao,
         "circle-stroke-width": 2,
         "circle-stroke-color": "#fff",
       },
@@ -1532,6 +1571,16 @@ export default function Mapa() {
                       style={preenchido ? { backgroundColor: cor } : { borderColor: cor }}
                     />
                     <span className="nome-camada">{m.nome}</span>
+                    {errosCamada[m.id] && (
+                      <span
+                        className="aviso-camada"
+                        role="img"
+                        aria-label={errosCamada[m.id]}
+                        title={errosCamada[m.id]}
+                      >
+                        ⚠
+                      </span>
+                    )}
                   </label>
                 );
               })}
@@ -1579,88 +1628,92 @@ export default function Mapa() {
           </p>
         )}
 
-        {medindo && (
-          <aside className="painel-medicao">
-            <button
-              type="button"
-              className="fechar"
-              onClick={() => setMedindo(false)}
-              aria-label="Fechar medição"
-              title="Fechar medição"
-            >
-              ×
-            </button>
-            <div className="opcoes-modo-medicao">
+        <aside className={`painel-flutuante painel-medicao${medindo ? " aberto" : ""}`}>
+          {medindo && (
+            <>
               <button
                 type="button"
-                className={modoMedicao === "distancia" ? "ativo" : ""}
-                onClick={() => trocarModoMedicao("distancia")}
+                className="fechar"
+                onClick={() => setMedindo(false)}
+                aria-label="Fechar medição"
+                title="Fechar medição"
               >
-                Distância
+                ×
               </button>
-              <button
-                type="button"
-                className={modoMedicao === "area" ? "ativo" : ""}
-                onClick={() => trocarModoMedicao("area")}
-              >
-                Área
-              </button>
-            </div>
-            <p className="resultado-medicao">
-              {resultadoMedicaoAtual ??
-                (modoMedicao === "area" ? "Clique pra marcar o polígono (mín. 3 pontos)" : "Clique pra marcar os pontos")}
-            </p>
-            {pontosMedicao.length > 0 && (
-              <button type="button" className="botao-limpar-medicao" onClick={() => setPontosMedicao([])}>
-                Limpar
-              </button>
-            )}
-          </aside>
-        )}
-
-        {mostrarPainelTrack && (
-          <aside className="painel-track">
-            <button
-              type="button"
-              className="fechar"
-              onClick={() => setMostrarPainelTrack(false)}
-              aria-label="Fechar gravação de percurso"
-              title="Fechar gravação de percurso"
-            >
-              ×
-            </button>
-            <h3>Gravar percurso</h3>
-            {gravandoPercurso ? (
-              <button type="button" className="botao-track-gravando" onClick={pararGravacaoPercurso}>
-                ● Parar gravação
-              </button>
-            ) : (
-              <button type="button" onClick={iniciarGravacaoPercurso}>
-                Iniciar gravação
-              </button>
-            )}
-            <p className="resultado-medicao">
-              {gravandoPercurso
-                ? `Gravando… ${distanciaPercursoAtual ?? "0 m"}`
-                : distanciaPercursoAtual
-                  ? `Percurso gravado: ${distanciaPercursoAtual}`
-                  : "Clique em \"Iniciar gravação\" e mantenha o app aberto durante o percurso."}
-            </p>
-            {erroTrack && <p className="erro">{erroTrack}</p>}
-            {!gravandoPercurso && pontosPercurso.length > 0 && (
-              <div className="acoes-painel-track">
-                <button type="button" className="botao-secundario" onClick={exportarPercurso}>
-                  Exportar KML
+              <div className="opcoes-modo-medicao">
+                <button
+                  type="button"
+                  className={modoMedicao === "distancia" ? "ativo" : ""}
+                  onClick={() => trocarModoMedicao("distancia")}
+                >
+                  Distância
                 </button>
-                <button type="button" className="botao-limpar-medicao" onClick={limparPercurso}>
-                  Limpar
+                <button
+                  type="button"
+                  className={modoMedicao === "area" ? "ativo" : ""}
+                  onClick={() => trocarModoMedicao("area")}
+                >
+                  Área
                 </button>
               </div>
-            )}
-          </aside>
-        )}
+              <p className="resultado-medicao">
+                {resultadoMedicaoAtual ??
+                  (modoMedicao === "area" ? "Clique pra marcar o polígono (mín. 3 pontos)" : "Clique pra marcar os pontos")}
+              </p>
+              {pontosMedicao.length > 0 && (
+                <button type="button" className="botao-limpar-medicao" onClick={() => setPontosMedicao([])}>
+                  Limpar
+                </button>
+              )}
+            </>
+          )}
+        </aside>
 
-        <aside className={`painel-atributos${selecao ? " painel-atributos--aberto" : ""}`}>
+        <aside className={`painel-flutuante painel-track${mostrarPainelTrack ? " aberto" : ""}`}>
+          {mostrarPainelTrack && (
+            <>
+              <button
+                type="button"
+                className="fechar"
+                onClick={() => setMostrarPainelTrack(false)}
+                aria-label="Fechar gravação de percurso"
+                title="Fechar gravação de percurso"
+              >
+                ×
+              </button>
+              <h3>Gravar percurso</h3>
+              {gravandoPercurso ? (
+                <button type="button" className="botao-track-gravando" onClick={pararGravacaoPercurso}>
+                  ● Parar gravação
+                </button>
+              ) : (
+                <button type="button" onClick={iniciarGravacaoPercurso}>
+                  Iniciar gravação
+                </button>
+              )}
+              <p className="resultado-medicao">
+                {gravandoPercurso
+                  ? `Gravando… ${distanciaPercursoAtual ?? "0 m"}`
+                  : distanciaPercursoAtual
+                    ? `Percurso gravado: ${distanciaPercursoAtual}`
+                    : "Clique em \"Iniciar gravação\" e mantenha o app aberto durante o percurso."}
+              </p>
+              {erroTrack && <p className="erro">{erroTrack}</p>}
+              {!gravandoPercurso && pontosPercurso.length > 0 && (
+                <div className="acoes-painel-track">
+                  <button type="button" className="botao-secundario" onClick={exportarPercurso}>
+                    Exportar KML
+                  </button>
+                  <button type="button" className="botao-limpar-medicao" onClick={limparPercurso}>
+                    Limpar
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </aside>
+
+        <aside className={`painel-flutuante painel-atributos${selecao ? " aberto" : ""}`}>
           {itemSelecionado && (
             <>
               <button

@@ -44,6 +44,7 @@ export default function AdminUsuarios() {
   const [editandoGrupoId, setEditandoGrupoId] = useState(null);
   const [nomeGrupoEdicao, setNomeGrupoEdicao] = useState("");
   const [removendoGrupoId, setRemovendoGrupoId] = useState(null);
+  const [carregando, setCarregando] = useState(true);
 
   function carregarUsuarios() {
     return listarUsuariosAdmin(sessao.token).then(setUsuarios);
@@ -54,8 +55,10 @@ export default function AdminUsuarios() {
   }
 
   useEffect(() => {
-    carregarUsuarios().catch((e) => setErro(e.message));
-    carregarGrupos().catch((e) => setErro(e.message));
+    Promise.allSettled([
+      carregarUsuarios().catch((e) => setErro(e.message)),
+      carregarGrupos().catch((e) => setErro(e.message)),
+    ]).then(() => setCarregando(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
 
@@ -219,6 +222,11 @@ export default function AdminUsuarios() {
 
       <div className="painel-admin-conteudo painel-admin-conteudo--largo">
         {erro && <p className="erro">{erro}</p>}
+        {carregando && (
+          <p className="status-carregando-admin">
+            <span className="spinner" aria-hidden="true" /> Carregando…
+          </p>
+        )}
 
         <form onSubmit={criar} className="cartao-form-admin">
           <h2>Novo usuário</h2>

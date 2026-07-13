@@ -184,7 +184,7 @@ input[type="file"]::file-selector-button:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: 320px;
+  width: min(320px, calc(100vw - 32px));
   padding: 32px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -356,6 +356,14 @@ input[type="file"]::file-selector-button:hover {
   gap: 4px;
   font-size: 14px;
   margin-bottom: 20px;
+}
+
+.status-carregando-admin {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 16px;
 }
 
 .contagem-atributos {
@@ -800,9 +808,16 @@ input[type="file"]::file-selector-button:hover {
   align-items: center;
   gap: 10px;
   font-size: 15px;
-  padding: 8px 0;
+  padding: 8px 8px;
+  margin: 0 -8px;
+  border-radius: 6px;
   min-height: 36px;
   cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.linha-camada:hover {
+  background: #f7f9fa;
 }
 
 .linha-camada input[type="checkbox"] {
@@ -829,6 +844,15 @@ input[type="file"]::file-selector-button:hover {
 
 .nome-camada {
   flex: 1;
+}
+
+/* Camada com falha ao carregar (Mapa.jsx, effect "aplicar") — sem isso o
+   erro só ia pro console, e a camada simplesmente sumia do mapa sem
+   nenhuma explicação visível pro usuário. */
+.aviso-camada {
+  flex-shrink: 0;
+  color: var(--erro);
+  cursor: help;
 }
 
 /* Camada temporária (importação de KML/Shapefile, item 5) — mesma linha
@@ -961,13 +985,15 @@ input[type="file"]::file-selector-button:hover {
   color: var(--text-muted);
 }
 
-.painel-atributos {
+/* Base compartilhada dos 3 painéis flutuantes do mapa (atributos,
+   medição, track) — cada um só declara posição/largura por cima.
+   Transição de abertura/fechamento igual pros três (opacity+transform),
+   em vez de só o painel de atributos ter isso e os outros dois
+   aparecerem/sumirem instantaneamente (montados/desmontados via
+   {condição && (...)}) — os 3 ficam sempre montados agora, alternando
+   a classe .aberto. */
+.painel-flutuante {
   position: absolute;
-  bottom: 16px;
-  right: 16px;
-  width: 280px;
-  max-height: min(60vh, 480px);
-  overflow-y: auto;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -981,10 +1007,31 @@ input[type="file"]::file-selector-button:hover {
     transform 220ms ease;
 }
 
-.painel-atributos--aberto {
+.painel-flutuante.aberto {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+}
+
+.painel-flutuante .fechar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-height: 36px;
+  min-width: 36px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  padding: 4px 8px;
+}
+
+.painel-atributos {
+  bottom: 16px;
+  right: 16px;
+  width: 280px;
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
 }
 
 .painel-atributos h2 {
@@ -1004,46 +1051,18 @@ input[type="file"]::file-selector-button:hover {
   padding: 8px 0;
 }
 
-.painel-atributos .fechar,
-.painel-medicao .fechar {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  min-height: 36px;
-  min-width: 36px;
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  font-size: 20px;
-  padding: 4px 8px;
-}
-
 .painel-medicao {
-  position: absolute;
   bottom: 16px;
   right: 16px;
   width: 260px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-  animation: entrada 200ms ease;
 }
 
 /* Canto inferior-esquerdo — medição/atributos já ocupam o direito, evita
    sobrepor se as duas ferramentas estiverem ativas ao mesmo tempo. */
 .painel-track {
-  position: absolute;
   bottom: 16px;
   left: 16px;
   width: 260px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-  animation: entrada 200ms ease;
 }
 
 .painel-track h3 {
@@ -1060,6 +1079,19 @@ input[type="file"]::file-selector-button:hover {
 .botao-track-gravando {
   background: var(--erro) !important;
   border-color: var(--erro) !important;
+  animation: pulsar-gravacao 1.6s ease-in-out infinite;
+}
+
+/* Sinaliza "isso está ao vivo" — sem isso, nada no botão em si dizia que
+   a gravação estava ativa além do texto "Gravando…" mais abaixo. */
+@keyframes pulsar-gravacao {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(179, 38, 30, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(179, 38, 30, 0);
+  }
 }
 
 .acoes-painel-track {

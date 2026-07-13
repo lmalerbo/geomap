@@ -27,6 +27,11 @@ export default function AdminEstatisticas() {
 
       <div className="painel-admin-conteudo painel-admin-conteudo--largo">
         {erro && <p className="erro">{erro}</p>}
+        {!dados && !erro && (
+          <p className="status-carregando-admin">
+            <span className="spinner" aria-hidden="true" /> Carregando…
+          </p>
+        )}
 
         {dados && (
           <>

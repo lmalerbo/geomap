@@ -1270,6 +1270,75 @@ final usou um servidor estático próprio em vez de `vite preview`. Vale
 lembrar disso numa sessão futura antes de gastar tempo debugando "por
 que só o bundle JS dá 404 e o CSS não".
 
+**Segunda leva da auditoria, itens Médio/Baixo do relatório
+(2026-07-13)**: o Leo pediu pra fazer "tudo, até o refactor maior" —
+essa entrada cobre a parte de UX/CSS (a parte de performance/arquitetura
+de `Mapa.jsx` fica em entradas seguintes). CDN pra COOP/XFO/HSTS
+completo ficou de fora por decisão do Leo (`AskUserQuestion` — exige
+domínio próprio, que ele não tem hoje; fica documentado como pendência
+de infra).
+
+- Cores de ferramenta (medição/track/temporária/destaque de grupo/
+  marcador de seleção/fundo padrão do mapa) centralizadas em
+  `lib/coresFerramentas.js` — antes espalhadas em literais hex direto
+  no meio de `Mapa.jsx`.
+- Novo `.painel-flutuante` (classe CSS base) compartilhado pelos 3
+  painéis flutuantes do mapa (atributos/medição/track), que antes
+  duplicavam a mesma declaração de posição/fundo/borda/sombra cada um.
+  Os 3 agora ficam sempre montados no DOM (antes medição/track eram
+  `{condição && (...)}`) e alternam a classe `.aberto`, mesmo padrão
+  que só o painel de atributos tinha — os outros dois ganharam
+  transição de **fechamento** de verdade (antes só abriam com fade,
+  somiam instantâneo).
+- Bug real encontrado nesse meio-tempo: o botão "fechar" do painel de
+  track nunca teve estilo próprio (`.painel-track .fechar` não
+  existia) — renderizava como o botão verde cheio padrão (`button,
+  .botao` global) em vez do "×" discreto no canto que os outros dois
+  painéis sempre tiveram. Resolvido de graça pela extração de
+  `.painel-flutuante .fechar` compartilhado.
+- `.form-login` com `width: min(320px, calc(100vw - 32px))` em vez de
+  `320px` fixo (evitava overflow em telas muito estreitas).
+- Spinner de carregamento inicial (`<span className="spinner">`, mesmo
+  padrão de `Mapa.jsx`/`Inicio.jsx`) adicionado nas 3 telas
+  administrativas que não tinham (`AdminMapas`, `AdminUsuarios`,
+  `AdminEstatisticas`).
+- `.linha-camada` ganhou `:hover`, consistente com os outros itens de
+  lista clicáveis do painel de camadas.
+- Botão "gravando" do track log ganhou uma pulsação sutil
+  (`box-shadow` em `@keyframes`) — antes era estático, sem nenhuma
+  pista visual de "isso está ao vivo" além do texto.
+- **Falha de camada surfaceada pro usuário** (item Alto do relatório):
+  novo state `errosCamada` (`{ [id]: mensagem }`) em `Mapa.jsx` —
+  quando `adicionarCamada` lança exceção (estilo malformado, metadata
+  inesperada), a linha da camada no painel ganha um ícone `⚠` com
+  `title`/`aria-label` explicando, em vez de só sumir do mapa sem
+  nenhuma pista (o `try/catch` que evita derrubar as outras camadas já
+  existia; só faltava mostrar o erro em algum lugar visível).
+- Breakpoint de tablet (641–899px, item Médio do relatório) **verificado,
+  não corrigido** — testado via Playwright em viewport 768×1024 (tela
+  inicial, mapa, as 4 telas de admin): zero overflow horizontal em
+  qualquer uma. Era uma suspeita registrada sem evidência concreta no
+  relatório original; confirmado que o layout flexível já resolve
+  sozinho, sem precisar de breakpoint novo.
+
+**Bug real que eu mesmo introduzi com a CSP da leva anterior, achado
+testando esta leva**: a CSP (meta tag) tinha `connect-src` hardcoded só
+com o domínio de produção (`geomap-vr68.onrender.com`) — funcionava em
+produção mas **quebrava o login em dev local** (`localhost:3000`
+bloqueado pela própria CSP). E mesmo corrigindo isso, sobrou um segundo
+problema: `script-src 'self'` (sem `unsafe-inline`) bloqueia o próprio
+`<script type="module">` inline que o Vite injeta no `index.html` em
+modo dev pro Fast Refresh — isso não existe no build de produção (que
+só gera `<script src>` externo), então só quebra em dev. Corrigido
+movendo a CSP de um `<meta>` estático em `index.html` pra um plugin
+Vite (`injetarCsp` em `vite.config.js`) que monta o `connect-src` a
+partir do `VITE_API_URL` de verdade (`localhost:3000` por padrão,
+sobrescrito em produção) e libera `'unsafe-inline'` em `script-src`
+**só** quando `command === "serve"` (dev), nunca no build. Lição: CSP
+tem que ser testada tanto em build de produção quanto em dev local
+antes de considerar "pronta" — os dois ambientes têm necessidades
+diferentes o bastante pra uma CSP estática só servir um dos dois.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

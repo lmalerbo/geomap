@@ -25,16 +25,19 @@ export default function AdminMapas() {
   const [salvandoEdicaoId, setSalvandoEdicaoId] = useState(null);
   const [removendoId, setRemovendoId] = useState(null);
   const [duplicandoId, setDuplicandoId] = useState(null);
+  const [carregando, setCarregando] = useState(true);
 
   function carregarMapas() {
     return listarMapasAdmin(sessao.token).then(setMapas);
   }
 
   useEffect(() => {
-    carregarMapas().catch((e) => setErro(e.message));
-    listarGruposAdmin(sessao.token)
-      .then(setGrupos)
-      .catch((e) => setErro(e.message));
+    Promise.allSettled([
+      carregarMapas().catch((e) => setErro(e.message)),
+      listarGruposAdmin(sessao.token)
+        .then(setGrupos)
+        .catch((e) => setErro(e.message)),
+    ]).then(() => setCarregando(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
 
@@ -146,6 +149,11 @@ export default function AdminMapas() {
 
       <div className="painel-admin-conteudo painel-admin-conteudo--largo">
         {erro && <p className="erro">{erro}</p>}
+        {carregando && (
+          <p className="status-carregando-admin">
+            <span className="spinner" aria-hidden="true" /> Carregando…
+          </p>
+        )}
 
         <form onSubmit={criar} className="cartao-form-admin">
           <h2>Novo mapa</h2>
