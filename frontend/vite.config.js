@@ -2,8 +2,17 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// GitHub Pages serve como "<usuário>.github.io/geomap/" (project page, sem
+// domínio próprio) — precisa do base certo, senão os assets do build
+// resolvem pra "/assets/..." (raiz) em vez de "/geomap/assets/...".
+// GITHUB_PAGES só é setado no workflow de deploy (.github/workflows/
+// deploy-frontend.yml); dev/build/preview local continuam em "/", sem
+// mudar nada do fluxo já testado o resto da sessão.
+const base = process.env.GITHUB_PAGES ? '/geomap/' : '/'
+
 // https://vite.dev/config/
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -16,7 +25,8 @@ export default defineConfig({
         theme_color: '#2c6b47',
         background_color: '#f7f9fa',
         display: 'standalone',
-        start_url: '/',
+        start_url: base,
+        scope: base,
         icons: [
           {
             src: 'favicon.svg',

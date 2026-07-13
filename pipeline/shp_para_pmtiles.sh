@@ -23,10 +23,19 @@ echo "==> Convertendo $IN_SHP para GeoJSON..."
 ogr2ogr -f GeoJSON -t_srs EPSG:4326 "$OUT_DIR/$NOME.geojson" "$IN_SHP"
 
 echo "==> Gerando .pmtiles com tippecanoe..."
+# maximum-zoom FIXO (não "g"/guess): o "guess" do tippecanoe escolhe o
+# maxzoom com base no espaçamento entre features pra deixá-las
+# visualmente distinguíveis — pra um dado pouco denso (poucos pontos bem
+# espaçados, ex: sedes de unidade), ele escolhe um maxzoom absurdamente
+# baixo (chegou a 0 num teste real), o que quantiza as coordenadas num
+# grid gigante (~9km no zoom 0) e faz a feição "pular" pra longe da
+# posição real — não é um bug de exibição, o dado gravado no .pmtiles já
+# fica errado. 16 preserva precisão de poucos metros pra qualquer
+# densidade de feição (ponto/linha/polígono).
 tippecanoe \
   --output="$OUT_DIR/$NOME.pmtiles" \
   --layer=talhoes \
-  --maximum-zoom=g \
+  --maximum-zoom=16 \
   --drop-densest-as-needed \
   --force \
   "$OUT_DIR/$NOME.geojson"

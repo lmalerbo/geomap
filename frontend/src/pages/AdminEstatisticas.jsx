@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { buscarEstatisticasAdmin } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
 export default function AdminEstatisticas() {
   const { sessao } = useAuth();
+  const navigate = useNavigate();
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState(null);
 
@@ -19,9 +20,9 @@ export default function AdminEstatisticas() {
       <header className="barra-mapa">
         <strong>GeoMap — Estatísticas</strong>
         <span className="status-sync" />
-        <Link to="/admin" className="botao botao-sair">
-          ← Admin
-        </Link>
+        <button type="button" className="botao botao-sair" onClick={() => navigate(-1)}>
+          ← Voltar
+        </button>
       </header>
 
       <div className="painel-admin-conteudo painel-admin-conteudo--largo">
@@ -31,7 +32,7 @@ export default function AdminEstatisticas() {
           <>
             <div className="tiles-estatisticas">
               <div className="tile-estatistica">
-                <strong>{dados.totais.total_mapas}</strong>
+                <strong>{dados.totais.total_camadas}</strong>
                 <span>Camadas cadastradas</span>
               </div>
               <div className="tile-estatistica">
@@ -45,15 +46,15 @@ export default function AdminEstatisticas() {
             </div>
 
             <div className="cartao-form-admin">
-              <h2>Mapas mais baixados</h2>
-              {dados.mapasMaisBaixados.length === 0 ? (
+              <h2>Camadas mais baixadas</h2>
+              {dados.camadasMaisBaixadas.length === 0 ? (
                 <p className="sem-dados-estatistica">Nenhum download registrado ainda.</p>
               ) : (
                 <ol className="lista-ranking">
-                  {dados.mapasMaisBaixados.map((m) => (
-                    <li key={m.nome}>
-                      <span className="nome-ranking">{m.nome}</span>
-                      <span className="contagem-ranking">{m.downloads}</span>
+                  {dados.camadasMaisBaixadas.map((c) => (
+                    <li key={c.nome}>
+                      <span className="nome-ranking">{c.nome}</span>
+                      <span className="contagem-ranking">{c.downloads}</span>
                     </li>
                   ))}
                 </ol>

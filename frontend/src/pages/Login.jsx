@@ -18,7 +18,7 @@ export default function Login() {
     try {
       const { token, usuario } = await login(email, senha);
       entrar(token, usuario);
-      navigate("/mapa");
+      navigate("/inicio");
     } catch (err) {
       // fetch() falha com TypeError quando nem chega a completar a
       // requisição (sem internet, servidor fora do ar) — diferente de um

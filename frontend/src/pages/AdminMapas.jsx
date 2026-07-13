@@ -1,28 +1,28 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   listarMapasAdmin,
   listarGruposAdmin,
-  enviarMapaAdmin,
-  atualizarArquivoMapaAdmin,
+  criarMapaAdmin,
+  atualizarMapaAdmin,
   removerMapaAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import { corDaCamada } from "../lib/paleta.js";
+
+const FORM_VAZIO = { nome: "", descricao: "", grupoIds: [] };
 
 export default function AdminMapas() {
   const { sessao } = useAuth();
+  const navigate = useNavigate();
   const [mapas, setMapas] = useState([]);
   const [grupos, setGrupos] = useState([]);
-  const [form, setForm] = useState({ nome: "", versao: "1.0", categoria: "", grupoIds: [] });
-  const [arquivo, setArquivo] = useState(null);
+  const [form, setForm] = useState(FORM_VAZIO);
   const [enviando, setEnviando] = useState(false);
-  const [removendoId, setRemovendoId] = useState(null);
   const [erro, setErro] = useState(null);
-  const [atualizandoId, setAtualizandoId] = useState(null);
-  const [novaVersao, setNovaVersao] = useState("");
-  const [novoArquivo, setNovoArquivo] = useState(null);
-  const [enviandoAtualizacao, setEnviandoAtualizacao] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
+  const [formEdicao, setFormEdicao] = useState(FORM_VAZIO);
+  const [salvandoEdicaoId, setSalvandoEdicaoId] = useState(null);
+  const [removendoId, setRemovendoId] = useState(null);
 
   function carregarMapas() {
     return listarMapasAdmin(sessao.token).then(setMapas);
@@ -50,19 +50,13 @@ export default function AdminMapas() {
     });
   }
 
-  async function enviar(e) {
+  async function criar(e) {
     e.preventDefault();
-    if (!arquivo) {
-      setErro("Selecione um arquivo .pmtiles");
-      return;
-    }
     setEnviando(true);
     setErro(null);
     try {
-      await enviarMapaAdmin(sessao.token, { ...form, arquivo });
-      setForm({ nome: "", versao: "1.0", categoria: "", grupoIds: [] });
-      setArquivo(null);
-      document.getElementById("campo-arquivo-pmtiles").value = "";
+      await criarMapaAdmin(sessao.token, form);
+      setForm(FORM_VAZIO);
       await carregarMapas();
     } catch (err) {
       setErro(err.message);
@@ -71,39 +65,43 @@ export default function AdminMapas() {
     }
   }
 
-  function abrirAtualizacao(mapa) {
-    setAtualizandoId(mapa.id);
-    setNovaVersao(mapa.versao);
-    setNovoArquivo(null);
+  function abrirEdicao(mapa) {
+    setEditandoId(mapa.id);
+    setFormEdicao({ nome: mapa.nome, descricao: mapa.descricao || "", grupoIds: mapa.grupoIds || [] });
     setErro(null);
   }
 
-  function fecharAtualizacao() {
-    setAtualizandoId(null);
-    setNovoArquivo(null);
+  function fecharEdicao() {
+    setEditandoId(null);
   }
 
-  async function enviarAtualizacao(e, mapa) {
+  function alternarGrupoEdicao(grupoId) {
+    setFormEdicao((atual) => {
+      const jaTem = atual.grupoIds.includes(grupoId);
+      return {
+        ...atual,
+        grupoIds: jaTem ? atual.grupoIds.filter((g) => g !== grupoId) : [...atual.grupoIds, grupoId],
+      };
+    });
+  }
+
+  async function salvarEdicao(e, mapaId) {
     e.preventDefault();
-    if (!novoArquivo) {
-      setErro("Selecione um arquivo .pmtiles");
-      return;
-    }
-    setEnviandoAtualizacao(true);
+    setSalvandoEdicaoId(mapaId);
     setErro(null);
     try {
-      await atualizarArquivoMapaAdmin(sessao.token, mapa.id, { versao: novaVersao, arquivo: novoArquivo });
-      fecharAtualizacao();
+      await atualizarMapaAdmin(sessao.token, mapaId, formEdicao);
+      fecharEdicao();
       await carregarMapas();
     } catch (err) {
       setErro(err.message);
     } finally {
-      setEnviandoAtualizacao(false);
+      setSalvandoEdicaoId(null);
     }
   }
 
   async function remover(mapa) {
-    if (!window.confirm(`Remover "${mapa.nome}"? Os usuários que já baixaram continuam com a cópia local até o próximo sync, mas o mapa some do catálogo.`)) {
+    if (!window.confirm(`Remover o mapa "${mapa.nome}"? Essa ação não pode ser desfeita.`)) {
       return;
     }
     setRemovendoId(mapa.id);
@@ -121,18 +119,18 @@ export default function AdminMapas() {
   return (
     <main className="tela-mapa">
       <header className="barra-mapa">
-        <strong>GeoMap — Adicionar/remover camadas</strong>
+        <strong>GeoMap — Gerenciar mapas</strong>
         <span className="status-sync" />
-        <Link to="/admin" className="botao botao-sair">
-          ← Admin
-        </Link>
+        <button type="button" className="botao botao-sair" onClick={() => navigate(-1)}>
+          ← Voltar
+        </button>
       </header>
 
       <div className="painel-admin-conteudo painel-admin-conteudo--largo">
         {erro && <p className="erro">{erro}</p>}
 
-        <form onSubmit={enviar} className="cartao-form-admin">
-          <h2>Adicionar camada</h2>
+        <form onSubmit={criar} className="cartao-form-admin">
+          <h2>Novo mapa</h2>
 
           <label className="campo-form-admin">
             Nome
@@ -145,21 +143,11 @@ export default function AdminMapas() {
           </label>
 
           <label className="campo-form-admin">
-            Versão
+            Descrição
             <input
               type="text"
-              required
-              value={form.versao}
-              onChange={(e) => atualizarCampo("versao", e.target.value)}
-            />
-          </label>
-
-          <label className="campo-form-admin">
-            Categoria
-            <input
-              type="text"
-              value={form.categoria}
-              onChange={(e) => atualizarCampo("categoria", e.target.value)}
+              value={form.descricao}
+              onChange={(e) => atualizarCampo("descricao", e.target.value)}
             />
           </label>
 
@@ -179,73 +167,79 @@ export default function AdminMapas() {
             </div>
           </div>
 
-          <label className="campo-form-admin">
-            Arquivo .pmtiles
-            <input
-              id="campo-arquivo-pmtiles"
-              type="file"
-              accept=".pmtiles"
-              required
-              onChange={(e) => setArquivo(e.target.files[0] || null)}
-            />
-          </label>
-
           <button type="submit" disabled={enviando}>
-            {enviando ? "Enviando…" : "Adicionar camada"}
+            {enviando ? "Criando…" : "Criar mapa"}
           </button>
         </form>
 
-        <h2 className="titulo-lista-mapas">Camadas existentes</h2>
+        <h2 className="titulo-lista-mapas">Mapas existentes</h2>
         <ul className="lista-mapas-admin">
           {mapas.map((m) => (
             <li key={m.id} className="item-mapa-admin">
               <div className="linha-mapa-admin">
-                <span
-                  className="swatch-camada"
-                  style={{ backgroundColor: m.estilo_config?.cor || corDaCamada(m.id) }}
-                  aria-hidden="true"
-                />
                 <div className="info-mapa-admin">
                   <strong>{m.nome}</strong>
                   <span className="detalhe-mapa-admin">
-                    {m.categoria ? `${m.categoria} · ` : ""}v{m.versao}
+                    {m.camadaCount > 0
+                      ? `${m.camadaCount} camada${m.camadaCount > 1 ? "s" : ""}`
+                      : "nenhuma camada ainda"}{" "}
+                    · {m.descricao || "sem descrição"} ·{" "}
+                    {(m.grupoIds || [])
+                      .map((id) => grupos.find((g) => g.id === id)?.nome)
+                      .filter(Boolean)
+                      .join(", ") || "nenhum grupo com acesso"}
                   </span>
                 </div>
+                <Link to={`/admin/camadas?mapaId=${m.id}`} className="botao-secundario">
+                  Adicionar camada
+                </Link>
                 <button
                   type="button"
                   className="botao-secundario"
-                  onClick={() => (atualizandoId === m.id ? fecharAtualizacao() : abrirAtualizacao(m))}
+                  onClick={() => (editandoId === m.id ? fecharEdicao() : abrirEdicao(m))}
                 >
-                  {atualizandoId === m.id ? "Cancelar" : "Atualizar arquivo"}
+                  {editandoId === m.id ? "Cancelar" : "Editar"}
                 </button>
                 <button
                   type="button"
                   className="botao-remover-mapa"
                   onClick={() => remover(m)}
-                  disabled={removendoId === m.id}
+                  disabled={removendoId === m.id || m.camadaCount > 0}
+                  title={m.camadaCount > 0 ? "Remova as camadas desse mapa antes de removê-lo" : undefined}
                 >
                   {removendoId === m.id ? "Removendo…" : "Remover"}
                 </button>
               </div>
 
-              {atualizandoId === m.id && (
-                <form className="form-atualizar-arquivo" onSubmit={(e) => enviarAtualizacao(e, m)}>
+              {editandoId === m.id && (
+                <form className="form-atualizar-arquivo" onSubmit={(e) => salvarEdicao(e, m.id)}>
                   <input
                     type="text"
-                    value={novaVersao}
-                    onChange={(e) => setNovaVersao(e.target.value)}
-                    aria-label="Nova versão"
+                    value={formEdicao.nome}
+                    onChange={(e) => setFormEdicao((atual) => ({ ...atual, nome: e.target.value }))}
+                    aria-label="Nome do mapa"
                     required
                   />
                   <input
-                    type="file"
-                    accept=".pmtiles"
-                    onChange={(e) => setNovoArquivo(e.target.files[0] || null)}
-                    aria-label="Novo arquivo .pmtiles"
-                    required
+                    type="text"
+                    value={formEdicao.descricao}
+                    onChange={(e) => setFormEdicao((atual) => ({ ...atual, descricao: e.target.value }))}
+                    aria-label="Descrição do mapa"
                   />
-                  <button type="submit" disabled={enviandoAtualizacao}>
-                    {enviandoAtualizacao ? "Enviando…" : "Enviar nova versão"}
+                  <div className="lista-grupos-checkbox">
+                    {grupos.map((g) => (
+                      <label key={g.id} className="opcao-grupo">
+                        <input
+                          type="checkbox"
+                          checked={formEdicao.grupoIds.includes(g.id)}
+                          onChange={() => alternarGrupoEdicao(g.id)}
+                        />
+                        {g.nome}
+                      </label>
+                    ))}
+                  </div>
+                  <button type="submit" disabled={salvandoEdicaoId === m.id}>
+                    {salvandoEdicaoId === m.id ? "Salvando…" : "Salvar"}
                   </button>
                 </form>
               )}

@@ -1,5 +1,5 @@
-// Seed de dados de dev — usuário e mapas fictícios pra testar login,
-// catálogo e download local. NÃO é dado real.
+// Seed de dados de dev — usuário, mapas (projetos) e camadas fictícios
+// pra testar login, tela inicial e download local. NÃO é dado real.
 // Uso: npm run seed (depois de rodar npm run migrate).
 import bcrypt from "bcrypt";
 import { pool } from "./pool.js";
@@ -14,18 +14,26 @@ async function upsertGrupo(nome) {
   return rows[0].id;
 }
 
-async function upsertMapa(nome, versao, categoria, arquivoPath) {
-  const { rows } = await pool.query(
-    `SELECT id FROM mapas WHERE nome = $1`,
-    [nome]
-  );
+async function upsertMapa(nome, descricao) {
+  const { rows } = await pool.query(`SELECT id FROM mapas WHERE nome = $1`, [nome]);
   if (rows[0]) return rows[0].id;
 
   const inserted = await pool.query(
-    `INSERT INTO mapas (nome, versao, categoria, arquivo_path)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO mapas (nome, descricao) VALUES ($1, $2) RETURNING id`,
+    [nome, descricao]
+  );
+  return inserted.rows[0].id;
+}
+
+async function upsertCamada(mapaId, nome, versao, categoria, arquivoPath) {
+  const { rows } = await pool.query(`SELECT id FROM camadas WHERE nome = $1`, [nome]);
+  if (rows[0]) return rows[0].id;
+
+  const inserted = await pool.query(
+    `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [nome, versao, categoria, arquivoPath]
+    [mapaId, nome, versao, categoria, arquivoPath]
   );
   return inserted.rows[0].id;
 }
@@ -65,34 +73,45 @@ async function main() {
     [adminId, grupoAgronomia]
   );
 
-  // Mapa visível pro usuário de teste (grupo Agronomia).
+  // Mapa (projeto) visível pro usuário de teste (grupo Agronomia), com
+  // uma camada fake dentro dele.
   const mapaVisivel = await upsertMapa(
-    "Talhões — Fazenda Fictícia (dado fake)",
-    "1.0",
-    "Agronomia",
-    "talhoes_teste.pmtiles"
+    "Fazenda Fictícia (teste)",
+    "Mapa de dev usado pra testar login/sincronização"
   );
   await pool.query(
     `INSERT INTO permissoes (mapa_id, grupo_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [mapaVisivel, grupoAgronomia]
   );
+  await upsertCamada(
+    mapaVisivel,
+    "Talhões — Fazenda Fictícia (dado fake)",
+    "1.0",
+    "Agronomia",
+    "talhoes_teste.pmtiles"
+  );
 
-  // Mapa fora do grupo do usuário de teste — só pra provar que o filtro funciona.
-  await upsertMapa(
+  // Mapa (projeto) fora do grupo do usuário de teste — prova que o
+  // filtro de permissão por mapa inteiro funciona.
+  const mapaRestrito = await upsertMapa(
+    "Projeto restrito (teste)",
+    "Mapa fake usado pra testar permissão por grupo"
+  );
+  await pool.query(
+    `INSERT INTO permissoes (mapa_id, grupo_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [mapaRestrito, grupoDiretoria]
+  );
+  await upsertCamada(
+    mapaRestrito,
     "Mapa restrito — Diretoria (dado fake)",
     "1.0",
     "Diretoria",
     "restrito_teste.pmtiles"
-  ).then((mapaRestritoId) =>
-    pool.query(
-      `INSERT INTO permissoes (mapa_id, grupo_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [mapaRestritoId, grupoDiretoria]
-    )
   );
 
   console.log("Seed aplicado: teste@geoportal.local / senha123 (usuario)");
   console.log("Seed aplicado: admin@geoportal.local / senha123 (admin)");
-  console.log(`Mapa visível: id=${mapaVisivel} (arquivo: talhoes_teste.pmtiles)`);
+  console.log(`Mapa visível: id=${mapaVisivel} (Fazenda Fictícia (teste))`);
   await pool.end();
 }
 

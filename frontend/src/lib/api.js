@@ -18,6 +18,8 @@ export async function login(email, senha) {
   return resp.json();
 }
 
+// Retorna os mapas (projetos) permitidos, cada um já com o array de
+// camadas aninhado — ver GET /mapas no backend.
 export async function buscarCatalogo(token) {
   // no-store: o catálogo (nome/atributos/estilo) pode mudar a qualquer
   // sync via painel de admin, mesmo sem bumpar a versão do .pmtiles — não
@@ -30,18 +32,130 @@ export async function buscarCatalogo(token) {
   return resp.json();
 }
 
-export async function baixarMapa(token, mapaId) {
-  const resp = await fetch(`${API_URL}/mapas/${mapaId}/download`, {
+export async function baixarCamada(token, camadaId) {
+  const resp = await fetch(`${API_URL}/camadas/${camadaId}/download`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   await tratarResposta(resp);
   return resp.blob();
 }
 
-// --- Painel de administração ---
+// --- Painel de administração: mapas (projetos) ---
 
 export async function listarMapasAdmin(token) {
   const resp = await fetch(`${API_URL}/admin/mapas`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function criarMapaAdmin(token, { nome, descricao, grupoIds }) {
+  const resp = await fetch(`${API_URL}/admin/mapas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nome, descricao, grupoIds }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function atualizarMapaAdmin(token, mapaId, { nome, descricao, grupoIds }) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nome, descricao, grupoIds }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function removerMapaAdmin(token, mapaId) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+// --- Painel de administração: grupos ---
+
+export async function criarGrupoAdmin(token, nome) {
+  const resp = await fetch(`${API_URL}/admin/grupos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nome }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function renomearGrupoAdmin(token, grupoId, nome) {
+  const resp = await fetch(`${API_URL}/admin/grupos/${grupoId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nome }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function removerGrupoAdmin(token, grupoId) {
+  const resp = await fetch(`${API_URL}/admin/grupos/${grupoId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+// --- Painel de administração: usuários ---
+
+export async function listarUsuariosAdmin(token) {
+  const resp = await fetch(`${API_URL}/admin/usuarios`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function criarUsuarioAdmin(token, { nome, email, senha, departamento, papel, grupoIds }) {
+  const resp = await fetch(`${API_URL}/admin/usuarios`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nome, email, senha, departamento, papel, grupoIds }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function atualizarUsuarioAdmin(token, usuarioId, { nome, departamento, papel, status, grupoIds }) {
+  const resp = await fetch(`${API_URL}/admin/usuarios/${usuarioId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nome, departamento, papel, status, grupoIds }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function redefinirSenhaUsuarioAdmin(token, usuarioId, senha) {
+  const resp = await fetch(`${API_URL}/admin/usuarios/${usuarioId}/senha`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ senha }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+// --- Painel de administração: camadas (arquivos .pmtiles dentro de um mapa) ---
+
+export async function listarCamadasAdmin(token) {
+  const resp = await fetch(`${API_URL}/admin/camadas`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -58,15 +172,15 @@ export async function listarGruposAdmin(token) {
   return resp.json();
 }
 
-export async function enviarMapaAdmin(token, { nome, versao, categoria, grupoIds, arquivo }) {
+export async function enviarCamadaAdmin(token, { nome, versao, categoria, mapaId, arquivo }) {
   const dados = new FormData();
   dados.append("nome", nome);
   dados.append("versao", versao);
   dados.append("categoria", categoria);
-  dados.append("grupoIds", JSON.stringify(grupoIds));
+  dados.append("mapaId", mapaId);
   dados.append("arquivo", arquivo);
 
-  const resp = await fetch(`${API_URL}/admin/mapas`, {
+  const resp = await fetch(`${API_URL}/admin/camadas`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: dados,
@@ -75,12 +189,12 @@ export async function enviarMapaAdmin(token, { nome, versao, categoria, grupoIds
   return resp.json();
 }
 
-export async function atualizarArquivoMapaAdmin(token, mapaId, { versao, arquivo }) {
+export async function atualizarArquivoCamadaAdmin(token, camadaId, { versao, arquivo }) {
   const dados = new FormData();
   dados.append("versao", versao);
   dados.append("arquivo", arquivo);
 
-  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/arquivo`, {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/arquivo`, {
     method: "PUT",
     headers: { Authorization: `Bearer ${token}` },
     body: dados,
@@ -89,8 +203,8 @@ export async function atualizarArquivoMapaAdmin(token, mapaId, { versao, arquivo
   return resp.json();
 }
 
-export async function removerMapaAdmin(token, mapaId) {
-  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}`, {
+export async function removerCamadaAdmin(token, camadaId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -98,16 +212,16 @@ export async function removerMapaAdmin(token, mapaId) {
   return resp.json();
 }
 
-export async function baixarMapaAdmin(token, mapaId) {
-  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/arquivo`, {
+export async function baixarCamadaAdmin(token, camadaId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/arquivo`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   await tratarResposta(resp);
   return resp.blob();
 }
 
-export async function buscarConfigAtributos(token, mapaId) {
-  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/atributos`, {
+export async function buscarConfigAtributos(token, camadaId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/atributos`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -116,8 +230,8 @@ export async function buscarConfigAtributos(token, mapaId) {
   return atributos;
 }
 
-export async function salvarConfigAtributos(token, mapaId, atributos) {
-  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/atributos`, {
+export async function salvarConfigAtributos(token, camadaId, atributos) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/atributos`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ atributos }),
@@ -127,8 +241,8 @@ export async function salvarConfigAtributos(token, mapaId, atributos) {
   return salvos;
 }
 
-export async function renomearMapaAdmin(token, mapaId, nome) {
-  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}`, {
+export async function renomearCamadaAdmin(token, camadaId, nome) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ nome }),
@@ -146,8 +260,8 @@ export async function buscarEstatisticasAdmin(token) {
   return resp.json();
 }
 
-export async function buscarConfigEstilo(token, mapaId) {
-  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/estilo`, {
+export async function buscarConfigEstilo(token, camadaId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/estilo`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -156,8 +270,8 @@ export async function buscarConfigEstilo(token, mapaId) {
   return estilo;
 }
 
-export async function salvarConfigEstilo(token, mapaId, estilo) {
-  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/estilo`, {
+export async function salvarConfigEstilo(token, camadaId, estilo) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/estilo`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ estilo }),

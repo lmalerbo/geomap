@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { PMTiles, Protocol } from "pmtiles";
@@ -7,11 +7,34 @@ import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import turfLength from "@turf/length";
 import turfArea from "@turf/area";
-import { listarMapasBaixados } from "../lib/db.js";
+import { listarMapasBaixados, listarMapasDisponiveis } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 import { corDaCamada } from "../lib/paleta.js";
+import {
+  normalizarEstiloConfig,
+  expressaoCorPreenchimento,
+  expressaoIconePorCategoria,
+  usaIconeSimbolo,
+  corHaloIcone,
+  desenharBitmapForma,
+  nomeImagemForma,
+  FORMAS_PONTO,
+} from "../lib/estiloCamada.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { importarArquivoTemporario } from "../lib/importadorTemporario.js";
+import { baixarKmlPercurso } from "../lib/trackLog.js";
+import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
+
+function IconeMenu() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
 
 // Botão "Home" — volta pra extensão combinada de todas as camadas carregadas.
 class HomeControl {
@@ -61,13 +84,82 @@ class MedicaoControl {
   }
 }
 
+// Botão "Fundo satélite" — alterna entre o fundo padrão (cor sólida) e
+// imagem de satélite (Esri World Imagery, tiles raster online). Só o
+// próprio botão é criado uma vez aqui (fora do ciclo de render do React);
+// `atualizar()` é chamado de um efeito sempre que o estado muda, pra
+// manter ícone/título/bloqueio em sincronia sem recriar o controle.
+class FundoControl {
+  constructor(aoClicar) {
+    this._aoClicar = aoClicar;
+  }
+  onAdd() {
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="m3.5 8.5 6-3 5 2.5 6-3"/><path d="M9.5 5.5v13M14.5 8v13"/><path d="m3.5 18.5 6-3 5 2.5 6-3"/></svg>';
+    botao.onclick = () => this._aoClicar();
+    this._container.appendChild(botao);
+    this._botao = botao;
+    return this._container;
+  }
+  atualizar(satelite, offline) {
+    const bloqueado = offline && !satelite;
+    this._botao.disabled = bloqueado;
+    this._botao.classList.toggle("ctrl-ativo", satelite);
+    const titulo = bloqueado
+      ? "Fundo satélite exige internet"
+      : satelite
+        ? "Voltar ao fundo padrão"
+        : "Ver fundo de satélite";
+    this._botao.title = titulo;
+    this._botao.setAttribute("aria-label", titulo);
+  }
+  onRemove() {
+    this._container.parentNode?.removeChild(this._container);
+  }
+}
+
+// Botão "Track log" — abre/fecha o painel de gravação de percurso (item 4).
+// Mesmo molde de MedicaoControl: só dispara o callback, toda a lógica de
+// GPS/gravação mora em React (precisa de estado).
+class TrackControl {
+  constructor(aoClicar) {
+    this._aoClicar = aoClicar;
+  }
+  onAdd() {
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.title = "Gravar percurso";
+    botao.setAttribute("aria-label", "Gravar percurso");
+    botao.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M3 17c3-6 6 4 9-2s6 4 9-2"/><circle cx="4" cy="17.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="20" cy="12.5" r="1.4" fill="currentColor" stroke="none"/></svg>';
+    botao.onclick = () => this._aoClicar();
+    this._container.appendChild(botao);
+    return this._container;
+  }
+  onRemove() {
+    this._container.parentNode?.removeChild(this._container);
+  }
+}
+
 // Nome de camada convencionado, gerado pelo pipeline (ver
-// gerar_rotulos_conectores.py): "rotulos" = 1 ponto por feição lógica
+// pipeline/rotulos/gerar_rotulos.py e gerar_rotulos_por_atributo.py):
+// "rotulos" = 1 ponto por feição lógica
 // (mesmo quando a geometria original tem várias partes desconexas —
 // MapLibre/tippecanoe rotulariam cada parte separadamente, causando
 // número repetido no mapa). Não é obrigatória — um .pmtiles sem ela
 // simplesmente não ganha rótulo.
 const CAMADA_ROTULOS = "rotulos";
+
+// Fundo satélite (Esri World Imagery) — só existem quando o toggle está
+// ativo, ver efeito "1c" em Mapa().
+const FUNDO_SATELITE_SOURCE_ID = "fundo-satelite-fonte";
+const FUNDO_SATELITE_LAYER_ID = "fundo-satelite";
 
 // Filtro que nunca casa com nenhuma feição — usado pra "desligar" o
 // highlight de grupo sem precisar remover/recriar a camada.
@@ -79,6 +171,26 @@ const FONTE_MEDICAO = "fonte-medicao";
 const CAMADA_MEDICAO_LINHA = "camada-medicao-linha";
 const CAMADA_MEDICAO_PONTOS = "camada-medicao-pontos";
 const CAMADA_MEDICAO_AREA = "camada-medicao-area";
+
+// Importação temporária (KML/Shapefile) — só existe em React state
+// (arquivoTemporario), nunca em IndexedDB/backend; some ao recarregar a
+// página ou remover manualmente. Cor destacada (magenta) sinaliza "isso é
+// temporário", sem editor de simbologia — arquivo importado pode ter
+// qualquer geometria, por isso 3 layers (uma por família de geometria) em
+// vez de decidir um tipo só, como as camadas reais fazem.
+const FONTE_TEMPORARIA = "fonte-temporaria";
+const CAMADA_TEMPORARIA_PREENCHIMENTO = "camada-temporaria-preenchimento";
+const CAMADA_TEMPORARIA_LINHA = "camada-temporaria-linha";
+const CAMADA_TEMPORARIA_PONTOS = "camada-temporaria-pontos";
+const COR_TEMPORARIA = "#c026d3";
+
+// Track log (item 4) — desenha o percurso gravado via GPS. Cor sólida
+// vermelha, bem distinta da medição (laranja tracejado) e da importação
+// temporária (magenta), pra não confundir as três ferramentas se estiverem
+// ativas ao mesmo tempo.
+const FONTE_TRACK = "fonte-track";
+const CAMADA_TRACK_LINHA = "camada-track-linha";
+const COR_TRACK = "#dc2626";
 
 // Monta o FeatureCollection renderizado enquanto o usuário vai clicando:
 // pontos sempre, linha a partir de 2 pontos (fechada se for modo área,
@@ -130,6 +242,25 @@ function textoResultadoMedicao(pontos, modo) {
   return m2 < 10000 ? `${m2.toFixed(0)} m²` : `${(m2 / 10000).toFixed(2)} ha`;
 }
 
+function geojsonPercurso(pontos) {
+  return {
+    type: "FeatureCollection",
+    features:
+      pontos.length >= 2
+        ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pontos } }]
+        : [],
+  };
+}
+
+// Mesmo critério de formatação de textoResultadoMedicao (km/m conforme o
+// tamanho), reaproveitado aqui pra distância percorrida ao vivo.
+function textoDistanciaPercurso(pontos) {
+  if (pontos.length < 2) return null;
+  const linha = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pontos } };
+  const km = turfLength(linha, { units: "kilometers" });
+  return km < 1 ? `${(km * 1000).toFixed(0)} m` : `${km.toFixed(2)} km`;
+}
+
 // Monta o filtro que seleciona todas as partes do mesmo talhão/seção, a
 // partir dos campos que já existem na camada principal (sem precisar de
 // nenhum id estável — tippecanoe não gera um por padrão).
@@ -169,6 +300,22 @@ function lonLatParaTile(lon, lat, z) {
     ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n
   );
   return [x, y];
+}
+
+async function detectarTipoGeometria(pmtiles, sourceLayer, header) {
+  try {
+    const lon = (header.minLon + header.maxLon) / 2;
+    const lat = (header.minLat + header.maxLat) / 2;
+    const [x, y] = lonLatParaTile(lon, lat, header.minZoom);
+    const resp = await pmtiles.getZxy(header.minZoom, x, y);
+    if (!resp) return null;
+    const tile = new VectorTile(new PbfReader(new Uint8Array(resp.data)));
+    const layer = tile.layers[sourceLayer];
+    if (!layer || layer.length === 0) return null;
+    return layer.feature(0).type;
+  } catch {
+    return null;
+  }
 }
 
 // Sem acento, minúsculo — pra buscar "Sao Joao" e achar "São João".
@@ -266,7 +413,7 @@ async function adicionarCamada(map, protocol, mapa) {
   const camadaPrincipal = todasCamadas.find((l) => l.id !== CAMADA_ROTULOS);
   if (!camadaPrincipal) return null;
 
-  const temRotulos = todasCamadas.some((l) => l.id === CAMADA_ROTULOS);
+  const temRotulosPipeline = todasCamadas.some((l) => l.id === CAMADA_ROTULOS);
 
   // Sem config salva (mapa ainda não editado no admin), decide pela presença
   // do campo TALHAO no próprio metadata: camadas de talhão ganham
@@ -274,77 +421,186 @@ async function adicionarCamada(map, protocol, mapa) {
   // ficam só com a linha + rótulo (nome) a partir de um zoom mais baixo.
   const campos = camadaPrincipal.fields || {};
   const ehTalhao = "TALHAO" in campos;
-  const estilo = mapa.estiloConfig || {};
-  const opacidadePreenchimento = estilo.opacidadePreenchimento ?? (ehTalhao ? 0.35 : 0);
-  const zoomRotulo = estilo.zoomRotulo ?? (ehTalhao ? 13 : 10);
-  const mostrarRotulo = (estilo.mostrarRotulo ?? true) && temRotulos;
-  const cor = estilo.cor || corDaCamada(mapa.id);
+  const geometryType = await detectarTipoGeometria(pmtiles, camadaPrincipal.id, header);
+  const ehPonto = geometryType === 1;
+  const consultavel = ehTalhao || ehPonto;
+  const estilo = normalizarEstiloConfig(mapa.estiloConfig, {
+    ehTalhao,
+    ehPonto,
+    corPadrao: corDaCamada(mapa.id),
+  });
+  const { preenchimento, contorno, rotulo, visibilidade, simbolo } = estilo;
+  const corPreenchimento = expressaoCorPreenchimento(preenchimento);
+  // Rótulo "direto de atributo" não depende da camada rotulos do pipeline —
+  // funciona em qualquer camada; "pipeline" só fica disponível se ela existir.
+  const mostrarRotulo = rotulo.mostrar && (rotulo.origem === "atributo" || temRotulosPipeline);
 
   const sourceId = `fonte-${mapa.id}`;
   const fillLayerId = `camada-${mapa.id}-preenchimento`;
   const lineLayerId = `camada-${mapa.id}-borda`;
+  const circleLayerId = `camada-${mapa.id}-ponto`;
   const rotuloLayerId = `camada-${mapa.id}-rotulo`;
   const highlightLayerId = `camada-${mapa.id}-highlight`;
+  const highlightCircleLayerId = `camada-${mapa.id}-highlight-circle`;
 
   // Idempotente: efeitos concorrentes (carga inicial offline-first + sync em
   // segundo plano) podem tentar aplicar a mesma camada quase ao mesmo tempo.
-  for (const id of [rotuloLayerId, highlightLayerId, fillLayerId, lineLayerId]) {
+  for (const id of [rotuloLayerId, highlightCircleLayerId, highlightLayerId, circleLayerId, fillLayerId, lineLayerId]) {
     if (map.getLayer(id)) map.removeLayer(id);
   }
   if (map.getSource(sourceId)) map.removeSource(sourceId);
 
-  map.addSource(sourceId, { type: "vector", url: `pmtiles://${source.getKey()}` });
-  map.addLayer({
-    id: fillLayerId,
-    type: "fill",
-    source: sourceId,
-    "source-layer": camadaPrincipal.id,
-    paint: {
-      "fill-color": cor,
-      "fill-opacity": opacidadePreenchimento,
-      "fill-opacity-transition": { duration: 300 },
-    },
+  // minzoom/maxzoom da fonte precisam bater com o da CAMADA PRINCIPAL
+  // (polígono/ponto), não com o header.maxZoom do arquivo inteiro: quando
+  // o .pmtiles tem a camada "rotulos" junto (gerada com -z17, mais alta
+  // que o maximum-zoom automático do tippecanoe pra geometria, tipicamente
+  // 14), o header reporta o maior valor entre as duas (17) — mas os tiles
+  // da geometria não existem de fato além do maxzoom dela. Usar o header
+  // fazia o MapLibre acreditar que existia tile real até 17 e pedir esses
+  // tiles direto (voltam vazios de verdade, a lib pmtiles não faz overzoom
+  // sozinha), sumindo a camada em vez de ampliar o tile mais detalhado que
+  // existe. `vector_layers[].maxzoom` no metadata é por camada (rotulos
+  // continua funcionando igual mesmo limitado ao maxzoom da geometria — é
+  // só um ponto, sem perda de precisão ao ser overzoomed).
+  map.addSource(sourceId, {
+    type: "vector",
+    url: `pmtiles://${source.getKey()}`,
+    minzoom: camadaPrincipal.minzoom ?? header.minZoom,
+    maxzoom: camadaPrincipal.maxzoom ?? header.maxZoom,
   });
-  map.addLayer({
-    id: lineLayerId,
-    type: "line",
-    source: sourceId,
-    "source-layer": camadaPrincipal.id,
-    paint: {
-      "line-color": cor,
-      "line-width": 1.5,
-      "line-opacity": 1,
-      "line-opacity-transition": { duration: 300 },
-    },
-  });
+  if (!ehPonto) {
+    map.addLayer({
+      id: fillLayerId,
+      type: "fill",
+      source: sourceId,
+      "source-layer": camadaPrincipal.id,
+      minzoom: visibilidade.zoomMinimo,
+      maxzoom: visibilidade.zoomMaximo,
+      paint: {
+        "fill-color": corPreenchimento,
+        "fill-opacity": preenchimento.opacidade,
+        "fill-opacity-transition": { duration: 300 },
+      },
+    });
+    map.addLayer({
+      id: lineLayerId,
+      type: "line",
+      source: sourceId,
+      "source-layer": camadaPrincipal.id,
+      minzoom: visibilidade.zoomMinimo,
+      maxzoom: visibilidade.zoomMaximo,
+      paint: {
+        "line-color": contorno.cor,
+        "line-width": contorno.largura,
+        "line-opacity": contorno.opacidade,
+        "line-opacity-transition": { duration: 300 },
+      },
+    });
+  } else if (!usaIconeSimbolo(simbolo)) {
+    map.addLayer({
+      id: circleLayerId,
+      type: "circle",
+      source: sourceId,
+      "source-layer": camadaPrincipal.id,
+      minzoom: visibilidade.zoomMinimo,
+      maxzoom: visibilidade.zoomMaximo,
+      paint: {
+        "circle-color": corPreenchimento,
+        "circle-radius": 5,
+        // Antes ignorava contorno.* por completo (só cor/raio do
+        // preenchimento) — contorno vira o stroke do círculo, com
+        // opacidade própria (não amarrada à do preenchimento): dá pra
+        // zerar o preenchimento e deixar só o contorno representando o
+        // ponto, ou vice-versa.
+        "circle-opacity": preenchimento.opacidade,
+        "circle-stroke-color": contorno.cor,
+        "circle-stroke-width": contorno.largura,
+        "circle-stroke-opacity": contorno.opacidade,
+        "circle-opacity-transition": { duration: 300 },
+        "circle-stroke-opacity-transition": { duration: 300 },
+      },
+    });
+  } else {
+    // Forma diferente de círculo (ou categorizada por atributo) só existe
+    // como ícone SDF — ver usaIconeSimbolo em estiloCamada.js pro porquê de
+    // não usar "circle" aqui. icon-opacity é uma única propriedade pro
+    // símbolo inteiro (preenchimento+contorno juntos, sem o
+    // fill/contorno-independentes do circle acima); contorno.opacidade
+    // ainda tem efeito próprio porque corHaloIcone já embute essa opacidade
+    // no alpha da cor do halo.
+    map.addLayer({
+      id: circleLayerId,
+      type: "symbol",
+      source: sourceId,
+      "source-layer": camadaPrincipal.id,
+      minzoom: visibilidade.zoomMinimo,
+      maxzoom: visibilidade.zoomMaximo,
+      layout: {
+        "icon-image": expressaoIconePorCategoria(simbolo),
+        "icon-size": 0.5,
+        "icon-allow-overlap": true,
+      },
+      paint: {
+        "icon-color": corPreenchimento,
+        "icon-halo-color": corHaloIcone(contorno),
+        "icon-halo-width": contorno.largura,
+        "icon-opacity": preenchimento.opacidade,
+        "icon-opacity-transition": { duration: 300 },
+      },
+    });
+  }
+  const tipoPonto = ehPonto ? (usaIconeSimbolo(simbolo) ? "symbol" : "circle") : null;
 
-  // Highlight de grupo: ao clicar num talhão com várias partes, todas as
-  // partes irmãs (mesma SECAO+TALHAO) ganham essa borda — sem precisar de
-  // linha conectando geometria nenhuma. Começa sem casar com nada.
-  map.addLayer({
-    id: highlightLayerId,
-    type: "line",
-    source: sourceId,
-    "source-layer": camadaPrincipal.id,
-    paint: { "line-color": "#ffd400", "line-width": 3 },
-    filter: FILTRO_NENHUM,
-  });
+  // Highlight de grupo: suporta tanto polígonos/linhas quanto pontos.
+  if (!ehPonto) {
+    map.addLayer({
+      id: highlightLayerId,
+      type: "line",
+      source: sourceId,
+      "source-layer": camadaPrincipal.id,
+      paint: { "line-color": "#ffd400", "line-width": 3 },
+      filter: FILTRO_NENHUM,
+    });
+  } else {
+    map.addLayer({
+      id: highlightCircleLayerId,
+      type: "circle",
+      source: sourceId,
+      "source-layer": camadaPrincipal.id,
+      paint: { "circle-color": "#ffd400", "circle-radius": 10, "circle-opacity": 0.5 },
+      filter: FILTRO_NENHUM,
+    });
+  }
 
   if (mostrarRotulo) {
+    // "pipeline": camada rotulos pré-gerada (pole of inaccessibility, texto
+    // fixo no campo "rotulo"). "atributo": texto direto de um campo do
+    // próprio polígono — MapLibre posiciona sozinho, sem depender do
+    // pipeline de rótulos ter rodado pra essa camada.
+    const usaPipeline = rotulo.origem === "pipeline" && temRotulosPipeline;
+    const campoTexto = usaPipeline ? "rotulo" : rotulo.campo || camadaPrincipal.id;
     map.addLayer({
       id: rotuloLayerId,
       type: "symbol",
       source: sourceId,
-      "source-layer": CAMADA_ROTULOS,
-      minzoom: zoomRotulo,
+      "source-layer": usaPipeline ? CAMADA_ROTULOS : camadaPrincipal.id,
+      minzoom: rotulo.zoomMinimo,
       layout: {
-        "text-field": ["get", "rotulo"],
+        "text-field": ["get", campoTexto],
         "text-font": ["Noto Sans Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], zoomRotulo, 9, zoomRotulo + 4, 15],
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          rotulo.zoomMinimo,
+          Math.max(rotulo.tamanhoFonte - 3, 6),
+          rotulo.zoomMinimo + 4,
+          rotulo.tamanhoFonte + 3,
+        ],
         "text-allow-overlap": false,
       },
       paint: {
-        "text-color": "#1f2933",
+        "text-color": rotulo.cor,
         "text-halo-color": "#ffffff",
         "text-halo-width": 1.2,
         "text-opacity-transition": { duration: 300 },
@@ -360,23 +616,36 @@ async function adicionarCamada(map, protocol, mapa) {
     // independente disso (painel de admin) — a assinatura cobre os três,
     // pra saber quando vale reconstruir a camada sem rebaixar nada.
     assinatura: `${mapa.versao}|${JSON.stringify(mapa.atributosConfig)}|${JSON.stringify(mapa.estiloConfig)}`,
-    cor,
-    opacidadePreenchimento,
+    // Modos categorizado/graduado não têm 1 cor representativa — usa a cor
+    // de fallback deles como aproximação pra legenda/swatch.
+    cor:
+      preenchimento.modo === "simples"
+        ? preenchimento.cor
+        : preenchimento.corSemCategoria || preenchimento.corAbaixoDoMinimo,
+    opacidadePreenchimento: preenchimento.opacidade,
+    opacidadeContorno: contorno.opacidade,
+    // "circle" (fill/contorno independentes) ou "symbol" (ícone SDF, uma
+    // única opacidade pro símbolo inteiro) — só relevante quando ehPonto;
+    // o efeito de liga/desliga (item 5 de Mapa()) precisa saber qual pra
+    // chamar o nome de paint property certo.
+    tipoPonto,
     sourceId,
     fillLayerId,
     lineLayerId,
+    circleLayerId,
     highlightLayerId,
+    highlightCircleLayerId,
     rotuloLayerId: mostrarRotulo ? rotuloLayerId : null,
     // Camadas de contorno (sem preenchimento, ex: Limites) são só visuais +
     // rótulo de nome — não abrem painel de atributos ao clicar.
-    consultavel: ehTalhao,
+    consultavel,
     atributosConfig: mapa.atributosConfig,
     // Pra montar o índice de busca (a partir dos dados já baixados, sem
-    // pipeline/back-end extra): temRotulos independe de mostrarRotulo (o
-    // texto/posição existe no tile mesmo com o rótulo visual desligado),
+    // pipeline/back-end extra): temRotulosPipeline independe de mostrarRotulo
+    // (o texto/posição existe no tile mesmo com o rótulo visual desligado),
     // e sourceLayerPrincipal permite consultar DESC_SECAO/TALHAO direto
     // do polígono.
-    temRotulos,
+    temRotulos: temRotulosPipeline,
     sourceLayerPrincipal: camadaPrincipal.id,
     header,
     // Mantém a instância pra montar o índice de busca lendo tiles direto
@@ -388,7 +657,9 @@ async function adicionarCamada(map, protocol, mapa) {
 
 function removerCamada(map, info) {
   if (info.rotuloLayerId && map.getLayer(info.rotuloLayerId)) map.removeLayer(info.rotuloLayerId);
+  if (map.getLayer(info.highlightCircleLayerId)) map.removeLayer(info.highlightCircleLayerId);
   if (map.getLayer(info.highlightLayerId)) map.removeLayer(info.highlightLayerId);
+  if (map.getLayer(info.circleLayerId)) map.removeLayer(info.circleLayerId);
   if (map.getLayer(info.fillLayerId)) map.removeLayer(info.fillLayerId);
   if (map.getLayer(info.lineLayerId)) map.removeLayer(info.lineLayerId);
   if (map.getSource(info.sourceId)) map.removeSource(info.sourceId);
@@ -397,6 +668,8 @@ function removerCamada(map, info) {
 export default function Mapa() {
   const { sessao, sair } = useAuth();
   const navigate = useNavigate();
+  const { mapaId: mapaIdParam } = useParams();
+  const mapaId = Number(mapaIdParam);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const protocolRef = useRef(null);
@@ -404,6 +677,7 @@ export default function Mapa() {
   const jaEnquadrouRef = useRef(false);
   const extensaoAtualRef = useRef(null);
   const marcadorRef = useRef(null);
+  const fundoControlRef = useRef(null);
 
   const [mapaPronto, setMapaPronto] = useState(false);
   const [mapasLocais, setMapasLocais] = useState([]);
@@ -412,12 +686,39 @@ export default function Mapa() {
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [offline, setOffline] = useState(false);
   const [selecao, setSelecao] = useState(null);
-  const [painelCamadasAberto, setPainelCamadasAberto] = useState(true);
+  // Recolhido por padrão em qualquer tamanho de tela — antes só recolhia
+  // no mobile (aberto por padrão no desktop), comportamento inconsistente
+  // entre plataformas.
+  const [painelCamadasAberto, setPainelCamadasAberto] = useState(false);
   const [indiceBusca, setIndiceBusca] = useState([]);
   const [buscaTexto, setBuscaTexto] = useState("");
+  // Item destacado na lista de resultados — navegável por ↑/↓ no desktop;
+  // Enter sem nunca ter mexido nas setas seleciona o primeiro (índice 0).
+  const [indiceDestacadoBusca, setIndiceDestacadoBusca] = useState(0);
   const [medindo, setMedindo] = useState(false);
   const [modoMedicao, setModoMedicao] = useState("distancia");
   const [pontosMedicao, setPontosMedicao] = useState([]);
+  // Fundo satélite é só uma preferência visual do navegador (não é dado do
+  // mapa) — persistida em localStorage pra continuar do jeito que o
+  // usuário deixou entre sessões, sem precisar de coluna nova no backend.
+  const [fundoSatelite, setFundoSatelite] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem("geomap_fundo_satelite") === "1"
+  );
+  const [menuAberto, setMenuAberto] = useState(false);
+  // Importação temporária (item 5) — vive só em memória, nunca em
+  // IndexedDB/backend.
+  const [arquivoTemporario, setArquivoTemporario] = useState(null); // {nome, geojson} | null
+  const [temporariaVisivel, setTemporariaVisivel] = useState(true);
+  const [importandoArquivo, setImportandoArquivo] = useState(false);
+  const [erroImportacao, setErroImportacao] = useState(null);
+  // Track log (item 4) — GPS próprio (navigator.geolocation.watchPosition),
+  // independente do GeolocateControl (que só desenha o ponto azul sozinho,
+  // não expõe a posição como dado em nenhum lugar do código atual).
+  const [mostrarPainelTrack, setMostrarPainelTrack] = useState(false);
+  const [gravandoPercurso, setGravandoPercurso] = useState(false);
+  const [pontosPercurso, setPontosPercurso] = useState([]);
+  const [erroTrack, setErroTrack] = useState(null);
+  const watchIdRef = useRef(null);
 
   // 1) cria o mapa uma única vez, com controles de navegação e localização
   useEffect(() => {
@@ -457,9 +758,23 @@ export default function Mapa() {
       "top-right"
     );
     map.addControl(new MedicaoControl(() => setMedindo((m) => !m)), "top-right");
+    map.addControl(new TrackControl(() => setMostrarPainelTrack((m) => !m)), "top-right");
+    const fundoControl = new FundoControl(() => setFundoSatelite((s) => !s));
+    fundoControlRef.current = fundoControl;
+    map.addControl(fundoControl, "top-right");
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
 
     map.on("load", () => {
+      // Ícones de forma pra camadas de ponto com símbolo categorizado/não
+      // circular (ver usaIconeSimbolo em estiloCamada.js) — registrados uma
+      // vez só aqui, genéricos (não por camada), recolorido por feição via
+      // icon-color/icon-halo-color (sdf: true).
+      for (const { valor: forma } of FORMAS_PONTO) {
+        const id = nomeImagemForma(forma);
+        if (!map.hasImage(id)) {
+          map.addImage(id, desenharBitmapForma(forma), { sdf: true });
+        }
+      }
       setMapaPronto(true);
       // Rastreamento de localização em tempo real, sem precisar clicar no botão.
       try {
@@ -475,37 +790,99 @@ export default function Mapa() {
     };
   }, []);
 
-  // 2) offline-first: assim que o mapa carrega, mostra o que já existe localmente
+  // 1b) mantém o botão de fundo satélite em sincronia com o estado (ícone
+  // ativo/inativo, bloqueado quando offline) e persiste a preferência.
+  useEffect(() => {
+    fundoControlRef.current?.atualizar(fundoSatelite, offline);
+    window.localStorage.setItem("geomap_fundo_satelite", fundoSatelite ? "1" : "0");
+  }, [fundoSatelite, offline]);
+
+  // 1c) fundo satélite: fonte/camada raster (Esri World Imagery, só
+  // funciona online — daí o botão ficar bloqueado no efeito acima quando
+  // `offline`). Inserida logo acima do "fundo" sólido e abaixo de qualquer
+  // camada vetorial já carregada, pra não tampar talhões/limites.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto) return;
+
+    if (map.getLayer(FUNDO_SATELITE_LAYER_ID)) map.removeLayer(FUNDO_SATELITE_LAYER_ID);
+    if (map.getSource(FUNDO_SATELITE_SOURCE_ID)) map.removeSource(FUNDO_SATELITE_SOURCE_ID);
+
+    if (!fundoSatelite) return;
+
+    map.addSource(FUNDO_SATELITE_SOURCE_ID, {
+      type: "raster",
+      tiles: [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      ],
+      tileSize: 256,
+      // Esri anuncia até z19/20, mas isso só existe de verdade em áreas
+      // urbanas de alta resolução — em zona rural (o caso de fazenda), a
+      // imagem real geralmente para bem antes disso, e pedir um z acima do
+      // que existe não dá erro: a Esri devolve um tile válido (200) com um
+      // aviso "Map data not yet available" desenhado como se fosse a
+      // imagem, e o MapLibre não tem como saber que aquilo é só um
+      // placeholder — ele exibe igual, achando que é imagem de verdade, em
+      // vez de reaproveitar (overzoom) o último tile que tinha imagem
+      // real. 17 é o teto confiável pra a maioria das áreas rurais globais;
+      // além dele o MapLibre amplia o último tile real (mais desfocado,
+      // mas com foto de verdade, nunca o aviso).
+      maxzoom: 17,
+      attribution: "Esri, Maxar, Earthstar Geographics",
+    });
+    const primeiraCamadaId = map.getStyle().layers.find((l) => l.id !== "fundo")?.id;
+    map.addLayer(
+      { id: FUNDO_SATELITE_LAYER_ID, type: "raster", source: FUNDO_SATELITE_SOURCE_ID },
+      primeiraCamadaId
+    );
+  }, [mapaPronto, fundoSatelite]);
+
+  // 2) offline-first: assim que o mapa carrega, mostra o que já existe
+  // localmente — filtrado pras camadas deste mapa (projeto) específico, já
+  // que a sincronização baixa TUDO de uma vez (todos os mapas permitidos).
   useEffect(() => {
     if (!mapaPronto) return;
     listarMapasBaixados().then((locais) => {
-      setMapasLocais(locais);
-      setCamadasVisiveis(new Set(locais.map((m) => m.id)));
+      const doMapa = locais.filter((c) => c.mapaId === mapaId);
+      setMapasLocais(doMapa);
+      setCamadasVisiveis(new Set(doMapa.map((m) => m.id)));
     });
-  }, [mapaPronto]);
+  }, [mapaPronto, mapaId]);
 
   // 3) sincroniza em segundo plano, sem UI de bloqueio
   useEffect(() => {
     if (!mapaPronto) return;
     let cancelado = false;
 
-    sincronizarMapas(sessao.token).then((resultado) => {
+    sincronizarMapas(sessao.token).then(async (resultado) => {
       if (cancelado) return;
-      setMapasLocais(resultado.mapas);
+      const doMapa = resultado.mapas.filter((c) => c.mapaId === mapaId);
+      setMapasLocais(doMapa);
       setCamadasVisiveis((atual) => {
         const nova = new Set(atual);
-        for (const m of resultado.mapas) nova.add(m.id);
+        for (const m of doMapa) nova.add(m.id);
         return nova;
       });
       setOffline(!resultado.online);
       if (resultado.online) setUltimaSincronizacao(resultado.sincronizadoEm);
       setSincronizando(false);
+
+      // Sincronizou online e esse mapaId não está mais entre os permitidos
+      // (removido pelo admin, ou o usuário perdeu permissão) — não faz
+      // sentido deixar a aba presa numa tela vazia, volta pra tela inicial.
+      if (resultado.online) {
+        const disponiveis = await listarMapasDisponiveis();
+        const aindaExiste = disponiveis.some((m) => m.id === mapaId);
+        if (!cancelado && !aindaExiste) {
+          navigate("/inicio", { replace: true });
+        }
+      }
     });
 
     return () => {
       cancelado = true;
     };
-  }, [mapaPronto, sessao.token]);
+  }, [mapaPronto, mapaId, sessao.token, navigate]);
 
   // 4) reflete mapasLocais como sources/layers do MapLibre
   useEffect(() => {
@@ -534,7 +911,16 @@ export default function Mapa() {
         if (existente && existente.assinatura === assinaturaAtual) continue;
         if (existente) removerCamada(map, existente);
 
-        const info = await adicionarCamada(map, protocol, mapa);
+        // Uma camada com dado problemático (estilo malformado, metadata
+        // inesperada) não pode derrubar a exibição de todas as outras — sem
+        // isso, uma exceção aqui interrompe o loop e as camadas seguintes
+        // nunca chegam a ser adicionadas.
+        let info = null;
+        try {
+          info = await adicionarCamada(map, protocol, mapa);
+        } catch (err) {
+          console.error(`Falha ao aplicar a camada "${mapa.nome}" (id ${mapa.id}):`, err);
+        }
         if (cancelado) return;
         if (info) {
           carregadas.set(mapa.id, info);
@@ -579,10 +965,32 @@ export default function Mapa() {
     const map = mapRef.current;
     if (!map || !mapaPronto) return;
     for (const [id, info] of camadasCarregadasRef.current) {
-      if (!map.getLayer(info.fillLayerId)) continue;
       const visivel = camadasVisiveis.has(id);
-      map.setPaintProperty(info.fillLayerId, "fill-opacity", visivel ? info.opacidadePreenchimento : 0);
-      map.setPaintProperty(info.lineLayerId, "line-opacity", visivel ? 1 : 0);
+      // Antes só mexia em fillLayerId/lineLayerId (com "continue" se
+      // fillLayerId não existisse) — pra uma camada de ponto (só
+      // circleLayerId, sem fill/linha), isso pulava a camada inteira: o
+      // checkbox de liga/desliga simplesmente não fazia nada nela. Cada
+      // layer agora é tratado de forma independente (só mexe no que de
+      // fato existe pra essa camada), e a opacidade "ligada" de cada um
+      // vem do que foi configurado (nunca mais um "1" fixo que ignorava
+      // contorno.opacidade).
+      if (map.getLayer(info.fillLayerId)) {
+        map.setPaintProperty(info.fillLayerId, "fill-opacity", visivel ? info.opacidadePreenchimento : 0);
+      }
+      if (map.getLayer(info.lineLayerId)) {
+        map.setPaintProperty(info.lineLayerId, "line-opacity", visivel ? info.opacidadeContorno : 0);
+      }
+      if (map.getLayer(info.circleLayerId)) {
+        // "circle" e "symbol" (ícone SDF, ver usaIconeSimbolo) têm nomes de
+        // paint property diferentes — setPaintProperty com o nome errado
+        // pro tipo do layer lança exceção.
+        if (info.tipoPonto === "symbol") {
+          map.setPaintProperty(info.circleLayerId, "icon-opacity", visivel ? info.opacidadePreenchimento : 0);
+        } else {
+          map.setPaintProperty(info.circleLayerId, "circle-opacity", visivel ? info.opacidadePreenchimento : 0);
+          map.setPaintProperty(info.circleLayerId, "circle-stroke-opacity", visivel ? info.opacidadeContorno : 0);
+        }
+      }
       if (info.rotuloLayerId) {
         map.setPaintProperty(info.rotuloLayerId, "text-opacity", visivel ? 1 : 0);
       }
@@ -601,16 +1009,16 @@ export default function Mapa() {
         return;
       }
 
-      const fillLayerIds = [...camadasCarregadasRef.current.entries()]
+      const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
-        .map(([, info]) => info.fillLayerId)
+        .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
         .filter((id) => map.getLayer(id));
-      if (fillLayerIds.length === 0) {
+      if (layerIds.length === 0) {
         setSelecao(null);
         return;
       }
 
-      const features = map.queryRenderedFeatures(e.point, { layers: fillLayerIds });
+      const features = map.queryRenderedFeatures(e.point, { layers: layerIds });
       if (features.length === 0) {
         setSelecao(null);
         return;
@@ -624,7 +1032,7 @@ export default function Mapa() {
         if (vistos.has(chave)) continue;
         vistos.add(chave);
         const info = [...camadasCarregadasRef.current.values()].find(
-          (c) => c.fillLayerId === feature.layer.id
+          (c) => c.fillLayerId === feature.layer.id || c.circleLayerId === feature.layer.id
         );
         itens.push({
           mapaId: info?.id,
@@ -654,13 +1062,21 @@ export default function Mapa() {
       if (map.getLayer(info.highlightLayerId)) {
         map.setFilter(info.highlightLayerId, FILTRO_NENHUM);
       }
+      if (map.getLayer(info.highlightCircleLayerId)) {
+        map.setFilter(info.highlightCircleLayerId, FILTRO_NENHUM);
+      }
     }
 
     const atual = selecao?.itens[selecao.indice];
     if (atual?.grupoFiltro && atual.mapaId != null) {
       const info = camadasCarregadasRef.current.get(atual.mapaId);
-      if (info && map.getLayer(info.highlightLayerId)) {
-        map.setFilter(info.highlightLayerId, atual.grupoFiltro);
+      if (info) {
+        if (map.getLayer(info.highlightLayerId)) {
+          map.setFilter(info.highlightLayerId, atual.grupoFiltro);
+        }
+        if (map.getLayer(info.highlightCircleLayerId)) {
+          map.setFilter(info.highlightCircleLayerId, atual.grupoFiltro);
+        }
       }
     }
   }, [selecao, mapaPronto]);
@@ -740,6 +1156,100 @@ export default function Mapa() {
     if (fonte) fonte.setData(geojsonMedicao(pontosMedicao, modoMedicao));
   }, [pontosMedicao, modoMedicao, medindo]);
 
+  // 11) importação temporária (item 5): cria/remove fonte+camadas quando o
+  // arquivo muda — 3 layers (uma por família de geometria, já que o
+  // arquivo importado pode ter qualquer tipo, ao contrário das camadas
+  // reais que já sabem o próprio tipo de antemão) filtradas por
+  // ["geometry-type"], mesmo idioma da medição.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto) return;
+
+    if (map.getLayer(CAMADA_TEMPORARIA_PONTOS)) map.removeLayer(CAMADA_TEMPORARIA_PONTOS);
+    if (map.getLayer(CAMADA_TEMPORARIA_LINHA)) map.removeLayer(CAMADA_TEMPORARIA_LINHA);
+    if (map.getLayer(CAMADA_TEMPORARIA_PREENCHIMENTO)) map.removeLayer(CAMADA_TEMPORARIA_PREENCHIMENTO);
+    if (map.getSource(FONTE_TEMPORARIA)) map.removeSource(FONTE_TEMPORARIA);
+
+    if (!arquivoTemporario) return;
+
+    const opacidade = temporariaVisivel ? 1 : 0;
+    map.addSource(FONTE_TEMPORARIA, { type: "geojson", data: arquivoTemporario.geojson });
+    map.addLayer({
+      id: CAMADA_TEMPORARIA_PREENCHIMENTO,
+      type: "fill",
+      source: FONTE_TEMPORARIA,
+      filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
+      paint: { "fill-color": COR_TEMPORARIA, "fill-opacity": temporariaVisivel ? 0.25 : 0 },
+    });
+    map.addLayer({
+      id: CAMADA_TEMPORARIA_LINHA,
+      type: "line",
+      source: FONTE_TEMPORARIA,
+      filter: [
+        "match",
+        ["geometry-type"],
+        ["LineString", "MultiLineString", "Polygon", "MultiPolygon"],
+        true,
+        false,
+      ],
+      paint: { "line-color": COR_TEMPORARIA, "line-width": 2, "line-opacity": opacidade },
+    });
+    map.addLayer({
+      id: CAMADA_TEMPORARIA_PONTOS,
+      type: "circle",
+      source: FONTE_TEMPORARIA,
+      filter: ["match", ["geometry-type"], ["Point", "MultiPoint"], true, false],
+      paint: {
+        "circle-radius": 5,
+        "circle-color": COR_TEMPORARIA,
+        "circle-stroke-width": 1.5,
+        "circle-stroke-color": "#fff",
+        "circle-opacity": opacidade,
+      },
+    });
+  }, [arquivoTemporario, temporariaVisivel, mapaPronto]);
+
+  // 12) track log: cria/remove a fonte+camada quando o percurso passa a
+  // ter (ou deixa de ter) pelo menos 2 pontos — mesmo idioma da medição
+  // (item 9/10), mas sem limpar pontosPercurso ao fechar o painel: o
+  // percurso é intencional (gravado de propósito), diferente da medição
+  // (ferramenta descartável) — fechar o painel só esconde os controles,
+  // nunca apaga a gravação.
+  const temPercurso = pontosPercurso.length >= 2;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto) return;
+    if (!temPercurso) {
+      if (map.getLayer(CAMADA_TRACK_LINHA)) map.removeLayer(CAMADA_TRACK_LINHA);
+      if (map.getSource(FONTE_TRACK)) map.removeSource(FONTE_TRACK);
+      return;
+    }
+    if (map.getSource(FONTE_TRACK)) return; // já existe — o efeito 13 atualiza os dados
+    map.addSource(FONTE_TRACK, { type: "geojson", data: geojsonPercurso(pontosPercurso) });
+    map.addLayer({
+      id: CAMADA_TRACK_LINHA,
+      type: "line",
+      source: FONTE_TRACK,
+      paint: { "line-color": COR_TRACK, "line-width": 3 },
+    });
+  }, [temPercurso, mapaPronto]);
+
+  // 13) redesenha o percurso a cada ponto novo do GPS, sem recriar fonte/camada.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !temPercurso) return;
+    const fonte = map.getSource(FONTE_TRACK);
+    if (fonte) fonte.setData(geojsonPercurso(pontosPercurso));
+  }, [pontosPercurso, temPercurso]);
+
+  // Encerra a gravação se o componente desmontar no meio (troca de mapa,
+  // logout) — sem isso o watchPosition ficaria rodando pra sempre.
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
+    };
+  }, []);
+
   function alternarCamada(id) {
     setCamadasVisiveis((atual) => {
       const nova = new Set(atual);
@@ -770,9 +1280,94 @@ export default function Mapa() {
     setBuscaTexto("");
   }
 
+  // ↑/↓ navegam a lista (desktop); Enter confirma o destacado — sem
+  // nunca mexer nas setas, Enter já seleciona o primeiro (índice 0),
+  // sem precisar clicar num item da lista.
+  function aoTeclarBusca(e, resultados, indiceDestacado) {
+    if (resultados.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setIndiceDestacadoBusca((i) => Math.min(i + 1, resultados.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setIndiceDestacadoBusca((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const resultado = resultados[indiceDestacado];
+      if (resultado) selecionarResultadoBusca(resultado);
+    }
+  }
+
   function trocarModoMedicao(modo) {
     setModoMedicao(modo);
     setPontosMedicao([]);
+  }
+
+  async function aoImportarArquivo(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite reimportar o mesmo arquivo depois de remover
+    if (!file) return;
+    setImportandoArquivo(true);
+    setErroImportacao(null);
+    try {
+      const resultado = await importarArquivoTemporario(file);
+      setArquivoTemporario(resultado);
+      setTemporariaVisivel(true);
+    } catch (err) {
+      setErroImportacao(err.message);
+    } finally {
+      setImportandoArquivo(false);
+    }
+  }
+
+  function removerArquivoTemporario(e) {
+    e.preventDefault();
+    setArquivoTemporario(null);
+    setErroImportacao(null);
+  }
+
+  function iniciarGravacaoPercurso() {
+    if (!("geolocation" in navigator)) {
+      setErroTrack("Geolocalização não disponível neste navegador/dispositivo.");
+      return;
+    }
+    setErroTrack(null);
+    setGravandoPercurso(true);
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (posicao) => {
+        const { longitude, latitude } = posicao.coords;
+        setPontosPercurso((atual) => [...atual, [longitude, latitude]]);
+        setErroTrack(null);
+      },
+      (erro) => {
+        setErroTrack(erro.message || "Não foi possível obter a localização.");
+        // watchPosition chama o erro sem cancelar o watch sozinho — sinal de
+        // GPS instável (POSITION_UNAVAILABLE/TIMEOUT) é passageiro (comum
+        // em campo, ex: sob árvores/cobertura ruim) e a gravação deve
+        // continuar tentando; só permissão negada de verdade é fatal.
+        if (erro.code === erro.PERMISSION_DENIED) {
+          pararGravacaoPercurso();
+        }
+      },
+      { enableHighAccuracy: true }
+    );
+  }
+
+  function pararGravacaoPercurso() {
+    if (watchIdRef.current != null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setGravandoPercurso(false);
+  }
+
+  function limparPercurso() {
+    setPontosPercurso([]);
+    setErroTrack(null);
+  }
+
+  function exportarPercurso() {
+    baixarKmlPercurso(pontosPercurso, `mapa-${mapaId}`);
   }
 
   const itemSelecionado = selecao?.itens[selecao.indice];
@@ -788,8 +1383,12 @@ export default function Mapa() {
           .sort((a, b) => a.texto.length - b.texto.length)
           .slice(0, 8)
       : [];
+  // A lista é recalculada a cada tecla — se encolher, o índice destacado
+  // de uma busca anterior pode ficar fora dos limites.
+  const indiceDestacadoValido = Math.min(indiceDestacadoBusca, Math.max(resultadosBusca.length - 1, 0));
 
   const resultadoMedicaoAtual = medindo ? textoResultadoMedicao(pontosMedicao, modoMedicao) : null;
+  const distanciaPercursoAtual = textoDistanciaPercurso(pontosPercurso);
 
   return (
     <main className="tela-mapa">
@@ -808,15 +1407,31 @@ export default function Mapa() {
                   })}`
                 : null}
         </span>
-        {sessao.usuario.papel === "admin" && (
-          <Link to="/admin" className="botao botao-sair">
-            Admin
-          </Link>
+        {medindo && (
+          <span className="status-medicao" aria-live="polite">
+            Medição ativa: {modoMedicao === "area" ? "área" : "distância"}
+          </span>
         )}
-        <button type="button" className="botao-sair" onClick={handleSair}>
-          Sair
+        <Link to="/inicio" className="botao-circular" aria-label="Trocar mapa" title="Trocar mapa">
+          <IconeMapas />
+        </Link>
+        <button
+          type="button"
+          className="botao-circular"
+          onClick={() => setMenuAberto(true)}
+          aria-label="Abrir menu"
+          title="Menu"
+        >
+          <IconeMenu />
         </button>
       </header>
+
+      <MenuLateral
+        aberto={menuAberto}
+        aoFechar={() => setMenuAberto(false)}
+        ehAdmin={sessao.usuario.papel === "admin"}
+        aoSair={handleSair}
+      />
 
       <div className="area-mapa">
         <div ref={containerRef} className="mapa-container" />
@@ -828,27 +1443,50 @@ export default function Mapa() {
           </div>
         )}
 
-        {indiceBusca.length > 0 && (
+        {mapasLocais.length > 0 && (
           <div className="painel-busca">
             <input
               type="search"
-              placeholder="Buscar talhão ou fazenda…"
+              placeholder={
+                indiceBusca.length > 0
+                  ? "Buscar talhão ou fazenda…"
+                  : "Busca não disponível para este mapa"
+              }
               value={buscaTexto}
-              onChange={(e) => setBuscaTexto(e.target.value)}
+              onChange={(e) => {
+                setBuscaTexto(e.target.value);
+                setIndiceDestacadoBusca(0);
+              }}
+              onKeyDown={(e) => aoTeclarBusca(e, resultadosBusca, indiceDestacadoValido)}
+              disabled={indiceBusca.length === 0}
+              aria-disabled={indiceBusca.length === 0}
             />
-            {resultadosBusca.length > 0 && (
-              <ul className="resultados-busca">
-                {resultadosBusca.map((r, i) => (
-                  <li key={`${r.mapaId}-${i}`}>
-                    <button type="button" onClick={() => selecionarResultadoBusca(r)}>
-                      {r.texto}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {buscaNormalizada.length >= 2 && resultadosBusca.length === 0 && (
-              <p className="sem-resultados-busca">Nada encontrado.</p>
+            {indiceBusca.length === 0 ? (
+              <p className="ajuda-busca">
+                A busca não está disponível para o mapa carregado. Use o clique no mapa para ver atributos.
+              </p>
+            ) : (
+              <>
+                {resultadosBusca.length > 0 && (
+                  <ul className="resultados-busca">
+                    {resultadosBusca.map((r, i) => (
+                      <li key={`${r.mapaId}-${i}`}>
+                        <button
+                          type="button"
+                          className={i === indiceDestacadoValido ? "resultado-busca--destacado" : ""}
+                          onMouseEnter={() => setIndiceDestacadoBusca(i)}
+                          onClick={() => selecionarResultadoBusca(r)}
+                        >
+                          {r.texto}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {buscaNormalizada.length >= 2 && resultadosBusca.length === 0 && (
+                  <p className="sem-resultados-busca">Nada encontrado.</p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -868,12 +1506,15 @@ export default function Mapa() {
             </button>
             <div className={`conteudo-painel-camadas${painelCamadasAberto ? " aberto" : ""}`}>
               {mapasLocais.map((m) => {
-                const cor = m.estiloConfig?.cor || corDaCamada(m.id);
                 // Legenda dinâmica: camada com preenchimento (ex: Talhões)
                 // ganha swatch sólido; camada só-contorno (ex: Limites)
                 // ganha swatch vazado — reflete o que aparece de fato no
-                // mapa, não só uma cor genérica.
+                // mapa, não só uma cor genérica. Lê de `info` (já resolvido
+                // por adicionarCamada, cobre os modos categorizado/graduado
+                // via cor de fallback) — só cai no cálculo direto antes da
+                // camada terminar de carregar.
                 const info = camadasCarregadasRef.current.get(m.id);
+                const cor = info?.cor || m.estiloConfig?.cor || corDaCamada(m.id);
                 const preenchido = (info?.opacidadePreenchimento ?? 0) > 0;
                 return (
                   <label key={m.id} className="linha-camada">
@@ -890,13 +1531,47 @@ export default function Mapa() {
                   </label>
                 );
               })}
+
+              {arquivoTemporario && (
+                <label className="linha-camada linha-camada--temporaria">
+                  <input
+                    type="checkbox"
+                    checked={temporariaVisivel}
+                    onChange={() => setTemporariaVisivel((v) => !v)}
+                  />
+                  <span className="swatch-camada" style={{ backgroundColor: COR_TEMPORARIA }} />
+                  <span className="nome-camada">Temporária: {arquivoTemporario.nome}</span>
+                  <button
+                    type="button"
+                    className="fechar"
+                    onClick={removerArquivoTemporario}
+                    aria-label="Remover camada temporária"
+                    title="Remover camada temporária"
+                  >
+                    ×
+                  </button>
+                </label>
+              )}
+
+              <label className="botao importar-arquivo-temporario">
+                {importandoArquivo ? "Importando…" : "+ Importar arquivo (KML/SHP)"}
+                <input
+                  type="file"
+                  accept=".kml,.zip"
+                  onChange={aoImportarArquivo}
+                  disabled={importandoArquivo}
+                />
+              </label>
+              {erroImportacao && <p className="erro">{erroImportacao}</p>}
             </div>
           </aside>
         )}
 
         {mapasLocais.length === 0 && !sincronizando && (
           <p className="aviso-sem-mapas">
-            Nenhum mapa disponível ainda. Conecte-se à internet pra sincronizar.
+            {offline
+              ? "Nenhum mapa disponível ainda. Conecte-se à internet pra sincronizar."
+              : "Este mapa ainda não tem camadas publicadas."}
           </p>
         )}
 
@@ -933,6 +1608,42 @@ export default function Mapa() {
           </aside>
         )}
 
+        {mostrarPainelTrack && (
+          <aside className="painel-track">
+            <button type="button" className="fechar" onClick={() => setMostrarPainelTrack(false)}>
+              ×
+            </button>
+            <h3>Gravar percurso</h3>
+            {gravandoPercurso ? (
+              <button type="button" className="botao-track-gravando" onClick={pararGravacaoPercurso}>
+                ● Parar gravação
+              </button>
+            ) : (
+              <button type="button" onClick={iniciarGravacaoPercurso}>
+                Iniciar gravação
+              </button>
+            )}
+            <p className="resultado-medicao">
+              {gravandoPercurso
+                ? `Gravando… ${distanciaPercursoAtual ?? "0 m"}`
+                : distanciaPercursoAtual
+                  ? `Percurso gravado: ${distanciaPercursoAtual}`
+                  : "Clique em \"Iniciar gravação\" e mantenha o app aberto durante o percurso."}
+            </p>
+            {erroTrack && <p className="erro">{erroTrack}</p>}
+            {!gravandoPercurso && pontosPercurso.length > 0 && (
+              <div className="acoes-painel-track">
+                <button type="button" className="botao-secundario" onClick={exportarPercurso}>
+                  Exportar KML
+                </button>
+                <button type="button" className="botao-limpar-medicao" onClick={limparPercurso}>
+                  Limpar
+                </button>
+              </div>
+            )}
+          </aside>
+        )}
+
         <aside className={`painel-atributos${selecao ? " painel-atributos--aberto" : ""}`}>
           {itemSelecionado && (
             <>
@@ -943,7 +1654,7 @@ export default function Mapa() {
                 <span className="swatch-camada" style={{ backgroundColor: itemSelecionado.cor }} />
                 {itemSelecionado.camada}
               </h2>
-              <dl>
+              <dl className="atributos-grid">
                 {Object.entries(itemSelecionado.propriedades).map(([chave, valor]) => (
                   <div key={chave} className="linha-atributo">
                     <dt>{chave}</dt>

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",
+    "@tmcw/togeojson": "^7.1.2",
     "@turf/area": "^7.3.5",
     "@turf/length": "^7.3.5",
     "idb": "^8.0.3",
@@ -19,7 +20,8 @@
     "pmtiles": "^4.4.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^7.18.1"
+    "react-router-dom": "^7.18.1",
+    "shpjs": "^6.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

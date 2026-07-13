@@ -17,17 +17,20 @@ protegidos por token e filtrados pela permissão de grupo do usuário.
    CREATE DATABASE geoportal_dev OWNER geoportal;
    ```
 3. `cp .env.example .env` e ajustar `DATABASE_URL`/`JWT_SECRET` se necessário.
-   `STORAGE_DIR` (padrão `./storage`) é onde os `.pmtiles` publicados ficam.
+   Arquivos publicados (`.pmtiles`) vivem no Cloudflare R2, não em disco
+   local — preencher `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/
+   `R2_SECRET_ACCESS_KEY`/`R2_BUCKET_NAME` (ver `backend/src/lib/storage.js`)
+   é obrigatório mesmo pra dev local, senão upload/download de camada falha.
 4. `npm install`
-5. `npm run migrate` — aplica `src/db/migrations/001_schema_inicial.sql`
+5. `npm run migrate` — aplica as migrations em `src/db/migrations/`
    (tabelas do `docs/SCHEMA_BANCO.md`).
 6. `npm run seed` — cria usuário de teste `teste@geoportal.local` / `senha123`
    e dois mapas fictícios (um visível pro grupo do usuário, outro restrito a
    outro grupo, só pra provar que o filtro de permissão funciona). Dado
    fictício, só para dev local.
-7. Coloque um `.pmtiles` de teste em `storage/talhoes_teste.pmtiles` (pode
-   baixar o artefato `pmtiles-teste` de uma run do
-   `.github/workflows/pipeline.yml`).
+7. Publique um `.pmtiles` de teste pela tela de admin "Gerenciar camadas"
+   (upload direto, sobe pro R2 — pode usar o artefato `pmtiles-teste` de
+   uma run do `.github/workflows/pipeline.yml`).
 8. `npm run start` (ou `npm run dev` com reload automático).
 
 ## Testar login → catálogo → download
