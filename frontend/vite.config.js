@@ -21,6 +21,13 @@ const base = process.env.GITHUB_PAGES ? '/geomap/' : '/';
 // https://vite.dev/config/
 export default defineConfig({
   base,
+  // Lighthouse apontou "Missing source maps for large first-party
+  // JavaScript" — não custam nada em produção (só carregam se o devtools
+  // estiver aberto de propósito) e ajudam a debugar um bug real relatado
+  // em produção sem precisar reproduzir localmente.
+  build: {
+    sourcemap: true,
+  },
   plugins: [react(), VitePWA({
     registerType: 'autoUpdate',
     includeAssets: ['favicon.svg'],

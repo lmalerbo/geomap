@@ -732,7 +732,11 @@ export default function Mapa() {
         version: 8,
         // Hospedado localmente (public/fonts/) pra funcionar 100% offline —
         // sem isso, symbol layers com text-field não renderizam nada.
-        glyphs: "/fonts/{fontstack}/{range}.pbf",
+        // BASE_URL prefixa "/geomap/" no build do GitHub Pages (project
+        // page, sem domínio próprio) — um "/fonts/..." absoluto sem esse
+        // prefixo bate 404 em produção (confirmado via Lighthouse), porque
+        // o arquivo real fica em "/geomap/fonts/...", não na raiz do domínio.
+        glyphs: `${import.meta.env.BASE_URL}fonts/{fontstack}/{range}.pbf`,
         sources: {},
         layers: [{ id: "fundo", type: "background", paint: { "background-color": "#e8eef1" } }],
       },
@@ -1577,7 +1581,13 @@ export default function Mapa() {
 
         {medindo && (
           <aside className="painel-medicao">
-            <button type="button" className="fechar" onClick={() => setMedindo(false)}>
+            <button
+              type="button"
+              className="fechar"
+              onClick={() => setMedindo(false)}
+              aria-label="Fechar medição"
+              title="Fechar medição"
+            >
               ×
             </button>
             <div className="opcoes-modo-medicao">
@@ -1610,7 +1620,13 @@ export default function Mapa() {
 
         {mostrarPainelTrack && (
           <aside className="painel-track">
-            <button type="button" className="fechar" onClick={() => setMostrarPainelTrack(false)}>
+            <button
+              type="button"
+              className="fechar"
+              onClick={() => setMostrarPainelTrack(false)}
+              aria-label="Fechar gravação de percurso"
+              title="Fechar gravação de percurso"
+            >
               ×
             </button>
             <h3>Gravar percurso</h3>
@@ -1647,7 +1663,13 @@ export default function Mapa() {
         <aside className={`painel-atributos${selecao ? " painel-atributos--aberto" : ""}`}>
           {itemSelecionado && (
             <>
-              <button type="button" className="fechar" onClick={() => setSelecao(null)}>
+              <button
+                type="button"
+                className="fechar"
+                onClick={() => setSelecao(null)}
+                aria-label="Fechar painel de atributos"
+                title="Fechar painel de atributos"
+              >
                 ×
               </button>
               <h2>

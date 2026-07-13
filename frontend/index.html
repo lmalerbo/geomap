@@ -1,10 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#2c6b47" />
+    <meta
+      name="description"
+      content="GeoMap — mapas de talhão, sulcação e frentes de colheita, com login próprio e uso 100% offline em campo depois da sincronização inicial."
+    />
+    <!--
+      GitHub Pages não permite configurar cabeçalhos HTTP customizados
+      (CSP/COOP/X-Frame-Options/HSTS via header exigem servidor próprio ou
+      um CDN na frente, fora do escopo desta leva) — o meta tag abaixo é o
+      único CSP possível nesse hosting; cobre a maior parte do valor
+      (bloqueia script/estilo/conexão de origem não autorizada) mas não
+      pode usar frame-ancestors/report-uri/sandbox (só válidos via header).
+      style-src precisa de 'unsafe-inline' porque o app usa muito
+      style={{...}} inline do React (swatches de cor de camada,
+      posicionamento de painéis) — CSP também restringe atributo style
+      inline, não só <style>/<link>.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com; font-src 'self'; connect-src 'self' https://geomap-vr68.onrender.com https://server.arcgisonline.com; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'"
+    />
     <title>GeoMap</title>
   </head>
   <body>

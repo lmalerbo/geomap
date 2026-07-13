@@ -1192,6 +1192,84 @@ sempre é bug de código — vale checar os logs do serviço antes de
 assumir isso, principalmente no plano free do Render, onde o
 auto-deploy pode não disparar de forma confiável.
 
+**Auditoria de frontend + correções via Lighthouse (2026-07-13)**: o Leo
+pediu uma auditoria estruturada (`RELATORIO_AUDITORIA_FRONTEND.md`, só
+leitura — UX/estados, CSS, animações, performance/estado) e depois
+rodou o Lighthouse (desktop+mobile, snapshot+timespan+navegação) contra
+a produção real (`/mapa/1`) e pediu pra aplicar as correções.
+
+Achado mais sério, só visível rodando Lighthouse contra a URL real de
+produção (não aparecia testando local): **rótulos do mapa (número do
+talhão, nome da fazenda) provavelmente não renderizavam em produção
+nenhuma**. Causa: `glyphs: "/fonts/{fontstack}/{range}.pbf"` em
+`Mapa.jsx` era um caminho absoluto sem o prefixo `/geomap/` do GitHub
+Pages (project page) — o arquivo existe (`public/fonts/Noto Sans
+Regular/0-255.pbf`), mas o navegador pedia
+`lmalerbo.github.io/fonts/...` (404) em vez de
+`lmalerbo.github.io/geomap/fonts/...`. Mesma classe de bug já resolvida
+em outros lugares (`base` do `vite.config.js`, `basename` do
+`BrowserRouter`) — essa string específica dentro de `Mapa.jsx` tinha
+ficado de fora por ser montada em runtime, não em config de build.
+Corrigido trocando pro template `` `${import.meta.env.BASE_URL}fonts/...` ``.
+
+Outras correções aplicadas a partir dos dois relatórios:
+
+- `index.html`: `lang="en"` → `lang="pt-BR"` (app inteiro é em
+  português, só não tinha sido setado desde o `create-vite` inicial),
+  `<meta name="description">` (SEO), e um `Content-Security-Policy` via
+  `<meta http-equiv>` cobrindo script/style/img/connect/worker-src.
+- `vite.config.js`: `build.sourcemap: true` (Lighthouse reclamou de
+  "Missing source maps" — não custa nada em produção, só carrega se o
+  devtools estiver aberto).
+- `Mapa.jsx`: `aria-label` nos 3 botões "fechar" (medição, track,
+  atributos) que não tinham — achado do próprio
+  `RELATORIO_AUDITORIA_FRONTEND.md`, não do Lighthouse (o Lighthouse só
+  lista isso como item "verificar manualmente", não reprova
+  automaticamente, porque os painéis não estavam abertos no momento do
+  scan).
+
+**Limitação de hosting registrada, não corrigível nesta leva**: os
+itens "High" de Trust & Safety do Lighthouse (sem CSP em modo
+enforcement — parcialmente mitigado pelo meta tag acima —, sem COOP,
+sem X-Frame-Options/frame-ancestors, sem HSTS com
+`includeSubDomains`/`preload`) exigem **cabeçalho HTTP de verdade**, e
+GitHub Pages não permite configurar cabeçalhos customizados (sem
+servidor próprio ou um CDN na frente, ex: Cloudflare, fora do escopo
+atual). Um `<meta http-equiv="Content-Security-Policy">` cobre boa
+parte do valor de CSP mas não pode usar `frame-ancestors` nem
+`report-uri`/`sandbox` (só válidos via header) — então clickjacking
+(XFO/frame-ancestors) e COOP continuam sem mitigação possível enquanto
+o front for GitHub Pages puro. Também não corrigido (maior escopo,
+risco maior): o achado de performance "Reduce unused JavaScript" (~230
+KiB do bundle de 443 KiB não usados no primeiro load, majoritariamente
+MapLibre GL) — precisaria de code-splitting via `import()` dinâmico,
+não uma correção pontual segura de aplicar sem testar a fundo.
+
+Testado via Playwright contra o build real de produção
+(`GITHUB_PAGES=true`, `VITE_API_URL` apontando pro backend real) — mas
+**não** via `vite preview` (ver detalhe de ambiente abaixo), e sim via
+um servidor estático mínimo escrito em Node (`http` puro, sem lib), pra
+bater mais fiel com o GitHub Pages de verdade. Confirmado: `.js`/`.css`/
+`.pbf` (fonte) carregam com 200 sob `/geomap/`, zero erro de CSP no
+console, e o CSP novo não bloqueia a chamada real pro backend (a
+requisição chegou no Render de verdade — voltou 401 porque a senha
+temporária gerada mais cedo nesta sessão já não era mais válida, não
+por causa do CSP). Não foi possível validar o fluxo autenticado
+completo (sync + mapa renderizando) por falta de credencial válida —
+fica pro Leo confirmar depois do deploy.
+
+Detalhe de ambiente descoberto no processo: `vite preview` (Vite
+6.4.3) devolve **404 pra qualquer requisição com o header
+`Sec-Fetch-Dest: script`** — exatamente o que todo `<script
+type="module" src="...">` real manda — mesmo o arquivo existindo em
+disco (confirmado: `curl` sem esse header pega 200 no mesmo arquivo).
+Não é bug deste projeto nem tem relação com o CSP novo — é um
+middleware de segurança do próprio `vite preview` (não existe no
+GitHub Pages, que é um servidor estático burro) — por isso o teste
+final usou um servidor estático próprio em vez de `vite preview`. Vale
+lembrar disso numa sessão futura antes de gastar tempo debugando "por
+que só o bundle JS dá 404 e o CSS não".
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
