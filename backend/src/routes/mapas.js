@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao } from "../middleware/auth.js";
-import { urlDownloadAssinada } from "../lib/storage.js";
+import { streamArquivo } from "../lib/storage.js";
 
 export const mapasRouter = Router();
 
@@ -73,5 +73,17 @@ mapasRouter.get("/camadas/:id/download", async (req, res) => {
     [req.usuarioId, camada.id, req.ip]
   );
 
-  res.redirect(await urlDownloadAssinada(camada.arquivo_path, camada.arquivo_path));
+  let objeto;
+  try {
+    objeto = await streamArquivo(camada.arquivo_path);
+  } catch (err) {
+    if (err.name === "NoSuchKey") {
+      return res.status(404).json({ erro: "arquivo da camada não encontrado no servidor" });
+    }
+    throw err;
+  }
+  res.setHeader("Content-Type", objeto.ContentType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `attachment; filename="${camada.arquivo_path}"`);
+  if (objeto.ContentLength) res.setHeader("Content-Length", objeto.ContentLength);
+  objeto.Body.pipe(res);
 });

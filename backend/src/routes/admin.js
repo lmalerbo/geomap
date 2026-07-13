@@ -10,7 +10,7 @@ import bcrypt from "bcrypt";
 import AdmZip from "adm-zip";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
-import { salvarArquivo, apagarArquivo, copiarArquivo, urlDownloadAssinada } from "../lib/storage.js";
+import { salvarArquivo, apagarArquivo, copiarArquivo, streamArquivo } from "../lib/storage.js";
 
 export const adminRouter = Router();
 
@@ -663,7 +663,18 @@ adminRouter.get("/admin/camadas/:id/arquivo", async (req, res) => {
     return res.status(404).json({ erro: "camada não encontrada" });
   }
 
-  res.redirect(await urlDownloadAssinada(camada.arquivo_path));
+  let objeto;
+  try {
+    objeto = await streamArquivo(camada.arquivo_path);
+  } catch (err) {
+    if (err.name === "NoSuchKey") {
+      return res.status(404).json({ erro: "arquivo da camada não encontrado no servidor" });
+    }
+    throw err;
+  }
+  res.setHeader("Content-Type", objeto.ContentType || "application/octet-stream");
+  if (objeto.ContentLength) res.setHeader("Content-Length", objeto.ContentLength);
+  objeto.Body.pipe(res);
 });
 
 // Controle de versão: atualiza o .pmtiles de uma camada já existente

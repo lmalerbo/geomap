@@ -5,7 +5,6 @@ import {
   CopyObjectCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Cloudflare R2 é compatível com a API S3 (mesmo SDK oficial da AWS, só
 // apontando o endpoint pro R2) — arquivos publicados (.pmtiles) vivem
@@ -48,16 +47,18 @@ export async function copiarArquivo(chaveOrigem, chaveDestino) {
     .catch(() => {}); // se o arquivo antigo já não existir, segue o baile (mesma tolerância de antes)
 }
 
-// URL assinada de download, expira em poucos minutos — o cliente
-// (fetch/navegador) é redirecionado pra ela em vez do backend fazer
-// streaming do arquivo, offloadando o tráfego pro R2 direto.
-export async function urlDownloadAssinada(chave, nomeParaDownload) {
-  const comando = new GetObjectCommand({
-    Bucket: BUCKET,
-    Key: chave,
-    ResponseContentDisposition: nomeParaDownload
-      ? `attachment; filename="${nomeParaDownload}"`
-      : undefined,
-  });
-  return getSignedUrl(r2, comando, { expiresIn: 300 });
+// Streaming direto do R2 pela resposta do próprio backend — tentativa
+// inicial foi um redirect 302 pra uma URL assinada do R2, mas isso faz o
+// navegador falar direto com um domínio diferente (r2.cloudflarestorage.com),
+// que precisa da própria política de CORS do bucket configurada certinho;
+// mesmo configurada corretamente (confirmado via curl com o header
+// Access-Control-Allow-Origin presente), o Chromium seguiu recusando o
+// redirect nessa cadeia de 2 domínios (github.io -> onrender.com -> R2) —
+// sem uma causa raiz 100% isolada (rede/antivírus local mexendo na conexão
+// era a suspeita mais forte), streaming resolve de vez: o navegador só
+// fala com o nosso próprio domínio (onrender.com), que já tem CORS aberto
+// (app.use(cors()) em app.js) — sem depender de política de CORS de
+// terceiro nenhuma.
+export async function streamArquivo(chave) {
+  return r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: chave }));
 }
