@@ -10,7 +10,13 @@ import bcrypt from "bcrypt";
 import AdmZip from "adm-zip";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
-import { salvarArquivo, apagarArquivo, copiarArquivo, streamArquivo } from "../lib/storage.js";
+import {
+  salvarArquivo,
+  apagarArquivo,
+  copiarArquivo,
+  duplicarArquivo,
+  streamArquivo,
+} from "../lib/storage.js";
 
 export const adminRouter = Router();
 
@@ -535,6 +541,77 @@ adminRouter.delete("/admin/mapas/:id", async (req, res) => {
 
   await registrarAuditoria(req.usuarioId, "remover_mapa", `mapa ${mapaId} (${rows[0].nome})`, req.ip);
   res.json({ ok: true });
+});
+
+// Duplica um mapa inteiro: cria um novo registro em mapas (nome com
+// sufixo "(cópia)", mesma descrição), copia as permissões (mesmos grupos
+// com acesso) e duplica cada camada — arquivo incluso, via cópia
+// server-side no R2 (nunca baixa/reenvia o .pmtiles pelo backend), com
+// uma chave nova por camada. Pensado pra criar um novo mapa/fazenda
+// partindo de uma estrutura já pronta (mesmas camadas/estilos), sem
+// precisar montar tudo de novo na mão.
+adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
+  const mapaId = Number(req.params.id);
+  if (!Number.isInteger(mapaId)) {
+    return res.status(400).json({ erro: "id de mapa inválido" });
+  }
+
+  const { rows: mapaRows } = await pool.query(
+    "SELECT nome, descricao FROM mapas WHERE id = $1",
+    [mapaId]
+  );
+  const mapaOrigem = mapaRows[0];
+  if (!mapaOrigem) {
+    return res.status(404).json({ erro: "mapa não encontrado" });
+  }
+
+  const { rows: permissoesOrigem } = await pool.query(
+    "SELECT grupo_id FROM permissoes WHERE mapa_id = $1",
+    [mapaId]
+  );
+  const { rows: camadasOrigem } = await pool.query(
+    `SELECT nome, versao, categoria, arquivo_path, atributos_config, estilo_config
+     FROM camadas WHERE mapa_id = $1 ORDER BY nome`,
+    [mapaId]
+  );
+
+  const nomeCopia = `${mapaOrigem.nome} (cópia)`;
+  const { rows: novoMapaRows } = await pool.query(
+    `INSERT INTO mapas (nome, descricao) VALUES ($1, $2)
+     RETURNING id, nome, descricao, criado_em`,
+    [nomeCopia, mapaOrigem.descricao]
+  );
+  const novoMapa = novoMapaRows[0];
+
+  const grupoIds = permissoesOrigem.map((p) => p.grupo_id);
+  if (grupoIds.length > 0) {
+    const valores = grupoIds.map((_, i) => `($1, $${i + 2})`).join(", ");
+    await pool.query(
+      `INSERT INTO permissoes (mapa_id, grupo_id) VALUES ${valores} ON CONFLICT DO NOTHING`,
+      [novoMapa.id, ...grupoIds]
+    );
+  }
+
+  // Sequencial (não Promise.all) — mais fácil de saber exatamente qual
+  // camada falhou se o R2 rejeitar alguma cópia no meio do caminho.
+  for (const c of camadasOrigem) {
+    const novaChave = `${crypto.randomUUID()}.pmtiles`;
+    await duplicarArquivo(c.arquivo_path, novaChave);
+    await pool.query(
+      `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [novoMapa.id, c.nome, c.versao, c.categoria, novaChave, c.atributos_config, c.estilo_config]
+    );
+  }
+
+  await registrarAuditoria(
+    req.usuarioId,
+    "duplicar_mapa",
+    `mapa ${mapaId} (${mapaOrigem.nome}) → mapa ${novoMapa.id} (${nomeCopia}), ${camadasOrigem.length} camada(s)`,
+    req.ip
+  );
+
+  res.status(201).json({ ...novoMapa, grupoIds, camadaCount: camadasOrigem.length });
 });
 
 // Dashboard: agrega a tabela logs (já existia desde o MVP, guarda

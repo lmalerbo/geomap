@@ -80,6 +80,19 @@ export async function removerMapaAdmin(token, mapaId) {
   return resp.json();
 }
 
+// Cria uma cópia completa do mapa (mesmos grupos com acesso, cada camada
+// duplicada com arquivo incluso via cópia server-side no R2) — pode
+// demorar alguns segundos a mais que as outras ações se o mapa tiver
+// várias camadas.
+export async function duplicarMapaAdmin(token, mapaId) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/duplicar`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 // --- Painel de administração: grupos ---
 
 export async function criarGrupoAdmin(token, nome) {

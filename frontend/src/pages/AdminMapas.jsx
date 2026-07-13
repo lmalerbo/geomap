@@ -6,6 +6,7 @@ import {
   criarMapaAdmin,
   atualizarMapaAdmin,
   removerMapaAdmin,
+  duplicarMapaAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -23,6 +24,7 @@ export default function AdminMapas() {
   const [formEdicao, setFormEdicao] = useState(FORM_VAZIO);
   const [salvandoEdicaoId, setSalvandoEdicaoId] = useState(null);
   const [removendoId, setRemovendoId] = useState(null);
+  const [duplicandoId, setDuplicandoId] = useState(null);
 
   function carregarMapas() {
     return listarMapasAdmin(sessao.token).then(setMapas);
@@ -116,6 +118,22 @@ export default function AdminMapas() {
     }
   }
 
+  // Cria uma cópia completa (mesmos grupos, cada camada com o próprio
+  // arquivo duplicado no R2) — pode demorar alguns segundos a mais que as
+  // outras ações se o mapa de origem tiver várias camadas.
+  async function duplicar(mapa) {
+    setDuplicandoId(mapa.id);
+    setErro(null);
+    try {
+      await duplicarMapaAdmin(sessao.token, mapa.id);
+      await carregarMapas();
+    } catch (err) {
+      setErro(err.message);
+    } finally {
+      setDuplicandoId(null);
+    }
+  }
+
   return (
     <main className="tela-mapa">
       <header className="barra-mapa">
@@ -199,6 +217,15 @@ export default function AdminMapas() {
                   onClick={() => (editandoId === m.id ? fecharEdicao() : abrirEdicao(m))}
                 >
                   {editandoId === m.id ? "Cancelar" : "Editar"}
+                </button>
+                <button
+                  type="button"
+                  className="botao-secundario"
+                  onClick={() => duplicar(m)}
+                  disabled={duplicandoId === m.id}
+                  title="Cria uma cópia deste mapa com todas as camadas"
+                >
+                  {duplicandoId === m.id ? "Duplicando…" : "Duplicar"}
                 </button>
                 <button
                   type="button"

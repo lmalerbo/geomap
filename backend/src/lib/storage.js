@@ -47,6 +47,22 @@ export async function copiarArquivo(chaveOrigem, chaveDestino) {
     .catch(() => {}); // se o arquivo antigo já não existir, segue o baile (mesma tolerância de antes)
 }
 
+// Mesma cópia server-side de copiarArquivo, mas SEM engolir erro — usada
+// em "duplicar mapa" (ver POST /admin/mapas/:id/duplicar), onde o arquivo
+// de origem tem que existir de verdade (é uma duplicação real, não um
+// backup tolerante a arquivo já ausente); deixa o erro subir pra virar um
+// 500 claro em vez de criar silenciosamente uma camada apontando pra uma
+// chave que não existe no bucket.
+export async function duplicarArquivo(chaveOrigem, chaveDestino) {
+  await r2.send(
+    new CopyObjectCommand({
+      Bucket: BUCKET,
+      CopySource: `${BUCKET}/${chaveOrigem}`,
+      Key: chaveDestino,
+    })
+  );
+}
+
 // Streaming direto do R2 pela resposta do próprio backend — tentativa
 // inicial foi um redirect 302 pra uma URL assinada do R2, mas isso faz o
 // navegador falar direto com um domínio diferente (r2.cloudflarestorage.com),
