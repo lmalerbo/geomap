@@ -262,11 +262,31 @@ customizada com `tippecanoe`/`ogr2ogr` — falha com mensagem clara, não
 derruba o servidor. Fluxo recomendado por agora: continuar convertendo
 localmente e publicar o `.pmtiles` pronto.
 
-**Pendente pro Leo** (contas externas, não dá pra automatizar): criar
-projeto no Neon, bucket no R2, Web Service no Render, rodar
-`npm run migrate` contra o Neon uma vez, reenviar as camadas já
-publicadas (são banco/storage novos, diferentes do dev local), habilitar
-GitHub Pages nas configurações do repositório.
+**Deploy de verdade concluído (2026-07-13)** — testado ponta a ponta em
+produção, com dado real (as 6 camadas de "Usina da Pedra" reenviadas):
+
+- [x] Contas criadas (Neon, R2, Render), migrations rodadas, usuário
+      admin real criado, grupo "Padrão" configurado
+- [x] Corrigido: `deploy-frontend.yml` disparava em `branches: [main]`
+      (repo usa `master`) — workflow nunca executava
+- [x] Corrigido: `origin/master` estava 16 commits atrasado da máquina
+      local — Render rodava código velho o suficiente pra crashar
+      (`column m.versao does not exist`, schema pré-múltiplos-mapas)
+- [x] Corrigido: download de camada trocou de redirect (302) pra URL
+      assinada do R2 para **streaming direto pelo backend** — o
+      redirect não sobrevivia ao CORS entre os 3 domínios envolvidos
+      (`github.io` → `onrender.com` → `r2.cloudflarestorage.com`) num
+      teste real de navegador, mesmo com o bucket configurado
+      corretamente
+- [x] Corrigido: 3 nomes de camada acentuados corromperam ao passar por
+      variável de shell num script de reenvio (mesma lição de encoding
+      já registrada antes nesta sessão, reincidente)
+
+Ver `CLAUDE.md` (entrada "Deploy de verdade executado") para o relato
+completo de cada problema e correção.
+
+**URLs de produção**: site em `https://lmalerbo.github.io/geomap/`,
+API em `https://geomap-vr68.onrender.com`.
 
 ## Fase 4 — Ideias futuras (não compromissadas)
 

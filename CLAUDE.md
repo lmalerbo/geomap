@@ -1025,6 +1025,98 @@ real ao R2 só pôde ser testada quanto ao **tratamento de erro**
 ficam pro Leo criar as contas, não dá pra automatizar) — falta testar
 upload/download de verdade assim que as credenciais existirem.
 
+**Deploy de verdade executado (2026-07-13)**: a leva acima era só o
+código pronto — o deploy de fato (contas criadas pelo Leo, testado
+ponta a ponta) rolou numa sessão seguinte e revelou vários problemas
+reais que só aparecem em produção de verdade, nenhum previsível só
+testando local:
+
+- **`origin/master` estava muito mais atrasado do que a máquina
+  local** — 16 commits de sessões anteriores nunca tinham sido
+  publicados (todo o painel de admin, busca, medição, etc.), então o
+  Render ficou rodando código antigo o suficiente pra crashar com
+  `error: column m.versao does not exist` (schema de antes da migração
+  de múltiplos mapas). Lição: antes de configurar qualquer serviço de
+  deploy contínuo (Render, GitHub Pages), confirmar que `git log
+  origin/master..HEAD` está vazio — senão o deploy "funciona" mas roda
+  uma versão desatualizada sem nenhum aviso claro.
+- **Push rejeitado por escopo de OAuth**: o token do `gh` usado pra
+  autenticar o `git push` não tinha o escopo `workflow` — GitHub
+  bloqueia push de qualquer app OAuth que crie/altere arquivo em
+  `.github/workflows/*` sem esse escopo específico (proteção contra
+  apps com acesso só ao código mexerem sozinhos em CI/CD). Resolvido
+  com `gh auth refresh -h github.com -s workflow` (fluxo de aprovação
+  pelo navegador — na prática precisou de duas tentativas, a primeira
+  travou o terminal sem completar). Workaround usado enquanto isso não
+  tava resolvido: removeu o arquivo do commit (`git rm --cached`),
+  publicou o resto, e subiu o workflow numa leva separada depois.
+- **Workflow nunca disparava**: `deploy-frontend.yml` tinha
+  `branches: [main]`, mas o repositório usa `master` como branch
+  principal — erro meu, só percebido checando `gh run list` e vendo
+  zero execuções apesar do arquivo estar publicado. `gh workflow
+  list`/`gh run list --workflow=<nome>` é o jeito rápido de confirmar
+  se um workflow novo disparou ou não, em vez de assumir que disparou
+  só por ter feito push.
+- **Migration 006 cria mapas fixos mesmo num banco vazio**: ela foi
+  escrita assumindo que ia rodar sobre um banco de dev já populado
+  (fazendo backfill de dado existente), então tem um `INSERT INTO
+  mapas` incondicional com nomes hardcoded ("Usina da Pedra", "Projeto
+  restrito (teste)", "Sem projeto") — rodando num Neon vazio do zero,
+  esses 3 registros nascem mesmo sem nenhuma camada real. Não é bug
+  (não atrapalha nada, `camadaCount` fica 0), mas registrado aqui pra
+  não confundir uma sessão futura vendo mapas "fantasma" — na prática
+  ajudou (o mapa "Usina da Pedra" já nasceu com o nome certo, sem
+  precisar criar na mão).
+- **CORS por método**: `curl -I` (HEAD) contra uma URL assinada do S3/R2
+  retorna 403 — a assinatura da URL é específica pro método HTTP usado
+  em `getSignedUrl`, então testar com um método diferente do que foi
+  assinado (GET) sempre falha, não é erro de configuração.
+- **Redirect (302) pra URL assinada do R2 não sobreviveu no navegador
+  real, mesmo com CORS do bucket configurado e confirmado via `curl`**
+  — o Chromium bloqueava consistentemente com "No
+  Access-Control-Allow-Origin header" numa cadeia de redirect
+  envolvendo 3 domínios diferentes (`lmalerbo.github.io` →
+  `geomap-vr68.onrender.com` → `r2.cloudflarestorage.com`), mesmo
+  depois de configurar `PutBucketCorsCommand` no bucket e confirmar via
+  `curl -H "Origin: ..."` que o header vinha certo. Causa raiz exata
+  não isolada (suspeita forte: alguma interceptação de TLS/rede local
+  da máquina de teste mexendo em headers de resposta só pro tráfego do
+  Chromium, não pro `curl`) — mas em vez de insistir em diagnosticar
+  isso, a solução foi trocar de arquitetura: `GET
+  /admin/camadas/:id/arquivo` e `GET /camadas/:id/download` agora
+  fazem **streaming direto do R2** (`GetObjectCommand` +
+  `objeto.Body.pipe(res)`) em vez de redirecionar — o navegador só fala
+  com o próprio domínio do backend (que já tem CORS aberto,
+  `app.use(cors())`), eliminando a dependência de CORS de terceiro por
+  completo. `s3-request-presigner` removido do `package.json` (não é
+  mais usado). Mais simples e mais robusto do que insistir em fazer o
+  redirect funcionar, ao custo de mais tráfego passando pelo Render
+  (aceitável pro volume de uso real do projeto).
+- **Corrupção de encoding reincidente, de novo** (mesma lição já
+  registrada duas vezes antes nesta sessão pra rótulos e formas de
+  ponto): um script bash usado pra reenviar as camadas pra produção
+  passava o nome de cada camada por uma variável de shell (array +
+  `IFS='|' read`) antes de mandar via `curl -F "nome=$nome"` — 3 nomes
+  acentuados ("Malhas Viárias", "Talhões", "Pontos de Captação")
+  chegaram no banco de produção com o caractere de substituição Unicode
+  (`�`, bytes `ef bf bd`) no lugar do acento. Confirmado
+  inspecionando os bytes crus (`Buffer.from(nome, 'utf8')`), não só a
+  exibição no terminal. Corrigido re-enviando cada nome via `PUT
+  /admin/camadas/:id` com `--data-binary @arquivo.json` (arquivo escrito
+  pela tool `Write`, nunca pelo bash) — o mesmo padrão seguro já
+  estabelecido, e a mesma regra: **nunca deixar acento passar por
+  variável de shell**, nem dentro de um array bash, mesmo quando o
+  arquivo-fonte do script foi salvo em UTF-8 correto.
+- **Segredos em `.env` merecem cuidado mesmo fora do git**: durante o
+  processo, um token de acesso pessoal do GitHub foi colado por engano
+  na variável errada dentro de `backend/.env` (nunca commitado — `.env`
+  está no `.gitignore`, confirmado via `git log --all -- backend/.env`
+  vazio — mas removido mesmo assim). Também: nunca passar senha/token
+  como argumento de linha de comando (fica visível pra outros processos
+  via `ps`/listagem de processos) — usado um arquivo temporário
+  (apagado logo depois) como canal seguro pra um script de automação
+  ler a senha de admin sem expô-la no comando em si.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
