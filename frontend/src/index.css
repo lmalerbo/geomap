@@ -142,6 +142,18 @@ input[type="file"]::file-selector-button:hover {
   font-size: 14px;
 }
 
+/* Fallback do <Suspense> em App.jsx — code-splitting por rota, aparece
+   por uma fração de segundo enquanto o chunk da página é baixado. Não
+   pode usar position:absolute como .carregando-mapa (não tem nenhum
+   ancestral posicionado nesse ponto, é a primeira coisa a renderizar). */
+.carregando-rota {
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
 .erro {
   color: var(--erro);
 }

@@ -1371,6 +1371,38 @@ de arquivo (KML/Shapefile) de ponta a ponta — exigiria construir um
 arquivo sintético só pra isso; o código é uma extração literal (mesma
 lógica, só movida de lugar), risco residual baixo.
 
+**Code-splitting por rota (2026-07-13)**: item de performance do
+Lighthouse ("Reduce unused JavaScript", ~230 KiB de um bundle de 443
+KiB não usados no primeiro load — majoritariamente MapLibre GL + libs
+de importação de shapefile/KML, que só existem em `/mapa/:id`).
+`App.jsx` trocou os `import` estáticos das 7 páginas por
+`lazy(() => import(...))` + um `<Suspense>` em volta de `<Routes>`
+(fallback: spinner genérico, `.carregando-rota` nova no `index.css`,
+não pode reusar `.carregando-mapa` porque essa é `position: absolute`
+e depende de um ancestral posicionado que não existe nesse ponto —
+`Suspense` é a primeira coisa a renderizar, antes de qualquer layout).
+
+Resultado real, medido no build: o chunk principal (carregado em toda
+rota, inclusive `/login`) caiu de 450 KB pra 77 KB gzip — os ~350 KB
+de MapLibre GL/turf/shpjs/togeojson foram isolados num chunk próprio
+(`Mapa-*.js`, ~350 KB gzip) que só baixa quando o usuário abre
+`/mapa/:id` de verdade. Verificado via Playwright contra o build de
+produção real (mesmo servidor estático mínimo das levas anteriores,
+não `vite preview`): o chunk do Mapa não aparece nas requisições de
+rede em `/login` nem em `/inicio`, só depois de navegar pra dentro de
+um mapa — e o mapa continua renderizando normalmente depois disso
+(canvas MapLibre + 6 camadas reais de "Usina da Pedra"), zero erro de
+console.
+
+**Encerramento da leva "faça tudo" iniciada com a auditoria de
+frontend**: cobre a auditoria completa
+(`RELATORIO_AUDITORIA_FRONTEND.md`), todas as correções apontadas pelo
+Lighthouse, todos os itens Alto/Médio/Baixo do relatório exceto
+`useBuscaMapa` (ver acima o porquê) e o refactor completo de
+performance/arquitetura de `Mapa.jsx`. CDN pra COOP/X-Frame-Options/
+HSTS ficou de fora por decisão do Leo (`AskUserQuestion` — exige
+domínio próprio que ele não tem hoje).
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
