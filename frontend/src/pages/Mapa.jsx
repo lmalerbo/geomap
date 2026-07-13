@@ -5,8 +5,6 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { PMTiles, Protocol } from "pmtiles";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
-import turfLength from "@turf/length";
-import turfArea from "@turf/area";
 import { listarMapasBaixados, listarMapasDisponiveis } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
@@ -22,9 +20,10 @@ import {
   FORMAS_PONTO,
 } from "../lib/estiloCamada.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import { importarArquivoTemporario } from "../lib/importadorTemporario.js";
-import { baixarKmlPercurso } from "../lib/trackLog.js";
 import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
+import { useMedicao } from "../hooks/useMedicao.js";
+import { useTrackLog } from "../hooks/useTrackLog.js";
+import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
 
 function IconeMenu() {
@@ -165,102 +164,6 @@ const FUNDO_SATELITE_LAYER_ID = "fundo-satelite";
 // Filtro que nunca casa com nenhuma feição — usado pra "desligar" o
 // highlight de grupo sem precisar remover/recriar a camada.
 const FILTRO_NENHUM = ["==", ["literal", 1], ["literal", 2]];
-
-// Medição de distância/área — fonte/camadas próprias, nada a ver com os
-// dados baixados.
-const FONTE_MEDICAO = "fonte-medicao";
-const CAMADA_MEDICAO_LINHA = "camada-medicao-linha";
-const CAMADA_MEDICAO_PONTOS = "camada-medicao-pontos";
-const CAMADA_MEDICAO_AREA = "camada-medicao-area";
-
-// Importação temporária (KML/Shapefile) — só existe em React state
-// (arquivoTemporario), nunca em IndexedDB/backend; some ao recarregar a
-// página ou remover manualmente. Cor destacada (magenta) sinaliza "isso é
-// temporário", sem editor de simbologia — arquivo importado pode ter
-// qualquer geometria, por isso 3 layers (uma por família de geometria) em
-// vez de decidir um tipo só, como as camadas reais fazem.
-const FONTE_TEMPORARIA = "fonte-temporaria";
-const CAMADA_TEMPORARIA_PREENCHIMENTO = "camada-temporaria-preenchimento";
-const CAMADA_TEMPORARIA_LINHA = "camada-temporaria-linha";
-const CAMADA_TEMPORARIA_PONTOS = "camada-temporaria-pontos";
-const COR_TEMPORARIA = CORES_FERRAMENTAS.temporaria;
-
-// Track log (item 4) — desenha o percurso gravado via GPS. Cor sólida
-// vermelha, bem distinta da medição (laranja tracejado) e da importação
-// temporária (magenta), pra não confundir as três ferramentas se estiverem
-// ativas ao mesmo tempo.
-const FONTE_TRACK = "fonte-track";
-const CAMADA_TRACK_LINHA = "camada-track-linha";
-const COR_TRACK = CORES_FERRAMENTAS.track;
-
-// Monta o FeatureCollection renderizado enquanto o usuário vai clicando:
-// pontos sempre, linha a partir de 2 pontos (fechada se for modo área,
-// só pra dar a pista visual do polígono), preenchimento a partir de 3
-// pontos em modo área.
-function geojsonMedicao(pontos, modo) {
-  const features = pontos.map((p) => ({
-    type: "Feature",
-    properties: {},
-    geometry: { type: "Point", coordinates: p },
-  }));
-
-  if (pontos.length >= 2) {
-    const linha = modo === "area" ? [...pontos, pontos[0]] : pontos;
-    features.push({
-      type: "Feature",
-      properties: {},
-      geometry: { type: "LineString", coordinates: linha },
-    });
-  }
-
-  if (modo === "area" && pontos.length >= 3) {
-    features.push({
-      type: "Feature",
-      properties: {},
-      geometry: { type: "Polygon", coordinates: [[...pontos, pontos[0]]] },
-    });
-  }
-
-  return { type: "FeatureCollection", features };
-}
-
-// Texto pronto pra exibir — km/m pra distância (troca a unidade conforme
-// o tamanho, igual a barra de escala do MapLibre já faz), m²/ha pra área.
-function textoResultadoMedicao(pontos, modo) {
-  if (modo === "distancia") {
-    if (pontos.length < 2) return null;
-    const linha = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pontos } };
-    const km = turfLength(linha, { units: "kilometers" });
-    return km < 1 ? `${(km * 1000).toFixed(0)} m` : `${km.toFixed(2)} km`;
-  }
-  if (pontos.length < 3) return null;
-  const poligono = {
-    type: "Feature",
-    properties: {},
-    geometry: { type: "Polygon", coordinates: [[...pontos, pontos[0]]] },
-  };
-  const m2 = turfArea(poligono);
-  return m2 < 10000 ? `${m2.toFixed(0)} m²` : `${(m2 / 10000).toFixed(2)} ha`;
-}
-
-function geojsonPercurso(pontos) {
-  return {
-    type: "FeatureCollection",
-    features:
-      pontos.length >= 2
-        ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pontos } }]
-        : [],
-  };
-}
-
-// Mesmo critério de formatação de textoResultadoMedicao (km/m conforme o
-// tamanho), reaproveitado aqui pra distância percorrida ao vivo.
-function textoDistanciaPercurso(pontos) {
-  if (pontos.length < 2) return null;
-  const linha = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pontos } };
-  const km = turfLength(linha, { units: "kilometers" });
-  return km < 1 ? `${(km * 1000).toFixed(0)} m` : `${km.toFixed(2)} km`;
-}
 
 // Monta o filtro que seleciona todas as partes do mesmo talhão/seção, a
 // partir dos campos que já existem na camada principal (sem precisar de
@@ -704,9 +607,6 @@ export default function Mapa() {
   // Item destacado na lista de resultados — navegável por ↑/↓ no desktop;
   // Enter sem nunca ter mexido nas setas seleciona o primeiro (índice 0).
   const [indiceDestacadoBusca, setIndiceDestacadoBusca] = useState(0);
-  const [medindo, setMedindo] = useState(false);
-  const [modoMedicao, setModoMedicao] = useState("distancia");
-  const [pontosMedicao, setPontosMedicao] = useState([]);
   // Fundo satélite é só uma preferência visual do navegador (não é dado do
   // mapa) — persistida em localStorage pra continuar do jeito que o
   // usuário deixou entre sessões, sem precisar de coluna nova no backend.
@@ -714,20 +614,15 @@ export default function Mapa() {
     () => typeof window !== "undefined" && window.localStorage.getItem("geomap_fundo_satelite") === "1"
   );
   const [menuAberto, setMenuAberto] = useState(false);
-  // Importação temporária (item 5) — vive só em memória, nunca em
-  // IndexedDB/backend.
-  const [arquivoTemporario, setArquivoTemporario] = useState(null); // {nome, geojson} | null
-  const [temporariaVisivel, setTemporariaVisivel] = useState(true);
-  const [importandoArquivo, setImportandoArquivo] = useState(false);
-  const [erroImportacao, setErroImportacao] = useState(null);
-  // Track log (item 4) — GPS próprio (navigator.geolocation.watchPosition),
-  // independente do GeolocateControl (que só desenha o ponto azul sozinho,
-  // não expõe a posição como dado em nenhum lugar do código atual).
-  const [mostrarPainelTrack, setMostrarPainelTrack] = useState(false);
-  const [gravandoPercurso, setGravandoPercurso] = useState(false);
-  const [pontosPercurso, setPontosPercurso] = useState([]);
-  const [erroTrack, setErroTrack] = useState(null);
-  const watchIdRef = useRef(null);
+
+  // Medição, track log e importação temporária viraram hooks próprios
+  // (frontend/src/hooks/) — cada um cuida do próprio state + efeitos que
+  // criam/destroem source/layers no mapa. `mapRef`/`mapaPronto` são
+  // repassados porque o mapa em si é criado uma vez só, aqui embaixo (efeito
+  // 1) — os hooks não criam mapa nenhum, só desenham em cima do existente.
+  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null));
+  const track = useTrackLog(mapRef, mapaPronto, mapaId);
+  const temporaria = useImportacaoTemporaria(mapRef, mapaPronto);
 
   // 1) cria o mapa uma única vez, com controles de navegação e localização
   useEffect(() => {
@@ -776,8 +671,8 @@ export default function Mapa() {
       }),
       "top-right"
     );
-    map.addControl(new MedicaoControl(() => setMedindo((m) => !m)), "top-right");
-    map.addControl(new TrackControl(() => setMostrarPainelTrack((m) => !m)), "top-right");
+    map.addControl(new MedicaoControl(() => medicao.setMedindo((m) => !m)), "top-right");
+    map.addControl(new TrackControl(() => track.setMostrarPainelTrack((m) => !m)), "top-right");
     const fundoControl = new FundoControl(() => setFundoSatelite((s) => !s));
     fundoControlRef.current = fundoControl;
     map.addControl(fundoControl, "top-right");
@@ -1041,8 +936,8 @@ export default function Mapa() {
     if (!map || !mapaPronto) return;
 
     function handleClick(e) {
-      if (medindo) {
-        setPontosMedicao((atual) => [...atual, [e.lngLat.lng, e.lngLat.lat]]);
+      if (medicao.medindo) {
+        medicao.adicionarPonto([e.lngLat.lng, e.lngLat.lat]);
         return;
       }
 
@@ -1086,7 +981,8 @@ export default function Mapa() {
 
     map.on("click", handleClick);
     return () => map.off("click", handleClick);
-  }, [mapaPronto, camadasVisiveis, medindo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapaPronto, camadasVisiveis, medicao.medindo]);
 
   // 7) highlight de grupo: destaca todas as partes do talhão/seção
   // selecionado (mesma SECAO+TALHAO ou DESC_SECAO), sem desenhar nada
@@ -1134,164 +1030,6 @@ export default function Mapa() {
       marcadorRef.current = null;
     };
   }, [selecao]);
-
-  // 9) modo medição: cria/remove a fonte e as camadas de desenho quando
-  // liga/desliga (uma fonte só, 3 camadas filtradas por tipo de geometria).
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapaPronto) return;
-
-    if (!medindo) {
-      setPontosMedicao([]);
-      if (map.getLayer(CAMADA_MEDICAO_PONTOS)) map.removeLayer(CAMADA_MEDICAO_PONTOS);
-      if (map.getLayer(CAMADA_MEDICAO_LINHA)) map.removeLayer(CAMADA_MEDICAO_LINHA);
-      if (map.getLayer(CAMADA_MEDICAO_AREA)) map.removeLayer(CAMADA_MEDICAO_AREA);
-      if (map.getSource(FONTE_MEDICAO)) map.removeSource(FONTE_MEDICAO);
-      return;
-    }
-
-    setSelecao(null);
-    map.addSource(FONTE_MEDICAO, { type: "geojson", data: geojsonMedicao([], modoMedicao) });
-    map.addLayer({
-      id: CAMADA_MEDICAO_AREA,
-      type: "fill",
-      source: FONTE_MEDICAO,
-      filter: ["==", ["geometry-type"], "Polygon"],
-      paint: { "fill-color": CORES_FERRAMENTAS.medicao, "fill-opacity": 0.25 },
-    });
-    map.addLayer({
-      id: CAMADA_MEDICAO_LINHA,
-      type: "line",
-      source: FONTE_MEDICAO,
-      filter: ["==", ["geometry-type"], "LineString"],
-      paint: {
-        "line-color": CORES_FERRAMENTAS.medicao,
-        "line-width": 2,
-        "line-dasharray": [2, 1],
-      },
-    });
-    map.addLayer({
-      id: CAMADA_MEDICAO_PONTOS,
-      type: "circle",
-      source: FONTE_MEDICAO,
-      filter: ["==", ["geometry-type"], "Point"],
-      paint: {
-        "circle-radius": 5,
-        "circle-color": CORES_FERRAMENTAS.medicao,
-        "circle-stroke-width": 2,
-        "circle-stroke-color": "#fff",
-      },
-    });
-
-    return () => {
-      if (map.getLayer(CAMADA_MEDICAO_PONTOS)) map.removeLayer(CAMADA_MEDICAO_PONTOS);
-      if (map.getLayer(CAMADA_MEDICAO_LINHA)) map.removeLayer(CAMADA_MEDICAO_LINHA);
-      if (map.getLayer(CAMADA_MEDICAO_AREA)) map.removeLayer(CAMADA_MEDICAO_AREA);
-      if (map.getSource(FONTE_MEDICAO)) map.removeSource(FONTE_MEDICAO);
-    };
-  }, [medindo, mapaPronto]);
-
-  // 10) redesenha a medição a cada ponto novo, sem recriar fonte/camadas.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !medindo) return;
-    const fonte = map.getSource(FONTE_MEDICAO);
-    if (fonte) fonte.setData(geojsonMedicao(pontosMedicao, modoMedicao));
-  }, [pontosMedicao, modoMedicao, medindo]);
-
-  // 11) importação temporária (item 5): cria/remove fonte+camadas quando o
-  // arquivo muda — 3 layers (uma por família de geometria, já que o
-  // arquivo importado pode ter qualquer tipo, ao contrário das camadas
-  // reais que já sabem o próprio tipo de antemão) filtradas por
-  // ["geometry-type"], mesmo idioma da medição.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapaPronto) return;
-
-    if (map.getLayer(CAMADA_TEMPORARIA_PONTOS)) map.removeLayer(CAMADA_TEMPORARIA_PONTOS);
-    if (map.getLayer(CAMADA_TEMPORARIA_LINHA)) map.removeLayer(CAMADA_TEMPORARIA_LINHA);
-    if (map.getLayer(CAMADA_TEMPORARIA_PREENCHIMENTO)) map.removeLayer(CAMADA_TEMPORARIA_PREENCHIMENTO);
-    if (map.getSource(FONTE_TEMPORARIA)) map.removeSource(FONTE_TEMPORARIA);
-
-    if (!arquivoTemporario) return;
-
-    const opacidade = temporariaVisivel ? 1 : 0;
-    map.addSource(FONTE_TEMPORARIA, { type: "geojson", data: arquivoTemporario.geojson });
-    map.addLayer({
-      id: CAMADA_TEMPORARIA_PREENCHIMENTO,
-      type: "fill",
-      source: FONTE_TEMPORARIA,
-      filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
-      paint: { "fill-color": COR_TEMPORARIA, "fill-opacity": temporariaVisivel ? 0.25 : 0 },
-    });
-    map.addLayer({
-      id: CAMADA_TEMPORARIA_LINHA,
-      type: "line",
-      source: FONTE_TEMPORARIA,
-      filter: [
-        "match",
-        ["geometry-type"],
-        ["LineString", "MultiLineString", "Polygon", "MultiPolygon"],
-        true,
-        false,
-      ],
-      paint: { "line-color": COR_TEMPORARIA, "line-width": 2, "line-opacity": opacidade },
-    });
-    map.addLayer({
-      id: CAMADA_TEMPORARIA_PONTOS,
-      type: "circle",
-      source: FONTE_TEMPORARIA,
-      filter: ["match", ["geometry-type"], ["Point", "MultiPoint"], true, false],
-      paint: {
-        "circle-radius": 5,
-        "circle-color": COR_TEMPORARIA,
-        "circle-stroke-width": 1.5,
-        "circle-stroke-color": "#fff",
-        "circle-opacity": opacidade,
-      },
-    });
-  }, [arquivoTemporario, temporariaVisivel, mapaPronto]);
-
-  // 12) track log: cria/remove a fonte+camada quando o percurso passa a
-  // ter (ou deixa de ter) pelo menos 2 pontos — mesmo idioma da medição
-  // (item 9/10), mas sem limpar pontosPercurso ao fechar o painel: o
-  // percurso é intencional (gravado de propósito), diferente da medição
-  // (ferramenta descartável) — fechar o painel só esconde os controles,
-  // nunca apaga a gravação.
-  const temPercurso = pontosPercurso.length >= 2;
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapaPronto) return;
-    if (!temPercurso) {
-      if (map.getLayer(CAMADA_TRACK_LINHA)) map.removeLayer(CAMADA_TRACK_LINHA);
-      if (map.getSource(FONTE_TRACK)) map.removeSource(FONTE_TRACK);
-      return;
-    }
-    if (map.getSource(FONTE_TRACK)) return; // já existe — o efeito 13 atualiza os dados
-    map.addSource(FONTE_TRACK, { type: "geojson", data: geojsonPercurso(pontosPercurso) });
-    map.addLayer({
-      id: CAMADA_TRACK_LINHA,
-      type: "line",
-      source: FONTE_TRACK,
-      paint: { "line-color": COR_TRACK, "line-width": 3 },
-    });
-  }, [temPercurso, mapaPronto]);
-
-  // 13) redesenha o percurso a cada ponto novo do GPS, sem recriar fonte/camada.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !temPercurso) return;
-    const fonte = map.getSource(FONTE_TRACK);
-    if (fonte) fonte.setData(geojsonPercurso(pontosPercurso));
-  }, [pontosPercurso, temPercurso]);
-
-  // Encerra a gravação se o componente desmontar no meio (troca de mapa,
-  // logout) — sem isso o watchPosition ficaria rodando pra sempre.
-  useEffect(() => {
-    return () => {
-      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
-    };
-  }, []);
 
   function alternarCamada(id) {
     setCamadasVisiveis((atual) => {
@@ -1341,78 +1079,6 @@ export default function Mapa() {
     }
   }
 
-  function trocarModoMedicao(modo) {
-    setModoMedicao(modo);
-    setPontosMedicao([]);
-  }
-
-  async function aoImportarArquivo(e) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // permite reimportar o mesmo arquivo depois de remover
-    if (!file) return;
-    setImportandoArquivo(true);
-    setErroImportacao(null);
-    try {
-      const resultado = await importarArquivoTemporario(file);
-      setArquivoTemporario(resultado);
-      setTemporariaVisivel(true);
-    } catch (err) {
-      setErroImportacao(err.message);
-    } finally {
-      setImportandoArquivo(false);
-    }
-  }
-
-  function removerArquivoTemporario(e) {
-    e.preventDefault();
-    setArquivoTemporario(null);
-    setErroImportacao(null);
-  }
-
-  function iniciarGravacaoPercurso() {
-    if (!("geolocation" in navigator)) {
-      setErroTrack("Geolocalização não disponível neste navegador/dispositivo.");
-      return;
-    }
-    setErroTrack(null);
-    setGravandoPercurso(true);
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (posicao) => {
-        const { longitude, latitude } = posicao.coords;
-        setPontosPercurso((atual) => [...atual, [longitude, latitude]]);
-        setErroTrack(null);
-      },
-      (erro) => {
-        setErroTrack(erro.message || "Não foi possível obter a localização.");
-        // watchPosition chama o erro sem cancelar o watch sozinho — sinal de
-        // GPS instável (POSITION_UNAVAILABLE/TIMEOUT) é passageiro (comum
-        // em campo, ex: sob árvores/cobertura ruim) e a gravação deve
-        // continuar tentando; só permissão negada de verdade é fatal.
-        if (erro.code === erro.PERMISSION_DENIED) {
-          pararGravacaoPercurso();
-        }
-      },
-      { enableHighAccuracy: true }
-    );
-  }
-
-  function pararGravacaoPercurso() {
-    if (watchIdRef.current != null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-    setGravandoPercurso(false);
-  }
-
-  function limparPercurso() {
-    setPontosPercurso([]);
-    setErroTrack(null);
-  }
-
-  function exportarPercurso() {
-    baixarKmlPercurso(pontosPercurso, `mapa-${mapaId}`);
-  }
-
   const itemSelecionado = selecao?.itens[selecao.indice];
 
   const buscaNormalizada = normalizarTexto(buscaTexto.trim());
@@ -1429,9 +1095,6 @@ export default function Mapa() {
   // A lista é recalculada a cada tecla — se encolher, o índice destacado
   // de uma busca anterior pode ficar fora dos limites.
   const indiceDestacadoValido = Math.min(indiceDestacadoBusca, Math.max(resultadosBusca.length - 1, 0));
-
-  const resultadoMedicaoAtual = medindo ? textoResultadoMedicao(pontosMedicao, modoMedicao) : null;
-  const distanciaPercursoAtual = textoDistanciaPercurso(pontosPercurso);
 
   return (
     <main className="tela-mapa">
@@ -1450,9 +1113,9 @@ export default function Mapa() {
                   })}`
                 : null}
         </span>
-        {medindo && (
+        {medicao.medindo && (
           <span className="status-medicao" aria-live="polite">
-            Medição ativa: {modoMedicao === "area" ? "área" : "distância"}
+            Medição ativa: {medicao.modoMedicao === "area" ? "área" : "distância"}
           </span>
         )}
         <Link to="/inicio" className="botao-circular" aria-label="Trocar mapa" title="Trocar mapa">
@@ -1585,19 +1248,19 @@ export default function Mapa() {
                 );
               })}
 
-              {arquivoTemporario && (
+              {temporaria.arquivoTemporario && (
                 <label className="linha-camada linha-camada--temporaria">
                   <input
                     type="checkbox"
-                    checked={temporariaVisivel}
-                    onChange={() => setTemporariaVisivel((v) => !v)}
+                    checked={temporaria.temporariaVisivel}
+                    onChange={() => temporaria.setTemporariaVisivel((v) => !v)}
                   />
-                  <span className="swatch-camada" style={{ backgroundColor: COR_TEMPORARIA }} />
-                  <span className="nome-camada">Temporária: {arquivoTemporario.nome}</span>
+                  <span className="swatch-camada" style={{ backgroundColor: CORES_FERRAMENTAS.temporaria }} />
+                  <span className="nome-camada">Temporária: {temporaria.arquivoTemporario.nome}</span>
                   <button
                     type="button"
                     className="fechar"
-                    onClick={removerArquivoTemporario}
+                    onClick={temporaria.removerArquivoTemporario}
                     aria-label="Remover camada temporária"
                     title="Remover camada temporária"
                   >
@@ -1607,15 +1270,15 @@ export default function Mapa() {
               )}
 
               <label className="botao importar-arquivo-temporario">
-                {importandoArquivo ? "Importando…" : "+ Importar arquivo (KML/SHP)"}
+                {temporaria.importandoArquivo ? "Importando…" : "+ Importar arquivo (KML/SHP)"}
                 <input
                   type="file"
                   accept=".kml,.zip"
-                  onChange={aoImportarArquivo}
-                  disabled={importandoArquivo}
+                  onChange={temporaria.aoImportarArquivo}
+                  disabled={temporaria.importandoArquivo}
                 />
               </label>
-              {erroImportacao && <p className="erro">{erroImportacao}</p>}
+              {temporaria.erroImportacao && <p className="erro">{temporaria.erroImportacao}</p>}
             </div>
           </aside>
         )}
@@ -1628,13 +1291,13 @@ export default function Mapa() {
           </p>
         )}
 
-        <aside className={`painel-flutuante painel-medicao${medindo ? " aberto" : ""}`}>
-          {medindo && (
+        <aside className={`painel-flutuante painel-medicao${medicao.medindo ? " aberto" : ""}`}>
+          {medicao.medindo && (
             <>
               <button
                 type="button"
                 className="fechar"
-                onClick={() => setMedindo(false)}
+                onClick={() => medicao.setMedindo(false)}
                 aria-label="Fechar medição"
                 title="Fechar medição"
               >
@@ -1643,25 +1306,31 @@ export default function Mapa() {
               <div className="opcoes-modo-medicao">
                 <button
                   type="button"
-                  className={modoMedicao === "distancia" ? "ativo" : ""}
-                  onClick={() => trocarModoMedicao("distancia")}
+                  className={medicao.modoMedicao === "distancia" ? "ativo" : ""}
+                  onClick={() => medicao.trocarModoMedicao("distancia")}
                 >
                   Distância
                 </button>
                 <button
                   type="button"
-                  className={modoMedicao === "area" ? "ativo" : ""}
-                  onClick={() => trocarModoMedicao("area")}
+                  className={medicao.modoMedicao === "area" ? "ativo" : ""}
+                  onClick={() => medicao.trocarModoMedicao("area")}
                 >
                   Área
                 </button>
               </div>
               <p className="resultado-medicao">
-                {resultadoMedicaoAtual ??
-                  (modoMedicao === "area" ? "Clique pra marcar o polígono (mín. 3 pontos)" : "Clique pra marcar os pontos")}
+                {medicao.resultadoMedicaoAtual ??
+                  (medicao.modoMedicao === "area"
+                    ? "Clique pra marcar o polígono (mín. 3 pontos)"
+                    : "Clique pra marcar os pontos")}
               </p>
-              {pontosMedicao.length > 0 && (
-                <button type="button" className="botao-limpar-medicao" onClick={() => setPontosMedicao([])}>
+              {medicao.pontosMedicao.length > 0 && (
+                <button
+                  type="button"
+                  className="botao-limpar-medicao"
+                  onClick={() => medicao.setPontosMedicao([])}
+                >
                   Limpar
                 </button>
               )}
@@ -1669,42 +1338,42 @@ export default function Mapa() {
           )}
         </aside>
 
-        <aside className={`painel-flutuante painel-track${mostrarPainelTrack ? " aberto" : ""}`}>
-          {mostrarPainelTrack && (
+        <aside className={`painel-flutuante painel-track${track.mostrarPainelTrack ? " aberto" : ""}`}>
+          {track.mostrarPainelTrack && (
             <>
               <button
                 type="button"
                 className="fechar"
-                onClick={() => setMostrarPainelTrack(false)}
+                onClick={() => track.setMostrarPainelTrack(false)}
                 aria-label="Fechar gravação de percurso"
                 title="Fechar gravação de percurso"
               >
                 ×
               </button>
               <h3>Gravar percurso</h3>
-              {gravandoPercurso ? (
-                <button type="button" className="botao-track-gravando" onClick={pararGravacaoPercurso}>
+              {track.gravandoPercurso ? (
+                <button type="button" className="botao-track-gravando" onClick={track.pararGravacaoPercurso}>
                   ● Parar gravação
                 </button>
               ) : (
-                <button type="button" onClick={iniciarGravacaoPercurso}>
+                <button type="button" onClick={track.iniciarGravacaoPercurso}>
                   Iniciar gravação
                 </button>
               )}
               <p className="resultado-medicao">
-                {gravandoPercurso
-                  ? `Gravando… ${distanciaPercursoAtual ?? "0 m"}`
-                  : distanciaPercursoAtual
-                    ? `Percurso gravado: ${distanciaPercursoAtual}`
+                {track.gravandoPercurso
+                  ? `Gravando… ${track.distanciaPercursoAtual ?? "0 m"}`
+                  : track.distanciaPercursoAtual
+                    ? `Percurso gravado: ${track.distanciaPercursoAtual}`
                     : "Clique em \"Iniciar gravação\" e mantenha o app aberto durante o percurso."}
               </p>
-              {erroTrack && <p className="erro">{erroTrack}</p>}
-              {!gravandoPercurso && pontosPercurso.length > 0 && (
+              {track.erroTrack && <p className="erro">{track.erroTrack}</p>}
+              {!track.gravandoPercurso && track.pontosPercurso.length > 0 && (
                 <div className="acoes-painel-track">
-                  <button type="button" className="botao-secundario" onClick={exportarPercurso}>
+                  <button type="button" className="botao-secundario" onClick={track.exportarPercurso}>
                     Exportar KML
                   </button>
-                  <button type="button" className="botao-limpar-medicao" onClick={limparPercurso}>
+                  <button type="button" className="botao-limpar-medicao" onClick={track.limparPercurso}>
                     Limpar
                   </button>
                 </div>

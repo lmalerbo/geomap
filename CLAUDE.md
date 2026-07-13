@@ -1339,6 +1339,38 @@ tem que ser testada tanto em build de produção quanto em dev local
 antes de considerar "pronta" — os dois ambientes têm necessidades
 diferentes o bastante pra uma CSP estática só servir um dos dois.
 
+**Refactor de `Mapa.jsx` em hooks (2026-07-13)**: item Médio do
+relatório (componente de 1684 linhas, sem `useMemo`/`useCallback`).
+Extraídas 3 ferramentas independentes pra `frontend/src/hooks/`:
+`useMedicao.js`, `useTrackLog.js`, `useImportacaoTemporaria.js` — cada
+uma leva consigo o próprio state, efeitos (criar/destruir source+layers
+no MapLibre) e funções, recebendo só `mapRef`/`mapaPronto` de fora (o
+mapa em si continua sendo criado uma única vez em `Mapa.jsx`, os hooks
+só desenham em cima dele). `Mapa.jsx` caiu de 1684 pra 1428 linhas;
+`useMedicao` precisou de um callback `aoIniciar` (fecha o painel de
+atributos quando a medição liga — única dependência cruzada de verdade
+entre essas ferramentas e o resto do componente).
+
+**`useBuscaMapa` deliberadamente NÃO extraído** — ao contrário das
+outras três, o índice de busca é construído dentro do próprio efeito
+que carrega as camadas (`aplicar()`, o antigo efeito 4), lendo os
+`.pmtiles` já baixados assim que uma camada muda de verdade. Extrair
+isso limpo exigiria também mexer nesse efeito (o mais crítico e mais
+testado do arquivo, com histórico de bugs sutis documentado nesta
+sessão inteira) — risco maior que o benefício por agora. Fica pra uma
+sessão futura, com mais tempo pra validar a fundo.
+
+Testado localmente contra produção real (login com o usuário do Leo,
+autorizado por ele — `Usina da Pedra`, 6 camadas de verdade): mapa
+carrega, medição abre/fecha e calcula distância corretamente (`44.97
+km` num teste com 3 pontos clicados), track log grava/para (botão
+pulsando durante a gravação, confirmando que a animação da leva
+anterior sobreviveu à extração), painel de camadas e atributos sem
+regressão, zero erro de console. Não foi testado o fluxo de importação
+de arquivo (KML/Shapefile) de ponta a ponta — exigiria construir um
+arquivo sintético só pra isso; o código é uma extração literal (mesma
+lógica, só movida de lugar), risco residual baixo.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
