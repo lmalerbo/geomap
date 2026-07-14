@@ -254,6 +254,22 @@ function normalizarTexto(texto) {
 // dataset inteiro). No zoom mais baixo a área inteira cabe em poucos
 // tiles, e como os rótulos foram gerados com -r1 (sem thinning por
 // densidade), cada talhão/fazenda aparece garantido em algum tile.
+// Desce recursivamente por coordenadas GeoJSON de qualquer tipo de
+// geometria (Point/LineString/Polygon/MultiPolygon/...) expandindo
+// `bounds` ([minLng, minLat, maxLng, maxLat]) em lugar — termina ao achar
+// um par numérico [lng, lat] (uma folha), não importa o nível de aninhamento.
+function expandirBoundsComCoords(bounds, coords) {
+  if (typeof coords[0] === "number") {
+    const [lng, lat] = coords;
+    if (lng < bounds[0]) bounds[0] = lng;
+    if (lat < bounds[1]) bounds[1] = lat;
+    if (lng > bounds[2]) bounds[2] = lng;
+    if (lat > bounds[3]) bounds[3] = lat;
+  } else {
+    for (const c of coords) expandirBoundsComCoords(bounds, c);
+  }
+}
+
 async function montarIndiceBusca(infos) {
   // Passagem 1: agrega os códigos SECAO de QUALQUER camada (Talhões,
   // Limites, etc.) por nome de fazenda/seção (DESC_SECAO) — cada camada só
@@ -265,6 +281,14 @@ async function montarIndiceBusca(infos) {
   // partir do polígono de Limites, e a busca por esse código não achava a
   // fazenda mesmo ela existindo.
   const codigosPorDesc = new Map(); // DESC_SECAO -> Set(SECAO)
+  // Extensão real (união de todos os polígonos, de qualquer camada, que
+  // tenham esse DESC_SECAO) — usada pra enquadrar a fazenda inteira ao
+  // selecionar um resultado de busca, em vez de só voar pro ponto do
+  // rótulo (que fica só na maior peça, ver polylabel em
+  // gerar_rotulos_por_atributo.py — uma fazenda com peças espalhadas
+  // parecia "aproximar de lugar aleatório" porque só a maior peça ficava
+  // visível no zoom fixo de antes).
+  const boundsPorDesc = new Map(); // DESC_SECAO -> [minLng, minLat, maxLng, maxLat]
   for (const info of infos) {
     const { pmtiles, header } = info;
     // A camada principal (polígono/ponto) é gerada SEM a flag -r1 do
@@ -288,10 +312,20 @@ async function montarIndiceBusca(infos) {
         const camadaPrincipal = tile.layers[info.sourceLayerPrincipal];
         if (!camadaPrincipal) continue;
         for (let i = 0; i < camadaPrincipal.length; i++) {
-          const props = camadaPrincipal.feature(i).properties;
-          if (!("DESC_SECAO" in props) || !("SECAO" in props)) continue;
-          if (!codigosPorDesc.has(props.DESC_SECAO)) codigosPorDesc.set(props.DESC_SECAO, new Set());
-          codigosPorDesc.get(props.DESC_SECAO).add(props.SECAO);
+          const feature = camadaPrincipal.feature(i);
+          const props = feature.properties;
+          if (!("DESC_SECAO" in props)) continue;
+          if ("SECAO" in props) {
+            if (!codigosPorDesc.has(props.DESC_SECAO)) codigosPorDesc.set(props.DESC_SECAO, new Set());
+            codigosPorDesc.get(props.DESC_SECAO).add(props.SECAO);
+          }
+          if (!boundsPorDesc.has(props.DESC_SECAO)) {
+            boundsPorDesc.set(props.DESC_SECAO, [Infinity, Infinity, -Infinity, -Infinity]);
+          }
+          expandirBoundsComCoords(
+            boundsPorDesc.get(props.DESC_SECAO),
+            feature.toGeoJSON(x, y, z).geometry.coordinates,
+          );
         }
       }
     }
@@ -327,12 +361,14 @@ async function montarIndiceBusca(infos) {
           const texto = String(props.rotulo);
           const codigos = codigosPorDesc.get(props.rotulo);
           const buscavelExtra = codigos ? ` ${[...codigos].join(" ")}` : "";
+          const bounds = boundsPorDesc.get(props.rotulo) || null;
 
           indice.push({
             texto,
             buscavel: normalizarTexto(texto + buscavelExtra),
             lng,
             lat,
+            bounds,
             mapaId: info.id,
           });
         }
@@ -641,6 +677,12 @@ export default function Mapa() {
   const mapRef = useRef(null);
   const protocolRef = useRef(null);
   const camadasCarregadasRef = useRef(new Map());
+  // Assinatura combinada das camadas pras quais o índice de busca já foi
+  // construído com sucesso — ver efeito 4 (busca). Só atualizada dentro do
+  // .then() não cancelado, então uma corrida (índice de busca cancelado
+  // antes de terminar) nunca fica "esquecida": a assinatura continua
+  // diferente da atual, e a próxima rodada do efeito tenta de novo.
+  const indiceBuscaAssinaturaRef = useRef(null);
   const jaEnquadrouRef = useRef(false);
   const extensaoAtualRef = useRef(null);
   const marcadorRef = useRef(null);
@@ -934,12 +976,29 @@ export default function Mapa() {
         }
       }
 
-      // Índice de busca: só remonta quando alguma camada foi adicionada/
-      // trocada de verdade — ler tiles direto da lib pmtiles é barato (tudo
-      // local, poucos tiles no zoom mínimo) mas não precisa repetir à toa.
-      if (mudou) {
+      // Índice de busca: só remonta quando a combinação de camadas carregadas
+      // muda de verdade — comparado por assinatura (não pelo booleano `mudou`
+      // deste efeito), porque `mudou` só reflete a ÚLTIMA rodada: efeito 2
+      // (leitura local do IndexedDB) e efeito 3 (sincronização de rede) MUDAM
+      // `mapasLocais` de forma independente e quase simultânea, cada mudança
+      // re-executando este efeito — se a leitura local terminar primeiro e já
+      // tiver as mesmas camadas, essa 1ª rodada dispara montarIndiceBusca
+      // (`mudou: true`), mas a sincronização de rede chega logo em seguida e
+      // cancela essa rodada antes dela terminar; a 2ª rodada (`mudou: false`,
+      // nada realmente novo pra adicionar) não tentava de novo — o índice de
+      // busca nunca era construído (busca ficava "não disponível" pra
+      // sempre). Comparar pela assinatura das camadas já carregadas, só
+      // atualizada dentro do .then() não cancelado, garante que uma rodada
+      // cancelada sempre deixa a próxima rodada tentar de novo.
+      const assinaturaCombinada = [...carregadas.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([id, info]) => `${id}:${info.assinatura}`)
+        .join("|");
+      if (assinaturaCombinada !== indiceBuscaAssinaturaRef.current) {
         montarIndiceBusca([...carregadas.values()]).then((novo) => {
-          if (!cancelado) setIndiceBusca(novo);
+          if (cancelado) return;
+          indiceBuscaAssinaturaRef.current = assinaturaCombinada;
+          setIndiceBusca(novo);
         });
       }
     }
@@ -1115,7 +1174,24 @@ export default function Mapa() {
   function selecionarResultadoBusca(resultado) {
     const map = mapRef.current;
     if (!map) return;
-    map.flyTo({ center: [resultado.lng, resultado.lat], zoom: 16, duration: 1200 });
+    // Enquadra a extensão real da fazenda (união de todos os polígonos
+    // dela, ver montarIndiceBusca) em vez de só voar pro ponto do
+    // rótulo — esse ponto fica só na maior peça de uma fazenda com
+    // peças espalhadas (polylabel em gerar_rotulos_por_atributo.py), e
+    // um zoom fixo nele deixava de fora o resto da fazenda, parecendo
+    // "aproximar de lugar aleatório".
+    const [minLng, minLat, maxLng, maxLat] = resultado.bounds || [];
+    if (resultado.bounds && Number.isFinite(minLng) && Number.isFinite(maxLng)) {
+      map.fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        { padding: 60, duration: 1200, maxZoom: 16 },
+      );
+    } else {
+      map.flyTo({ center: [resultado.lng, resultado.lat], zoom: 16, duration: 1200 });
+    }
     setBuscaTexto("");
   }
 

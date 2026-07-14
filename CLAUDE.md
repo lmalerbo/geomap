@@ -1635,6 +1635,67 @@ caixa delimitadora dele não tem mais interseção vertical com a pilha de
 controles (`overlap_y = 0px`, antes positivo) — confirmado também
 visualmente por screenshot. Zero erro de console nos dois fluxos.
 
+**Busca aproximava de lugar errado ao selecionar um resultado
+(2026-07-14)**: o Leo reportou que, depois de digitar um código/nome e
+selecionar o resultado, o mapa "aproximava pra fazendas ou pontos
+aleatórios" em vez de enquadrar a fazenda inteira. Causa:
+`selecionarResultadoBusca` sempre fazia `map.flyTo({center:
+[resultado.lng, resultado.lat], zoom: 16})` — um zoom fixo centrado só
+no PONTO do rótulo, que por sua vez fica só na MAIOR peça de uma
+fazenda (`polylabel` sobre `max(lista_partes, key=area)` em
+`gerar_rotulos_por_atributo.py`). Fazendas com peças espalhadas (comum
+— uma "seção"/fazenda pode ter talhões em vários lugares distintos)
+pareciam "ir pra lugar aleatório" porque zoom 16 só mostra a
+vizinhança imediata daquele ponto, nunca as outras peças.
+
+Corrigido calculando a extensão real (bbox) da fazenda: `montarIndiceBusca`
+ganhou uma segunda agregação (`boundsPorDesc`, ao lado de
+`codigosPorDesc`, mesma passagem 1) que expande `[minLng, minLat,
+maxLng, maxLat]` com a geometria de TODO polígono de QUALQUER camada
+com aquele `DESC_SECAO` — via `expandirBoundsComCoords`, um walker
+recursivo genérico que desce por qualquer tipo de geometria GeoJSON
+(Point/LineString/Polygon/MultiPolygon) até achar pares `[lng,lat]`,
+não importa o nível de aninhamento. Cada entrada do índice carrega esse
+`bounds`; `selecionarResultadoBusca` agora usa `map.fitBounds(bounds,
+{padding:60, maxZoom:16})` em vez de `flyTo` — degrada pro `flyTo` de
+ponto antigo só se `bounds` não existir (nunca deveria acontecer na
+prática, mas evita crash).
+
+Bug real de corrida encontrado ao testar essa mudança (pré-existente,
+só ficou visível porque a nova agregação de bounds tornou
+`montarIndiceBusca` mais lenta o bastante pra perder uma corrida que
+antes sempre ganhava): o efeito que aplica `mapasLocais` como
+camadas do MapLibre (efeito 4) só chamava `montarIndiceBusca` quando
+`mudou` era `true` **na última rodada** — mas `mapasLocais` muda de
+forma independente em dois efeitos que disparam quase juntos (efeito 2,
+leitura local do IndexedDB; efeito 3, sincronização de rede), cada
+mudança re-executando o efeito 4 inteiro. Se a leitura local terminava
+primeiro (`mudou: true`, dispara `montarIndiceBusca`) e a sincronização
+de rede chegava logo depois com as MESMAS camadas (`mudou: false`,
+nada novo pra adicionar), a 2ª rodada cancelava a 1ª (ainda rodando)
+sem nunca tentar de novo — o índice de busca nunca era construído,
+busca ficava "não disponível" pra sempre. Isolado com instrumentação
+de debug temporária (removida depois) confirmando exatamente essa
+sequência via `window` (não sobrou no código). Corrigido trocando o
+gate de `mudou` (reflete só a última rodada) por uma comparação de
+assinatura combinada de todas as camadas já carregadas
+(`indiceBuscaAssinaturaRef`, só atualizada dentro do `.then()` **não**
+cancelado) — uma rodada cancelada nunca atualiza essa referência, então
+a rodada seguinte (mesmo com `mudou: false`) sempre tenta de novo até
+uma completar sem ser cancelada.
+
+Testado via Playwright: contra build de produção real (`vite build` +
+servidor estático, sem `vite preview`), 3 rodadas seguidas confirmando
+a busca ficando disponível de forma confiável (~2.5s, antes travava
+pra sempre); contra o servidor de dev (`window.__map` exposto só em
+DEV pra inspeção), selecionar "PEDRA" e "BEBEDOURO DA PEDRA" resultou
+em zoom/bbox diferentes e proporcionais ao tamanho real de cada
+fazenda (13.09 e 15.23, não mais fixo em 16); confirmado
+programaticamente via `map.queryRenderedFeatures` que a feição da
+própria fazenda selecionada está sempre dentro do viewport enquadrado
+(fazendas vizinhas também aparecerem no entorno é esperado — o
+enquadramento mostra a extensão real, não isola a fazenda).
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
