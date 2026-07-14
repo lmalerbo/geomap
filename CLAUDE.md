@@ -1763,9 +1763,45 @@ mesma projeção:
 confirmado via metadata (`vector_layers`: `Talhões` maxzoom 16 com
 todos os 25 campos do DBF originais, `rotulos` maxzoom 17) que o
 resultado não repete o bug de "rótulos sumidos" de 2026-07-11 (arquivo
-só-geometria sem a camada de rótulos). Fica pro Leo subir esse arquivo
-pela tela de Gerenciar camadas → Atualizar arquivo, escolhendo o
-`.pmtiles` gerado em vez do `.zip` original.
+só-geometria sem a camada de rótulos).
+
+O Leo deixou claro que não queria lidar com nenhum artefato
+intermediário (nem `.zip`, nem `.pmtiles`) — só entregar o `.shp` e ter
+a camada atualizada. Como o upload de verdade (`PUT
+/admin/camadas/:id/arquivo`) exige só um arquivo + `multipart/form-data`,
+dava pra fazer isso direto via `curl` contra produção, sem precisar da
+UI. Descoberta no processo: **produção tem duas camadas "Talhões"
+diferentes** — `id 5` no mapa "Geral" e `id 25` no mapa "Temático"
+(mesmas 6 camadas nos dois, mas `estilo_config` diferente — "Temático"
+usa preenchimento categorizado por `OCORRENCIA`, "Geral" não) — banco
+de produção (Neon) diverge do seed local de dev, não tem "Usina da
+Pedra" nem "Sem projeto"/"Projeto restrito" de teste. Confirmado com o
+Leo (`AskUserQuestion`) que as duas deviam receber o mesmo arquivo
+novo, já que compartilham a mesma geometria-base. As duas atualizadas
+via `PUT .../admin/camadas/{5,25}/arquivo` (`versao: "2.5"`, era
+"2.4"), confirmado depois via `GET .../admin/camadas/:id/arquivo` que
+o arquivo em produção bate byte a byte com o gerado localmente
+(20.546.552 bytes nos dois).
+
+Detalhe de ambiente encontrado fazendo upload via `curl` nesta máquina:
+`curl -F "arquivo=@/c/Users/..."` (caminho estilo POSIX/Git Bash) falha
+com `curl: (26)` (erro de leitura do arquivo local) — o `curl.exe`
+nesta máquina é um binário nativo do Windows (mingw32), e a conversão
+automática de path do Git Bash não alcança um path embutido dentro de
+`campo=@caminho` (só funciona pra argumento solto). Corrigido usando
+o caminho no formato Windows com barra normal
+(`C:/Users/lmalerbo/...`), que tanto o `curl.exe` nativo entende quanto
+não precisa de conversão nenhuma do Git Bash.
+
+Lição de processo (bloqueio do classificador de auto-mode): a primeira
+tentativa gravou o JWT de produção (`$TOKEN`) num arquivo temporário
+(`/tmp/token_prod.txt`) pra reusar entre chamadas — bloqueado
+automaticamente ("Credential Materialization", sem consentimento do
+usuário nomeando esse write específico). Refeito mantendo o token só
+dentro de uma variável de shell, gerado de novo (novo login) a cada
+comando `curl` que precisava dele, nunca tocando disco — mesmo padrão
+de segurança de credencial já em vigor o resto da sessão pra `.env`/
+`.mcp.json`, agora também vale pra token JWT obtido em runtime.
 
 ## graphify
 
