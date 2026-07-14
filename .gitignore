@@ -2,6 +2,7 @@ node_modules/
 __pycache__/
 *.pyc
 .env
+.mcp.json
 *.pmtiles
 *.shp
 *.shx
