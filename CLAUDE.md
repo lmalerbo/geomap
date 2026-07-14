@@ -1722,6 +1722,51 @@ configurados) respondeu `201` com as 6 camadas copiadas, e o
 origem (`JSON.stringify` comparado igual pras 6). Cópia de teste
 removida logo depois (nunca deixar dado de teste no banco de dev real).
 
+**Pipeline de rótulos assumia CRS fixo, quebrava com shapefile em WGS84
+(2026-07-14)**: o Leo tentou atualizar o arquivo de "Talhões" (nova
+exportação `14-07-26.zip`) pelo botão "Atualizar arquivo" → deu o erro
+já esperado `ogr2ogr não encontrado` (upload de `.zip` só funciona
+rodando o backend localmente via Cygwin — Render não tem esses
+binários, ver seção "Deploy de produção" acima). Rodei o pipeline
+manual localmente pra gerar o `.pmtiles` pronto pra ele subir. No
+processo, achei dois problemas reais nos scripts de rótulos
+(`pipeline/rotulos/`), nenhum deles causado por esta sessão — só nunca
+tinham aparecido porque os shapefiles usados até aqui sempre vieram na
+mesma projeção:
+
+1. `gerar_rotulos.py`/`gerar_rotulos_por_atributo.py` tinham o CRS de
+   origem **fixo** em `EPSG:31983` (SIRGAS 2000 / UTM 23S) — mas o
+   `14-07-26.shp` veio em `EPSG:4326` puro (lon/lat em graus,
+   confirmado via `ogrinfo`/`.prj`). Reprojetar valores em graus como
+   se fossem metros UTM geraria rótulos em posições completamente
+   erradas (mesma classe de dano do bug de precisão da camada
+   "Unidades", 2026-07-12, só que pelo lado da reprojeção em vez do
+   `--maximum-zoom=g`). Corrigido lendo o CRS de verdade do `.prj` ao
+   lado do `.shp` (`pyproj.CRS.from_wkt`) em vez de assumir — cai de
+   volta em `EPSG:31983` só se não achar `.prj` (preserva o
+   comportamento antigo pra datasets sem esse arquivo).
+2. `gerar_rotulos.py` **crashava o lote inteiro** numa única feição com
+   geometria malformada (`Unable to find a ring sample point` do
+   `pyshp` — mesma feição que o `ogr2ogr` já tinha avisado como
+   problemática na conversão pra GeoJSON, fid 3150/SECAO 10796/TALHAO
+   3). Igual ao princípio já usado no resto do projeto (uma camada/
+   feição ruim nunca derruba as outras), agora só pula essa feição com
+   um aviso (`SECAO`/`TALHAO` no log) e segue — 7502 de 7503 rótulos
+   gerados, só a feição de geometria inválida ficou de fora (ela
+   também não teria coordenadas confiáveis pra desenhar de qualquer
+   jeito).
+
+`.pmtiles` final gerado em `pipeline/output/talhoes-pedra-20260714/`
+(gitignored) com o pipeline completo (`ogr2ogr` → GeoJSON,
+`tippecanoe --maximum-zoom=16` pro polígono, `gerar_rotulos.py` →
+`tippecanoe -r1 -z17` pro rótulo, `tile-join` pra juntar os dois) —
+confirmado via metadata (`vector_layers`: `Talhões` maxzoom 16 com
+todos os 25 campos do DBF originais, `rotulos` maxzoom 17) que o
+resultado não repete o bug de "rótulos sumidos" de 2026-07-11 (arquivo
+só-geometria sem a camada de rótulos). Fica pro Leo subir esse arquivo
+pela tela de Gerenciar camadas → Atualizar arquivo, escolhendo o
+`.pmtiles` gerado em vez do `.zip` original.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

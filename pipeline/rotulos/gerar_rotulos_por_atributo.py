@@ -9,7 +9,7 @@ import os
 import sys
 from collections import defaultdict
 import shapefile
-from pyproj import Transformer
+from pyproj import CRS, Transformer
 from shapely.geometry import shape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,7 +19,15 @@ ENTRADA = sys.argv[1]
 CAMPO_AGRUPAMENTO = sys.argv[2]
 SAIDA_ROTULOS = sys.argv[3]
 
-transformer = Transformer.from_crs("EPSG:31983", "EPSG:4326", always_xy=True)
+# CRS de origem lido do .prj ao lado do .shp — ver o mesmo comentário em
+# gerar_rotulos.py (nem todo export vem em EPSG:31983/UTM).
+_caminho_prj = os.path.splitext(ENTRADA)[0] + ".prj"
+if os.path.exists(_caminho_prj):
+    with open(_caminho_prj, encoding="utf-8") as f:
+        crs_origem = CRS.from_wkt(f.read())
+else:
+    crs_origem = CRS.from_epsg(31983)
+transformer = Transformer.from_crs(crs_origem, "EPSG:4326", always_xy=True)
 
 
 def reprojetar(ponto_utm):

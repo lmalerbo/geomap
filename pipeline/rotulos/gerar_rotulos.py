@@ -9,7 +9,7 @@ import json
 import os
 import sys
 import shapefile
-from pyproj import Transformer
+from pyproj import CRS, Transformer
 from shapely.geometry import shape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,7 +18,21 @@ from polylabel import polylabel
 ENTRADA = sys.argv[1]
 SAIDA_ROTULOS = sys.argv[2]
 
-transformer = Transformer.from_crs("EPSG:31983", "EPSG:4326", always_xy=True)
+# CRS de origem lido do .prj ao lado do .shp, em vez de fixo em
+# EPSG:31983 (SIRGAS 2000 / UTM 23S) — os shapefiles anteriores usados
+# neste pipeline sempre vieram nessa projeção UTM, mas um export não
+# garante isso (já apareceu um em WGS84/EPSG:4326 puro, lon/lat em graus
+# em vez de metros UTM). Sem isso, reprojetar trataria valores em graus
+# como se fossem metros UTM, jogando os rótulos pra um lugar
+# completamente errado no mapa. Sem .prj, cai no EPSG:31983 de sempre
+# (comportamento antigo preservado).
+_caminho_prj = os.path.splitext(ENTRADA)[0] + ".prj"
+if os.path.exists(_caminho_prj):
+    with open(_caminho_prj, encoding="utf-8") as f:
+        crs_origem = CRS.from_wkt(f.read())
+else:
+    crs_origem = CRS.from_epsg(31983)
+transformer = Transformer.from_crs(crs_origem, "EPSG:4326", always_xy=True)
 
 
 def reprojetar(ponto_utm):
@@ -41,10 +55,20 @@ def main():
     rotulos = []
     total_multiparte = 0
 
+    total_com_erro = 0
     for i, sr in enumerate(sf.shapeRecords()):
         secao = sr.record[idx_secao]
         talhao = sr.record[idx_talhao]
-        geom = shape(sr.shape.__geo_interface__)
+        # Uma feição com geometria malformada (ex: anel de furo sem par de
+        # anel externo válido) não pode derrubar o lote inteiro — pula só
+        # essa e segue, com um aviso, igual ao padrão já usado no resto do
+        # projeto (uma camada/feição ruim nunca derruba as demais).
+        try:
+            geom = shape(sr.shape.__geo_interface__)
+        except Exception as err:
+            total_com_erro += 1
+            print(f"  aviso: feição {i} (SECAO={secao}, TALHAO={talhao}) com geometria inválida, pulando: {err}", file=sys.stderr)
+            continue
         if geom.is_empty:
             continue
         if geom.geom_type == "MultiPolygon" and len(geom.geoms) > 1:
@@ -69,6 +93,7 @@ def main():
 
     print(f"Rótulos gerados: {len(rotulos)}")
     print(f"Talhões multi-parte: {total_multiparte}")
+    print(f"Feições com geometria inválida (puladas): {total_com_erro}")
 
 
 if __name__ == "__main__":
