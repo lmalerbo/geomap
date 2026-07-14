@@ -296,6 +296,7 @@ export default function AdminUsuarios() {
           </div>
 
           <button type="submit" disabled={enviando}>
+            {enviando && <span className="spinner" aria-hidden="true" />}
             {enviando ? "Criando…" : "Criar usuário"}
           </button>
         </form>
@@ -352,6 +353,7 @@ export default function AdminUsuarios() {
                       required
                     />
                     <button type="submit" disabled={enviandoSenha}>
+                      {enviandoSenha && <span className="spinner" aria-hidden="true" />}
                       {enviandoSenha ? "Salvando…" : "Salvar senha"}
                     </button>
                   </form>
@@ -397,6 +399,7 @@ export default function AdminUsuarios() {
                       ))}
                     </div>
                     <button type="submit" disabled={salvandoEdicaoId === u.id}>
+                      {salvandoEdicaoId === u.id && <span className="spinner" aria-hidden="true" />}
                       {salvandoEdicaoId === u.id ? "Salvando…" : "Salvar"}
                     </button>
                   </form>
@@ -417,6 +420,7 @@ export default function AdminUsuarios() {
             required
           />
           <button type="submit" disabled={criandoGrupo}>
+            {criandoGrupo && <span className="spinner" aria-hidden="true" />}
             {criandoGrupo ? "Criando…" : "Criar grupo"}
           </button>
         </form>
@@ -455,6 +459,7 @@ export default function AdminUsuarios() {
                       onClick={() => removerGrupo(g)}
                       disabled={removendoGrupoId === g.id}
                     >
+                      {removendoGrupoId === g.id && <span className="spinner" aria-hidden="true" />}
                       {removendoGrupoId === g.id ? "Removendo…" : "Remover"}
                     </button>
                   </>

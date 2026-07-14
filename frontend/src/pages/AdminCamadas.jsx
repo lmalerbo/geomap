@@ -25,6 +25,7 @@ import {
 } from "../lib/estiloCamada.js";
 import { lerValoresUnicos, lerMinMax, detectarTipoGeometria } from "../lib/pmtilesValores.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 
 const CAMADA_ROTULOS = "rotulos";
 const MAX_CATEGORIAS = 30;
@@ -45,6 +46,19 @@ const FORM_UPLOAD_VAZIO = { nome: "", versao: "1.0", categoria: "", mapaId: "" }
 
 function ehZip(arquivo) {
   return arquivo?.name.toLowerCase().endsWith(".zip");
+}
+
+// Some sozinha depois de um tempo — antes a confirmação "✓ Salvo às…"
+// ficava presa na tela até a próxima ação trocar o texto, mesmo bem
+// depois do usuário já ter visto. `setValor` de um useState é estável
+// entre renders, por isso é seguro como dependência do efeito (não
+// reinicia o timer à toa a cada render).
+function useAutoDismiss(valor, setValor, delayMs = 2500) {
+  useEffect(() => {
+    if (!valor) return;
+    const timer = setTimeout(() => setValor(null), delayMs);
+    return () => clearTimeout(timer);
+  }, [valor, setValor, delayMs]);
 }
 
 export default function AdminCamadas() {
@@ -99,6 +113,10 @@ export default function AdminCamadas() {
   const [atributosLinhas, setAtributosLinhas] = useState(null);
   const [salvandoAtributos, setSalvandoAtributos] = useState(false);
   const [salvoAtributosEm, setSalvoAtributosEm] = useState(null);
+
+  useAutoDismiss(salvoArquivoEm, setSalvoArquivoEm);
+  useAutoDismiss(salvoEstiloEm, setSalvoEstiloEm);
+  useAutoDismiss(salvoAtributosEm, setSalvoAtributosEm);
 
   function carregarCamadas() {
     return listarCamadasAdmin(sessao.token).then(setCamadas);
@@ -573,6 +591,7 @@ export default function AdminCamadas() {
                 </span>
               </label>
               <button type="submit" disabled={enviando}>
+                {enviando && <span className="spinner" aria-hidden="true" />}
                 {enviando
                   ? ehZip(arquivoUpload)
                     ? "Convertendo shapefile… isso pode levar alguns minutos"
@@ -608,7 +627,9 @@ export default function AdminCamadas() {
               </li>
             ))}
             {camadasFiltradas.length === 0 && (
-              <p className="sem-dados-estatistica">Nenhuma camada aqui ainda.</p>
+              <p className="sem-dados-estatistica">
+                <IconeEstadoVazio /> Nenhuma camada aqui ainda.
+              </p>
             )}
           </ul>
         </aside>
@@ -637,6 +658,7 @@ export default function AdminCamadas() {
                 </label>
                 <div className="acoes-admin-atributos">
                   <button type="button" onClick={salvarArquivo} disabled={salvandoArquivo}>
+                    {salvandoArquivo && <span className="spinner" aria-hidden="true" />}
                     {salvandoArquivo ? "Salvando…" : "Salvar nome"}
                   </button>
                   {salvoArquivoEm && (
@@ -669,6 +691,7 @@ export default function AdminCamadas() {
                     aria-label="Novo arquivo (.zip do shapefile ou .pmtiles)"
                   />
                   <button type="submit" disabled={salvandoArquivo}>
+                    {salvandoArquivo && <span className="spinner" aria-hidden="true" />}
                     {salvandoArquivo && ehZip(novoArquivo) ? "Convertendo…" : "Atualizar arquivo"}
                   </button>
                 </form>
@@ -679,6 +702,7 @@ export default function AdminCamadas() {
                   onClick={removerCamadaSelecionada}
                   disabled={removendo}
                 >
+                  {removendo && <span className="spinner" aria-hidden="true" />}
                   {removendo ? "Removendo…" : "Remover camada"}
                 </button>
               </div>
@@ -1079,6 +1103,7 @@ export default function AdminCamadas() {
 
                 <div className="acoes-admin-atributos">
                   <button type="button" onClick={salvarEstilo} disabled={salvandoEstilo}>
+                    {salvandoEstilo && <span className="spinner" aria-hidden="true" />}
                     {salvandoEstilo ? "Salvando…" : "Salvar estilo"}
                   </button>
                   {salvoEstiloEm && (
@@ -1133,6 +1158,7 @@ export default function AdminCamadas() {
 
                 <div className="acoes-admin-atributos">
                   <button type="button" onClick={salvarAtributos} disabled={salvandoAtributos}>
+                    {salvandoAtributos && <span className="spinner" aria-hidden="true" />}
                     {salvandoAtributos ? "Salvando…" : "Salvar atributos"}
                   </button>
                   {salvoAtributosEm && (

@@ -1403,6 +1403,110 @@ performance/arquitetura de `Mapa.jsx`. CDN pra COOP/X-Frame-Options/
 HSTS ficou de fora por decisão do Leo (`AskUserQuestion` — exige
 domínio próprio que ele não tem hoje).
 
+**Animações e CSS, Etapas 1-3 (2026-07-13)**: pedido do Leo pra deixar a
+experiência mais "premium", seguindo o padrão de qualidade já visto no
+`MenuLateral`. Etapas 1-2 (levantamento + proposta) geraram
+`PROPOSTA_ANIMACOES.md` — cruza o código atual com o
+[Front-End-Checklist](https://github.com/thedaviddias/Front-End-Checklist)
+(clonado só como referência, fora do repo) e cataloga 13 oportunidades
+por prioridade. Depois de aprovado, a Etapa 3 implementou a maior parte
+delas (as puramente CSS/JS — os pontos que pediam ícone Lordicon ficaram
+com um SVG-placeholder, ver abaixo o motivo).
+
+Escala única de duration/easing adicionada em `:root` (`--dur-micro`
+120ms, `--dur-hover` 150ms, `--dur-painel`/`--dur-entrada` 220-250ms,
+`--ease-padrao`/`--ease-saida`) — os valores já usados no projeto
+inteiro (150/200/220/250/300ms, todos com `ease` genérico) viraram
+essas variáveis, sem mudar nenhum valor de verdade, só nomeando o que
+já existia + preenchendo os buracos.
+
+Implementado:
+
+- **`prefers-reduced-motion`**: não existia nenhuma regra disso no
+  projeto — adicionada global (achata toda animação/transição, exceto
+  spinners de loading, que continuam girando — sem eles "carregando"
+  vira uma tela estática sem nenhum feedback).
+- **`:focus-visible`**: anel na cor `--accent` em vez do outline padrão
+  do navegador (que funciona, mas não combina com a identidade visual
+  e é pouco visível sobre botões escuros). Nunca removido sem
+  substituto (WCAG 2.4.7/2.4.11).
+- **Feedback de clique**: `transform: scale(0.97)` no `:active` de
+  todo `button`/`.botao` — antes nenhum botão do app reagia ao clique
+  em si, só ao hover (que nem existe em touch).
+- **Spinner dentro dos botões de ação** (Salvar/Criar/Remover/Duplicar
+  — 17 botões nos 3 arquivos de admin): antes só o texto virava
+  "Salvando…"/"Removendo…" sem nenhum ícone, mais fraco que o padrão
+  já usado em `Mapa.jsx`/`Inicio.jsx`.
+- **Confirmação de salvo com fade-out automático**: hook local
+  `useAutoDismiss` (`AdminCamadas.jsx`) — antes o "✓ Salvo às…" ficava
+  preso na tela até a próxima ação trocar o texto, mesmo bem depois do
+  usuário já ter visto. Some sozinho depois de 2.5s.
+- **Busca**: resultados agora entram com o `@keyframes entrada` já
+  existente no projeto (antes apareciam instantâneo).
+- **Painel de camadas (accordion)**: trocado `max-height: 0→400px`
+  fixo por `grid-template-rows: 0fr→1fr` — a técnica antiga anima uma
+  propriedade que dispara layout/reflow a cada frame (item do
+  checklist: só `transform`/`opacity` são compositor-only); a nova não
+  trava em reflow e se ajusta à altura real do conteúdo, não a um teto
+  arbitrário. Precisou de um wrapper `.conteudo-painel-camadas-interno`
+  (obrigatório pra técnica funcionar — é ele que fica com
+  `min-height: 0` + `overflow: hidden auto`, o scroll pra listas
+  longas de camadas continua funcionando igual).
+- **Painel de atributos**: cross-fade ao paginar entre feições
+  sobrepostas (ex: Talhão + Limite no mesmo lugar) — `key={selecao.indice}`
+  no `<dl>` força remontagem, que retrigger o `@keyframes entrada` (rápido,
+  150ms) só nesse caso específico, sem afetar a abertura normal do painel
+  (que já tinha sua própria transição via `.painel-flutuante`).
+- **Login**: alerta de erro ganhou um leve "shake" horizontal (~400ms,
+  amplitude baixa, depois da entrada) além do fade+translateY que já
+  tinha — chama atenção sem parecer quebrado. Não conta como "piscar"
+  pro limite de acessibilidade (é deslocamento, não cor/opacidade,
+  bem abaixo de 3 ciclos/segundo).
+- **Empty states** (sem mapas, sem camadas, sem downloads, busca sem
+  resultado — 7 lugares em 4 arquivos): ganharam um ícone (novo
+  `components/IconeEstadoVazio.jsx`, mesmo estilo de traço 2px dos
+  ícones já existentes em `Mapa.jsx`/`MenuLateral.jsx`) — antes era só
+  texto puro em todo lugar.
+
+**MCP do Lordicon não conectou nesta sessão** — instalado via
+`claude mcp add` (confirmado funcionando de verdade: testei o pacote
+`github:roandegraaf/lordicon-mcp` direto, instala/builda sem erro e
+responde corretamente a um handshake MCP real com a chave do Leo), mas
+a extensão do Claude Code no VS Code nunca chegou a listar as
+ferramentas dele nesta sessão — nem depois de um reload de janela, nem
+depois de reiniciar o PC inteiro. Tentado tanto escopo `local`
+(`~/.claude.json`) quanto `project` (`.mcp.json`, que precisou entrar
+no `.gitignore` — grava a API key em texto puro na raiz do projeto
+público). Causa raiz não isolada — parece ser algo específico de como
+essa versão da extensão carrega servidores MCP registrados
+dinamicamente, não um problema do pacote/chave em si. Os pontos da
+proposta que pediam ícone Lordicon (upload de shapefile, hover em
+"Remover") ficaram sem essa parte — usei formas geométricas simples
+(`IconeEstadoVazio`) como placeholder só nos empty states, que não
+dependiam de Lordicon especificamente. Fica pra uma sessão futura,
+quando a conexão MCP funcionar, trocar os placeholders por ícones
+animados de verdade e cobrir os itens que ficaram de fora
+(processamento de shapefile, hover de remover — ver
+`PROPOSTA_ANIMACOES.md`).
+
+**Item 13 da proposta (View Transitions API pra troca de rota) não
+implementado** — o próprio checklist marca como prioridade baixa, e a
+interação com o `Suspense`/code-splitting por rota (já implementado
+nesta sessão) merece um teste mais cuidadoso do que dava pra caber
+aqui.
+
+Testado localmente contra produção real (login do Leo, autorizado por
+ele — `Usina da Pedra`, 6 camadas reais) via Playwright: alerta de
+erro com shake, `:focus-visible` com a cor certa (confirmado via
+`getComputedStyle().outlineColor`), `:active` com scale (confirmado
+via matrix mid-transição), accordion de camadas abrindo com altura
+real (não mais preso em 400px nem em "0px"), busca sem resultado com
+ícone, as 4 telas de admin carregando sem erro de console. Não foi
+possível testar o fluxo completo de salvar-e-ver-confirmação-sumir nas
+telas de admin sem mexer em dado real de produção — ficou validado só
+por leitura de código + o padrão já testado do `useAutoDismiss`
+isoladamente.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

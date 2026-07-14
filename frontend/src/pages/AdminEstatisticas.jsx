@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { buscarEstatisticasAdmin } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 
 export default function AdminEstatisticas() {
   const { sessao } = useAuth();
@@ -53,7 +54,9 @@ export default function AdminEstatisticas() {
             <div className="cartao-form-admin">
               <h2>Camadas mais baixadas</h2>
               {dados.camadasMaisBaixadas.length === 0 ? (
-                <p className="sem-dados-estatistica">Nenhum download registrado ainda.</p>
+                <p className="sem-dados-estatistica">
+                  <IconeEstadoVazio /> Nenhum download registrado ainda.
+                </p>
               ) : (
                 <ol className="lista-ranking">
                   {dados.camadasMaisBaixadas.map((c) => (
@@ -69,7 +72,9 @@ export default function AdminEstatisticas() {
             <div className="cartao-form-admin">
               <h2>Usuários mais ativos</h2>
               {dados.usuariosMaisAtivos.length === 0 ? (
-                <p className="sem-dados-estatistica">Nenhum download registrado ainda.</p>
+                <p className="sem-dados-estatistica">
+                  <IconeEstadoVazio /> Nenhum download registrado ainda.
+                </p>
               ) : (
                 <ol className="lista-ranking">
                   {dados.usuariosMaisAtivos.map((u) => (

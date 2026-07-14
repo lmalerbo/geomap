@@ -194,6 +194,7 @@ export default function AdminMapas() {
           </div>
 
           <button type="submit" disabled={enviando}>
+            {enviando && <span className="spinner" aria-hidden="true" />}
             {enviando ? "Criando…" : "Criar mapa"}
           </button>
         </form>
@@ -233,6 +234,7 @@ export default function AdminMapas() {
                   disabled={duplicandoId === m.id}
                   title="Cria uma cópia deste mapa com todas as camadas"
                 >
+                  {duplicandoId === m.id && <span className="spinner" aria-hidden="true" />}
                   {duplicandoId === m.id ? "Duplicando…" : "Duplicar"}
                 </button>
                 <button
@@ -242,6 +244,7 @@ export default function AdminMapas() {
                   disabled={removendoId === m.id || m.camadaCount > 0}
                   title={m.camadaCount > 0 ? "Remova as camadas desse mapa antes de removê-lo" : undefined}
                 >
+                  {removendoId === m.id && <span className="spinner" aria-hidden="true" />}
                   {removendoId === m.id ? "Removendo…" : "Remover"}
                 </button>
               </div>
@@ -274,6 +277,7 @@ export default function AdminMapas() {
                     ))}
                   </div>
                   <button type="submit" disabled={salvandoEdicaoId === m.id}>
+                    {salvandoEdicaoId === m.id && <span className="spinner" aria-hidden="true" />}
                     {salvandoEdicaoId === m.id ? "Salvando…" : "Salvar"}
                   </button>
                 </form>

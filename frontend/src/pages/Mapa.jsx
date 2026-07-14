@@ -25,6 +25,7 @@ import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
+import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 
 function IconeMenu() {
   return (
@@ -1190,7 +1191,9 @@ export default function Mapa() {
                   </ul>
                 )}
                 {buscaNormalizada.length >= 2 && resultadosBusca.length === 0 && (
-                  <p className="sem-resultados-busca">Nada encontrado.</p>
+                  <p className="sem-resultados-busca">
+                    <IconeEstadoVazio tamanho={16} /> Nada encontrado.
+                  </p>
                 )}
               </>
             )}
@@ -1211,80 +1214,83 @@ export default function Mapa() {
               </span>
             </button>
             <div className={`conteudo-painel-camadas${painelCamadasAberto ? " aberto" : ""}`}>
-              {mapasLocais.map((m) => {
-                // Legenda dinâmica: camada com preenchimento (ex: Talhões)
-                // ganha swatch sólido; camada só-contorno (ex: Limites)
-                // ganha swatch vazado — reflete o que aparece de fato no
-                // mapa, não só uma cor genérica. Lê de `info` (já resolvido
-                // por adicionarCamada, cobre os modos categorizado/graduado
-                // via cor de fallback) — só cai no cálculo direto antes da
-                // camada terminar de carregar.
-                const info = camadasCarregadasRef.current.get(m.id);
-                const cor = info?.cor || m.estiloConfig?.cor || corDaCamada(m.id);
-                const preenchido = (info?.opacidadePreenchimento ?? 0) > 0;
-                return (
-                  <label key={m.id} className="linha-camada">
+              <div className="conteudo-painel-camadas-interno">
+                {mapasLocais.map((m) => {
+                  // Legenda dinâmica: camada com preenchimento (ex: Talhões)
+                  // ganha swatch sólido; camada só-contorno (ex: Limites)
+                  // ganha swatch vazado — reflete o que aparece de fato no
+                  // mapa, não só uma cor genérica. Lê de `info` (já resolvido
+                  // por adicionarCamada, cobre os modos categorizado/graduado
+                  // via cor de fallback) — só cai no cálculo direto antes da
+                  // camada terminar de carregar.
+                  const info = camadasCarregadasRef.current.get(m.id);
+                  const cor = info?.cor || m.estiloConfig?.cor || corDaCamada(m.id);
+                  const preenchido = (info?.opacidadePreenchimento ?? 0) > 0;
+                  return (
+                    <label key={m.id} className="linha-camada">
+                      <input
+                        type="checkbox"
+                        checked={camadasVisiveis.has(m.id)}
+                        onChange={() => alternarCamada(m.id)}
+                      />
+                      <span
+                        className={`swatch-camada${preenchido ? "" : " swatch-camada--contorno"}`}
+                        style={preenchido ? { backgroundColor: cor } : { borderColor: cor }}
+                      />
+                      <span className="nome-camada">{m.nome}</span>
+                      {errosCamada[m.id] && (
+                        <span
+                          className="aviso-camada"
+                          role="img"
+                          aria-label={errosCamada[m.id]}
+                          title={errosCamada[m.id]}
+                        >
+                          ⚠
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+
+                {temporaria.arquivoTemporario && (
+                  <label className="linha-camada linha-camada--temporaria">
                     <input
                       type="checkbox"
-                      checked={camadasVisiveis.has(m.id)}
-                      onChange={() => alternarCamada(m.id)}
+                      checked={temporaria.temporariaVisivel}
+                      onChange={() => temporaria.setTemporariaVisivel((v) => !v)}
                     />
-                    <span
-                      className={`swatch-camada${preenchido ? "" : " swatch-camada--contorno"}`}
-                      style={preenchido ? { backgroundColor: cor } : { borderColor: cor }}
-                    />
-                    <span className="nome-camada">{m.nome}</span>
-                    {errosCamada[m.id] && (
-                      <span
-                        className="aviso-camada"
-                        role="img"
-                        aria-label={errosCamada[m.id]}
-                        title={errosCamada[m.id]}
-                      >
-                        ⚠
-                      </span>
-                    )}
+                    <span className="swatch-camada" style={{ backgroundColor: CORES_FERRAMENTAS.temporaria }} />
+                    <span className="nome-camada">Temporária: {temporaria.arquivoTemporario.nome}</span>
+                    <button
+                      type="button"
+                      className="fechar"
+                      onClick={temporaria.removerArquivoTemporario}
+                      aria-label="Remover camada temporária"
+                      title="Remover camada temporária"
+                    >
+                      ×
+                    </button>
                   </label>
-                );
-              })}
+                )}
 
-              {temporaria.arquivoTemporario && (
-                <label className="linha-camada linha-camada--temporaria">
+                <label className="botao importar-arquivo-temporario">
+                  {temporaria.importandoArquivo ? "Importando…" : "+ Importar arquivo (KML/SHP)"}
                   <input
-                    type="checkbox"
-                    checked={temporaria.temporariaVisivel}
-                    onChange={() => temporaria.setTemporariaVisivel((v) => !v)}
+                    type="file"
+                    accept=".kml,.zip"
+                    onChange={temporaria.aoImportarArquivo}
+                    disabled={temporaria.importandoArquivo}
                   />
-                  <span className="swatch-camada" style={{ backgroundColor: CORES_FERRAMENTAS.temporaria }} />
-                  <span className="nome-camada">Temporária: {temporaria.arquivoTemporario.nome}</span>
-                  <button
-                    type="button"
-                    className="fechar"
-                    onClick={temporaria.removerArquivoTemporario}
-                    aria-label="Remover camada temporária"
-                    title="Remover camada temporária"
-                  >
-                    ×
-                  </button>
                 </label>
-              )}
-
-              <label className="botao importar-arquivo-temporario">
-                {temporaria.importandoArquivo ? "Importando…" : "+ Importar arquivo (KML/SHP)"}
-                <input
-                  type="file"
-                  accept=".kml,.zip"
-                  onChange={temporaria.aoImportarArquivo}
-                  disabled={temporaria.importandoArquivo}
-                />
-              </label>
-              {temporaria.erroImportacao && <p className="erro">{temporaria.erroImportacao}</p>}
+                {temporaria.erroImportacao && <p className="erro">{temporaria.erroImportacao}</p>}
+              </div>
             </div>
           </aside>
         )}
 
         {mapasLocais.length === 0 && !sincronizando && (
           <p className="aviso-sem-mapas">
+            <IconeEstadoVazio tamanho={28} />
             {offline
               ? "Nenhum mapa disponível ainda. Conecte-se à internet pra sincronizar."
               : "Este mapa ainda não tem camadas publicadas."}
@@ -1398,7 +1404,7 @@ export default function Mapa() {
                 <span className="swatch-camada" style={{ backgroundColor: itemSelecionado.cor }} />
                 {itemSelecionado.camada}
               </h2>
-              <dl className="atributos-grid">
+              <dl className="atributos-grid" key={selecao.indice}>
                 {Object.entries(itemSelecionado.propriedades).map(([chave, valor]) => (
                   <div key={chave} className="linha-atributo">
                     <dt>{chave}</dt>

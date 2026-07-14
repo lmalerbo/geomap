@@ -4,6 +4,7 @@ import { listarMapasDisponiveis, listarMapasBaixados } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import MenuLateral from "../components/MenuLateral.jsx";
+import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 
 function IconeMenu() {
   return (
@@ -111,6 +112,7 @@ export default function Inicio() {
 
         {mapas.length === 0 && !sincronizando && (
           <p className="sem-dados-estatistica">
+            <IconeEstadoVazio />
             {offline
               ? "Nenhum mapa disponível localmente. Conecte-se à internet para sincronizar."
               : "Nenhum mapa disponível para sua conta. Peça ao administrador para conceder acesso se precisar ver algum mapa."}

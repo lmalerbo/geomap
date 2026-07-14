@@ -8,6 +8,18 @@
   --erro: #b3261e;
   --sans: system-ui, "Segoe UI", Roboto, sans-serif;
 
+  /* Escala única de animação — ver PROPOSTA_ANIMACOES.md pro raciocínio
+     completo. Duas curvas só (não uma por caso): variar a duração já dá
+     a hierarquia visual necessária entre micro-interação/painel/entrada;
+     variar a curva também tende a parecer inconsistente em vez de
+     "premium". */
+  --dur-micro: 120ms; /* clique/:active, checkbox, pequenas trocas de cor */
+  --dur-hover: 150ms; /* hover de botão/item de lista */
+  --dur-painel: 220ms; /* abrir/fechar painel flutuante, menu lateral */
+  --dur-entrada: 250ms; /* fade+translateY de conteúdo novo na tela */
+  --ease-padrao: ease; /* micro-interações */
+  --ease-saida: cubic-bezier(0.22, 1, 0.36, 1); /* entrada de painéis/cards */
+
   font: 16px/1.5 var(--sans);
   color: var(--text);
   background: var(--bg);
@@ -32,6 +44,17 @@ h1 {
   margin: 0 0 24px;
 }
 
+/* Foco visível só durante navegação por teclado (:focus-visible não
+   acende no clique de mouse) — antes dependia do outline padrão do
+   navegador, que funciona mas não combina com a identidade visual verde
+   do app e é pouco visível sobre botões escuros. Nunca remover o
+   outline sem substituto (WCAG 2.4.7/2.4.11). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 button,
 .botao {
   font: inherit;
@@ -46,7 +69,9 @@ button,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 150ms ease;
+  transition:
+    background-color var(--dur-hover) var(--ease-padrao),
+    transform var(--dur-micro) var(--ease-padrao);
 }
 
 button:hover,
@@ -54,9 +79,49 @@ button:hover,
   background: var(--accent-hover);
 }
 
+/* Feedback de clique — antes nenhum botão do app reagia visualmente ao
+   :active, só ao :hover (que nem existe em telas de toque). */
+button:active,
+.botao:active {
+  transform: scale(0.97);
+}
+
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+button:disabled:active {
+  transform: none;
+}
+
+/* Desliga/reduz animação pra quem pede no SO — sem isso, animações podem
+   disparar enjoo, migrânea ou convulsão em usuários sensíveis a
+   movimento (nenhuma regra assim existia no projeto). Mantém o essencial
+   (spinners de loading continuam girando — sem eles, "carregando" vira
+   uma tela estática sem nenhum feedback), mas achata todo o resto:
+   transições de painel, entrada de conteúdo, feedback de clique. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .spinner,
+  .spinner--grande,
+  .botao-track-gravando {
+    animation-duration: revert !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  button:active,
+  .botao:active {
+    transform: none;
+  }
 }
 
 @keyframes girar {
@@ -158,6 +223,26 @@ input[type="file"]::file-selector-button:hover {
   color: var(--erro);
 }
 
+@keyframes shake-erro {
+  10%,
+  90% {
+    transform: translateX(-1px);
+  }
+  20%,
+  80% {
+    transform: translateX(2px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-3px);
+  }
+  40%,
+  60% {
+    transform: translateX(3px);
+  }
+}
+
 .alerta-erro {
   display: flex;
   align-items: center;
@@ -169,7 +254,12 @@ input[type="file"]::file-selector-button:hover {
   background: #fdecea;
   color: var(--erro);
   font-size: 14px;
-  animation: entrada 200ms ease;
+  /* Entra com fade+translateY, depois um leve wobble horizontal (amplitude
+     baixa, ~400ms) pra chamar atenção sem parecer "quebrado" — nunca pisca
+     mais de 3x/s (é deslocamento, não cor/opacidade). */
+  animation:
+    entrada 200ms ease,
+    shake-erro 400ms ease 200ms;
 }
 
 .alerta-erro svg {
@@ -453,9 +543,16 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .sem-dados-estatistica {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   color: var(--text-muted);
   font-size: 14px;
   margin: 0;
+}
+
+.sem-dados-estatistica svg {
+  margin-top: 1px;
 }
 
 .campo-form-admin {
@@ -801,18 +898,28 @@ input[type="file"]::file-selector-button:hover {
   transform: rotate(90deg);
 }
 
+/* grid-template-rows 0fr→1fr em vez de max-height: 0→400px fixo — anima
+   sem travar em layout/reflow a cada frame (max-height é layout-
+   triggering; grid-template-rows não é, ver PROPOSTA_ANIMACOES.md) e se
+   ajusta à altura real do conteúdo, não a um teto arbitrário de 400px.
+   Precisa do wrapper "-interno" (min-height:0 é o que permite a linha do
+   grid encolher abaixo da altura natural do conteúdo). */
 .conteudo-painel-camadas {
-  max-height: 0;
-  overflow: hidden;
+  display: grid;
+  grid-template-rows: 0fr;
   padding: 0 16px;
-  transition:
-    max-height 250ms ease,
-    padding 250ms ease;
+  transition: grid-template-rows var(--dur-entrada) var(--ease-saida);
 }
 
 .conteudo-painel-camadas.aberto {
-  max-height: 400px;
+  grid-template-rows: 1fr;
   padding: 0 16px 12px;
+}
+
+.conteudo-painel-camadas-interno {
+  min-height: 0;
+  max-height: 400px;
+  overflow: hidden auto;
 }
 
 .linha-camada {
@@ -923,6 +1030,7 @@ input[type="file"]::file-selector-button:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   max-height: 280px;
   overflow-y: auto;
+  animation: entrada var(--dur-entrada) var(--ease-saida);
 }
 
 .resultados-busca button {
@@ -948,6 +1056,9 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .sem-resultados-busca {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 4px 0 0;
   padding: 10px 14px;
   background: #fff;
@@ -974,11 +1085,17 @@ input[type="file"]::file-selector-button:hover {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 280px;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 16px 24px;
+  padding: 20px 24px;
   color: var(--text-muted);
+  text-align: center;
 }
 
 .tela-mapa-erro {
@@ -1057,6 +1174,9 @@ input[type="file"]::file-selector-button:hover {
   display: grid;
   gap: 12px 16px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Retriggerado pela troca de `key` (ver Mapa.jsx) ao paginar entre
+     feições sobrepostas — antes o conteúdo trocava instantaneamente. */
+  animation: entrada 150ms var(--ease-padrao);
 }
 
 .atributos-grid .linha-atributo {
