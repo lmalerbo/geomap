@@ -1696,6 +1696,32 @@ própria fazenda selecionada está sempre dentro do viewport enquadrado
 (fazendas vizinhas também aparecerem no entorno é esperado — o
 enquadramento mostra a extensão real, não isola a fazenda).
 
+**Duplicar mapa falhava com "invalid input syntax for type json"
+(2026-07-14)**: `POST /admin/mapas/:id/duplicar` (`backend/src/routes/admin.js`)
+lia `atributos_config`/`estilo_config` das camadas de origem via
+`pool.query` (o driver `pg` já devolve `jsonb` parseado — `atributos_config`
+vira um Array de JS, `estilo_config` vira um Object) e passava esses
+valores **direto** de volta como parâmetro do `INSERT` da cópia, sem
+`JSON.stringify()`. Pro driver `pg`, um valor Array recebe o tratamento
+de literal de array do Postgres (`{...}`), não de JSON — o Postgres
+então rejeita isso como jsonb inválido. O padrão certo já existia em
+outras duas rotas (`PUT /admin/camadas/:id/atributos` e `/estilo`), só
+não tinha sido replicado aqui. Corrigido stringificando explicitamente
+(`JSON.stringify(...)`, preservando `null` sem stringificar). Efeito
+colateral do bug encontrado no banco de dev ao investigar (não criado
+nesta sessão): duas cópias quebradas de "Usina da Pedra" (4 de 6
+camadas cada, mapas 9 e 10) — sobras de tentativas anteriores do Leo
+que pararam no meio quando bateram no erro (a rota não usa transação,
+então o que já tinha sido inserido antes da falha ficava órfão);
+removidas com autorização do Leo (`AskUserQuestion`).
+
+Testado localmente contra Postgres real: duplicar "Usina da Pedra" (6
+camadas reais, todas com `atributos_config`/`estilo_config`
+configurados) respondeu `201` com as 6 camadas copiadas, e o
+`estilo_config` de cada camada da cópia bateu byte a byte com o da
+origem (`JSON.stringify` comparado igual pras 6). Cópia de teste
+removida logo depois (nunca deixar dado de teste no banco de dev real).
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

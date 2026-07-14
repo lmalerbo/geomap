@@ -600,7 +600,21 @@ adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
     await pool.query(
       `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [novoMapa.id, c.nome, c.versao, c.categoria, novaChave, c.atributos_config, c.estilo_config]
+      [
+        novoMapa.id,
+        c.nome,
+        c.versao,
+        c.categoria,
+        novaChave,
+        // pg devolve jsonb já parseado em JS (atributos_config vira Array,
+        // estilo_config vira Object) — passar isso direto de volta como
+        // parâmetro faz o driver serializar pelas regras de tipo JS (Array
+        // vira literal de array do Postgres, não JSON), quebrando com
+        // "invalid input syntax for type json". Precisa stringify explícito,
+        // mesmo padrão já usado em PUT /admin/camadas/:id/atributos e /estilo.
+        c.atributos_config === null ? null : JSON.stringify(c.atributos_config),
+        c.estilo_config === null ? null : JSON.stringify(c.estilo_config),
+      ]
     );
   }
 
