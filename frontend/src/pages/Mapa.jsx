@@ -196,6 +196,23 @@ function aplicarConfigAtributos(propriedades, config) {
   return resultado;
 }
 
+// Id do rótulo mais antigo já no mapa (topo mais baixo entre os rótulos) —
+// usado como beforeId ao adicionar preenchimento/borda/ponto/destaque de
+// uma nova camada, pra ela entrar SEMPRE abaixo de qualquer rótulo já
+// existente. Sem isso, `map.addLayer()` (sem beforeId) empilha no topo do
+// style inteiro — como as camadas são processadas em ordem alfabética
+// ("Limites" antes de "Talhões"), o preenchimento de Talhões acabava
+// cobrindo o rótulo de nome da fazenda (DESC_SECAO) que "Limites" já tinha
+// desenhado. O próprio rótulo de cada camada continua sendo adicionado
+// por último e sem beforeId (vai pro topo de tudo, inclusive acima de
+// rótulos de outras camadas já existentes).
+function primeiroRotuloExistente(map) {
+  for (const layer of map.getStyle().layers) {
+    if (layer.id.endsWith("-rotulo")) return layer.id;
+  }
+  return undefined;
+}
+
 // Converte lon/lat pro tile x/y da grade slippy-map num zoom dado.
 function lonLatParaTile(lon, lat, z) {
   const n = 2 ** z;
@@ -253,24 +270,18 @@ async function montarIndiceBusca(infos) {
         if (!resp) continue;
         const tile = new VectorTile(new PbfReader(new Uint8Array(resp.data)));
 
-        // Enriquece com DESC_SECAO/SECAO da camada principal (polígono) —
-        // o rótulo sozinho não carrega isso: em talhões é só o número, em
-        // limites é só o nome (um nome pode ter vários códigos SECAO, ver
-        // gerar_rotulos_por_atributo.py). Degrada bem: sem match no join,
-        // busca só pelo que o rótulo já tinha.
-        const descPorChaveTalhao = new Map(); // "SECAO|TALHAO" -> DESC_SECAO
+        // Enriquece com os códigos SECAO de cada fazenda/seção — o rótulo
+        // sozinho só carrega o nome (DESC_SECAO), não os códigos (um nome
+        // pode ter vários códigos SECAO, ver gerar_rotulos_por_atributo.py).
+        // Degrada bem: sem match no join, busca só pelo nome.
         const codigosPorDesc = new Map(); // DESC_SECAO -> Set(SECAO)
         const camadaPrincipal = tile.layers[info.sourceLayerPrincipal];
         if (camadaPrincipal) {
           for (let i = 0; i < camadaPrincipal.length; i++) {
             const props = camadaPrincipal.feature(i).properties;
-            if (info.consultavel) {
-              const chave = `${props.SECAO}|${props.TALHAO}`;
-              if (!descPorChaveTalhao.has(chave)) descPorChaveTalhao.set(chave, props.DESC_SECAO);
-            } else {
-              if (!codigosPorDesc.has(props.DESC_SECAO)) codigosPorDesc.set(props.DESC_SECAO, new Set());
-              codigosPorDesc.get(props.DESC_SECAO).add(props.SECAO);
-            }
+            if (!("DESC_SECAO" in props)) continue;
+            if (!codigosPorDesc.has(props.DESC_SECAO)) codigosPorDesc.set(props.DESC_SECAO, new Set());
+            codigosPorDesc.get(props.DESC_SECAO).add(props.SECAO);
           }
         }
 
@@ -279,18 +290,17 @@ async function montarIndiceBusca(infos) {
         for (let i = 0; i < camadaRotulos.length; i++) {
           const feature = camadaRotulos.feature(i);
           const props = feature.properties;
-          const [lng, lat] = feature.toGeoJSON(x, y, z).geometry.coordinates;
 
-          let texto;
-          let buscavelExtra = "";
-          if ("talhao" in props && "secao" in props) {
-            const desc = descPorChaveTalhao.get(`${props.secao}|${props.talhao}`);
-            texto = `Talhão ${props.talhao}${desc ? ` — ${desc}` : ""} (cód. ${props.secao})`;
-          } else {
-            texto = String(props.rotulo);
-            const codigos = codigosPorDesc.get(props.rotulo);
-            if (codigos) buscavelExtra = ` ${[...codigos].join(" ")}`;
-          }
+          // Busca é só por fazenda/seção (código ou nome/DESC_SECAO) —
+          // talhão isolado não entra mais no índice: buscar o número de um
+          // talhão específico misturava resultados de fazendas diferentes
+          // e atrapalhava achar a fazenda certa.
+          if ("talhao" in props && "secao" in props) continue;
+
+          const [lng, lat] = feature.toGeoJSON(x, y, z).geometry.coordinates;
+          const texto = String(props.rotulo);
+          const codigos = codigosPorDesc.get(props.rotulo);
+          const buscavelExtra = codigos ? ` ${[...codigos].join(" ")}` : "";
 
           indice.push({
             texto,
@@ -355,6 +365,10 @@ async function adicionarCamada(map, protocol, mapa) {
   }
   if (map.getSource(sourceId)) map.removeSource(sourceId);
 
+  // Calculado depois de remover as camadas antigas desta mesma fonte (senão
+  // o próprio rótulo antigo dela poderia se contar como "já existente").
+  const beforeId = primeiroRotuloExistente(map);
+
   // minzoom/maxzoom da fonte precisam bater com o da CAMADA PRINCIPAL
   // (polígono/ponto), não com o header.maxZoom do arquivo inteiro: quando
   // o .pmtiles tem a camada "rotulos" junto (gerada com -z17, mais alta
@@ -374,57 +388,66 @@ async function adicionarCamada(map, protocol, mapa) {
     maxzoom: camadaPrincipal.maxzoom ?? header.maxZoom,
   });
   if (!ehPonto) {
-    map.addLayer({
-      id: fillLayerId,
-      type: "fill",
-      source: sourceId,
-      "source-layer": camadaPrincipal.id,
-      minzoom: visibilidade.zoomMinimo,
-      maxzoom: visibilidade.zoomMaximo,
-      paint: {
-        "fill-color": corPreenchimento,
-        "fill-opacity": preenchimento.opacidade,
-        "fill-opacity-transition": { duration: 300 },
+    map.addLayer(
+      {
+        id: fillLayerId,
+        type: "fill",
+        source: sourceId,
+        "source-layer": camadaPrincipal.id,
+        minzoom: visibilidade.zoomMinimo,
+        maxzoom: visibilidade.zoomMaximo,
+        paint: {
+          "fill-color": corPreenchimento,
+          "fill-opacity": preenchimento.opacidade,
+          "fill-opacity-transition": { duration: 300 },
+        },
       },
-    });
-    map.addLayer({
-      id: lineLayerId,
-      type: "line",
-      source: sourceId,
-      "source-layer": camadaPrincipal.id,
-      minzoom: visibilidade.zoomMinimo,
-      maxzoom: visibilidade.zoomMaximo,
-      paint: {
-        "line-color": contorno.cor,
-        "line-width": contorno.largura,
-        "line-opacity": contorno.opacidade,
-        "line-opacity-transition": { duration: 300 },
+      beforeId
+    );
+    map.addLayer(
+      {
+        id: lineLayerId,
+        type: "line",
+        source: sourceId,
+        "source-layer": camadaPrincipal.id,
+        minzoom: visibilidade.zoomMinimo,
+        maxzoom: visibilidade.zoomMaximo,
+        paint: {
+          "line-color": contorno.cor,
+          "line-width": contorno.largura,
+          "line-opacity": contorno.opacidade,
+          "line-opacity-transition": { duration: 300 },
+        },
       },
-    });
+      beforeId
+    );
   } else if (!usaIconeSimbolo(simbolo)) {
-    map.addLayer({
-      id: circleLayerId,
-      type: "circle",
-      source: sourceId,
-      "source-layer": camadaPrincipal.id,
-      minzoom: visibilidade.zoomMinimo,
-      maxzoom: visibilidade.zoomMaximo,
-      paint: {
-        "circle-color": corPreenchimento,
-        "circle-radius": 5,
-        // Antes ignorava contorno.* por completo (só cor/raio do
-        // preenchimento) — contorno vira o stroke do círculo, com
-        // opacidade própria (não amarrada à do preenchimento): dá pra
-        // zerar o preenchimento e deixar só o contorno representando o
-        // ponto, ou vice-versa.
-        "circle-opacity": preenchimento.opacidade,
-        "circle-stroke-color": contorno.cor,
-        "circle-stroke-width": contorno.largura,
-        "circle-stroke-opacity": contorno.opacidade,
-        "circle-opacity-transition": { duration: 300 },
-        "circle-stroke-opacity-transition": { duration: 300 },
+    map.addLayer(
+      {
+        id: circleLayerId,
+        type: "circle",
+        source: sourceId,
+        "source-layer": camadaPrincipal.id,
+        minzoom: visibilidade.zoomMinimo,
+        maxzoom: visibilidade.zoomMaximo,
+        paint: {
+          "circle-color": corPreenchimento,
+          "circle-radius": 5,
+          // Antes ignorava contorno.* por completo (só cor/raio do
+          // preenchimento) — contorno vira o stroke do círculo, com
+          // opacidade própria (não amarrada à do preenchimento): dá pra
+          // zerar o preenchimento e deixar só o contorno representando o
+          // ponto, ou vice-versa.
+          "circle-opacity": preenchimento.opacidade,
+          "circle-stroke-color": contorno.cor,
+          "circle-stroke-width": contorno.largura,
+          "circle-stroke-opacity": contorno.opacidade,
+          "circle-opacity-transition": { duration: 300 },
+          "circle-stroke-opacity-transition": { duration: 300 },
+        },
       },
-    });
+      beforeId
+    );
   } else {
     // Forma diferente de círculo (ou categorizada por atributo) só existe
     // como ícone SDF — ver usaIconeSimbolo em estiloCamada.js pro porquê de
@@ -433,52 +456,61 @@ async function adicionarCamada(map, protocol, mapa) {
     // fill/contorno-independentes do circle acima); contorno.opacidade
     // ainda tem efeito próprio porque corHaloIcone já embute essa opacidade
     // no alpha da cor do halo.
-    map.addLayer({
-      id: circleLayerId,
-      type: "symbol",
-      source: sourceId,
-      "source-layer": camadaPrincipal.id,
-      minzoom: visibilidade.zoomMinimo,
-      maxzoom: visibilidade.zoomMaximo,
-      layout: {
-        "icon-image": expressaoIconePorCategoria(simbolo),
-        "icon-size": 0.5,
-        "icon-allow-overlap": true,
+    map.addLayer(
+      {
+        id: circleLayerId,
+        type: "symbol",
+        source: sourceId,
+        "source-layer": camadaPrincipal.id,
+        minzoom: visibilidade.zoomMinimo,
+        maxzoom: visibilidade.zoomMaximo,
+        layout: {
+          "icon-image": expressaoIconePorCategoria(simbolo),
+          "icon-size": 0.5,
+          "icon-allow-overlap": true,
+        },
+        paint: {
+          "icon-color": corPreenchimento,
+          "icon-halo-color": corHaloIcone(contorno),
+          "icon-halo-width": contorno.largura,
+          "icon-opacity": preenchimento.opacidade,
+          "icon-opacity-transition": { duration: 300 },
+        },
       },
-      paint: {
-        "icon-color": corPreenchimento,
-        "icon-halo-color": corHaloIcone(contorno),
-        "icon-halo-width": contorno.largura,
-        "icon-opacity": preenchimento.opacidade,
-        "icon-opacity-transition": { duration: 300 },
-      },
-    });
+      beforeId
+    );
   }
   const tipoPonto = ehPonto ? (usaIconeSimbolo(simbolo) ? "symbol" : "circle") : null;
 
   // Highlight de grupo: suporta tanto polígonos/linhas quanto pontos.
   if (!ehPonto) {
-    map.addLayer({
-      id: highlightLayerId,
-      type: "line",
-      source: sourceId,
-      "source-layer": camadaPrincipal.id,
-      paint: { "line-color": CORES_FERRAMENTAS.destaqueGrupo, "line-width": 3 },
-      filter: FILTRO_NENHUM,
-    });
-  } else {
-    map.addLayer({
-      id: highlightCircleLayerId,
-      type: "circle",
-      source: sourceId,
-      "source-layer": camadaPrincipal.id,
-      paint: {
-        "circle-color": CORES_FERRAMENTAS.destaqueGrupo,
-        "circle-radius": 10,
-        "circle-opacity": 0.5,
+    map.addLayer(
+      {
+        id: highlightLayerId,
+        type: "line",
+        source: sourceId,
+        "source-layer": camadaPrincipal.id,
+        paint: { "line-color": CORES_FERRAMENTAS.destaqueGrupo, "line-width": 3 },
+        filter: FILTRO_NENHUM,
       },
-      filter: FILTRO_NENHUM,
-    });
+      beforeId
+    );
+  } else {
+    map.addLayer(
+      {
+        id: highlightCircleLayerId,
+        type: "circle",
+        source: sourceId,
+        "source-layer": camadaPrincipal.id,
+        paint: {
+          "circle-color": CORES_FERRAMENTAS.destaqueGrupo,
+          "circle-radius": 10,
+          "circle-opacity": 0.5,
+        },
+        filter: FILTRO_NENHUM,
+      },
+      beforeId
+    );
   }
 
   if (mostrarRotulo) {
@@ -662,6 +694,11 @@ export default function Mapa() {
       positionOptions: { enableHighAccuracy: true },
       trackUserLocation: true,
       showUserHeading: true,
+      // Sem isso, o padrão do MapLibre é maxZoom:15 (chega bem perto, quase
+      // rua) — o Leo pediu pra nunca aproximar além de uma escala de ~5km,
+      // suficiente pra situar o dispositivo dentro da fazenda sem perder o
+      // contexto ao redor.
+      fitBoundsOptions: { maxZoom: 10 },
     });
     map.addControl(geolocate, "top-right");
     map.addControl(
@@ -691,12 +728,6 @@ export default function Mapa() {
         }
       }
       setMapaPronto(true);
-      // Rastreamento de localização em tempo real, sem precisar clicar no botão.
-      try {
-        geolocate.trigger();
-      } catch {
-        // permissão negada/indisponível — usuário ainda pode clicar manualmente
-      }
     });
 
     return () => {
@@ -1156,7 +1187,7 @@ export default function Mapa() {
               type="search"
               placeholder={
                 indiceBusca.length > 0
-                  ? "Buscar talhão ou fazenda…"
+                  ? "Buscar fazenda (nome ou código)…"
                   : "Busca não disponível para este mapa"
               }
               value={buscaTexto}

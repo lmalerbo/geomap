@@ -1507,6 +1507,75 @@ telas de admin sem mexer em dado real de produção — ficou validado só
 por leitura de código + o padrão já testado do `useAutoDismiss`
 isoladamente.
 
+**Três bugs reais de mapa reportados pelo Leo (2026-07-14)**: encontrados
+usando o app de verdade em produção, não em auditoria/checklist.
+
+1. **Busca achando talhão em vez de fazenda**: `montarIndiceBusca`
+   (`Mapa.jsx`) indexava tanto rótulos de talhão (`Talhão N — Fazenda
+   (cód. X)`) quanto de fazenda/seção (nome, `DESC_SECAO`) no mesmo
+   índice — buscar o nome de uma fazenda podia trazer dezenas de
+   talhões dela misturados com o resultado da fazenda em si, e o
+   critério de desempate (ordenar por tamanho do texto) nem sempre
+   bastava pra fazenda aparecer primeiro. Corrigido restringindo a
+   busca só a fazenda/seção: rótulos com `talhao`+`secao` nas
+   propriedades (talhão isolado) são pulados na hora de montar o
+   índice — nunca mais entram como resultado. Continua buscando por
+   nome (`DESC_SECAO`) ou código (`SECAO`, já enriquecido no texto
+   buscável, só não aparece no texto exibido). Placeholder do campo
+   atualizado de "Buscar talhão ou fazenda…" pra "Buscar fazenda (nome
+   ou código)…", pra não sugerir uma busca que não existe mais.
+2. **Rótulo de fazenda (`DESC_SECAO`, camada Limites) escondido atrás
+   do preenchimento de Talhões**: `adicionarCamada` (`Mapa.jsx`) nunca
+   passava `beforeId` nenhum pro `map.addLayer()` — cada camada nova
+   empilhava sempre no topo do style inteiro. Como as camadas são
+   processadas em ordem alfabética ("Limites" antes de "Talhões"), o
+   rótulo de "Limites" entrava primeiro e o preenchimento de "Talhões"
+   entrava depois **por cima dele**, cobrindo o nome da fazenda.
+   Corrigido com `primeiroRotuloExistente(map)` (nova função, escaneia
+   `map.getStyle().layers` por qualquer id terminado em `-rotulo`) —
+   preenchimento/borda/ponto/destaque de qualquer camada nova entram
+   sempre com esse id como `beforeId` (ficam abaixo de qualquer rótulo
+   já existente), e o próprio rótulo de cada camada continua sendo
+   adicionado por último, sem `beforeId` (vai pro topo de tudo,
+   inclusive acima de rótulos de outras camadas). Mantém o invariante
+   "todo rótulo fica acima de todo preenchimento/borda/ponto"
+   independente da ordem em que as camadas forem processadas.
+3. **Geolocalização automática ao abrir o mapa**: `geolocate.trigger()`
+   era chamado sozinho no `map.on("load", ...)`, e com
+   `trackUserLocation: true` sem nenhum `fitBoundsOptions`, o mapa
+   ficava "aproximando" repetidamente conforme chegavam posições GPS
+   mais precisas, sem nenhuma ação do usuário — e sem limite de zoom
+   (padrão do MapLibre é `maxZoom: 15`, quase nível de rua). Corrigido
+   removendo o `.trigger()` automático (localização só acontece se o
+   usuário clicar no botão nativo do MapLibre) e adicionando
+   `fitBoundsOptions: { maxZoom: 10 }` no `GeolocateControl` — testado
+   empiricamente via Playwright com geolocalização mockada até achar o
+   valor exato que bate com o pedido do Leo ("no máximo até a escala
+   de 5km"): `maxZoom: 12` deu "2 km" na barra de escala, `maxZoom: 11`
+   deu "3 km", `maxZoom: 10` bateu certinho "5 km" — a relação
+   zoom→escala não é linear nem óbvia de calcular de cabeça, valeu
+   medir directo em vez de estimar.
+
+Testado via Playwright contra produção real (login do Leo, Usina da
+Pedra): zoom não muda mais sozinho depois de 3s parado (só muda se o
+botão for clicado, e aí para em zoom 10/"5 km"), ordem das camadas no
+style confirmada via `map.getStyle().layers` (todo `-rotulo` depois de
+todo `-preenchimento`/`-borda`/`-ponto`), busca por "pedra" retorna só
+nomes de fazenda/seção (nenhum "Talhão N" isolado), clique num
+resultado de busca navega e muda o centro do mapa corretamente. Zero
+erro de console.
+
+**MCP do Lordicon ainda não conectou nesta sessão** — o Leo confirmou
+que a conexão estava "ok" (provavelmente visto no painel do VS Code),
+mas checando via `ToolSearch` dentro desta sessão de conversa, nenhuma
+ferramenta `mcp__lordicon__*` aparece, mesmo depois do reload de
+janela e do reinício do PC já registrados anteriormente. Levanta a
+possibilidade de que a conexão só é pega por uma sessão/conversa nova
+do Claude Code, não retroativamente numa já em andamento — fica pra
+confirmar numa sessão futura antes de tentar de novo os itens da
+`PROPOSTA_ANIMACOES.md` que dependem dele (ícone de processamento no
+upload de shapefile, hover animado no "Remover").
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
