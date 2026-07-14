@@ -255,8 +255,53 @@ function normalizarTexto(texto) {
 // tiles, e como os rótulos foram gerados com -r1 (sem thinning por
 // densidade), cada talhão/fazenda aparece garantido em algum tile.
 async function montarIndiceBusca(infos) {
-  const indice = [];
+  // Passagem 1: agrega os códigos SECAO de QUALQUER camada (Talhões,
+  // Limites, etc.) por nome de fazenda/seção (DESC_SECAO) — cada camada só
+  // enxerga os códigos que aparecem no próprio polígono, e Limites nem
+  // sempre repete todos os códigos SECAO que existem nos Talhões (uma
+  // fazenda pode ter talhões em seções com código só registrado ali). Sem
+  // essa agregação cruzada, um código visível no painel de atributos de um
+  // Talhão (ex: SECAO 10003) podia não bater com nenhum código coletado a
+  // partir do polígono de Limites, e a busca por esse código não achava a
+  // fazenda mesmo ela existindo.
+  const codigosPorDesc = new Map(); // DESC_SECAO -> Set(SECAO)
+  for (const info of infos) {
+    const { pmtiles, header } = info;
+    // A camada principal (polígono/ponto) é gerada SEM a flag -r1 do
+    // tippecanoe (só a camada de rótulos usa -r1, ver pipeline/rotulos/
+    // README.md) — no minZoom (0 na prática) o "drop-rate" padrão do
+    // tippecanoe descarta a esmagadora maioria das feições pra caber no
+    // limite de bytes do tile (medido: de 1053 códigos SECAO reais em
+    // "Usina da Pedra", só 3 sobreviviam em z0). Zoom 8 já recupera a
+    // cobertura completa (mesmos 1053) gastando só 1-2 tiles — usar
+    // minZoom aqui é o motivo raiz de códigos existentes (ex: SECAO
+    // 10003) não aparecerem na busca mesmo a fazenda existindo de verdade.
+    const z = Math.max(header.minZoom, Math.min(8, header.maxZoom));
+    const [x0, y0] = lonLatParaTile(header.minLon, header.maxLat, z);
+    const [x1, y1] = lonLatParaTile(header.maxLon, header.minLat, z);
 
+    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
+      for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
+        const resp = await pmtiles.getZxy(z, x, y);
+        if (!resp) continue;
+        const tile = new VectorTile(new PbfReader(new Uint8Array(resp.data)));
+        const camadaPrincipal = tile.layers[info.sourceLayerPrincipal];
+        if (!camadaPrincipal) continue;
+        for (let i = 0; i < camadaPrincipal.length; i++) {
+          const props = camadaPrincipal.feature(i).properties;
+          if (!("DESC_SECAO" in props) || !("SECAO" in props)) continue;
+          if (!codigosPorDesc.has(props.DESC_SECAO)) codigosPorDesc.set(props.DESC_SECAO, new Set());
+          codigosPorDesc.get(props.DESC_SECAO).add(props.SECAO);
+        }
+      }
+    }
+  }
+
+  // Passagem 2: monta o índice só com os rótulos de fazenda/seção (nunca
+  // talhão isolado — buscar o número de um talhão específico misturava
+  // resultados de fazendas diferentes e atrapalhava achar a fazenda certa),
+  // já usando o mapa de códigos completo da passagem 1.
+  const indice = [];
   for (const info of infos) {
     if (!info.temRotulos) continue;
     const { pmtiles, header } = info;
@@ -270,31 +315,12 @@ async function montarIndiceBusca(infos) {
         if (!resp) continue;
         const tile = new VectorTile(new PbfReader(new Uint8Array(resp.data)));
 
-        // Enriquece com os códigos SECAO de cada fazenda/seção — o rótulo
-        // sozinho só carrega o nome (DESC_SECAO), não os códigos (um nome
-        // pode ter vários códigos SECAO, ver gerar_rotulos_por_atributo.py).
-        // Degrada bem: sem match no join, busca só pelo nome.
-        const codigosPorDesc = new Map(); // DESC_SECAO -> Set(SECAO)
-        const camadaPrincipal = tile.layers[info.sourceLayerPrincipal];
-        if (camadaPrincipal) {
-          for (let i = 0; i < camadaPrincipal.length; i++) {
-            const props = camadaPrincipal.feature(i).properties;
-            if (!("DESC_SECAO" in props)) continue;
-            if (!codigosPorDesc.has(props.DESC_SECAO)) codigosPorDesc.set(props.DESC_SECAO, new Set());
-            codigosPorDesc.get(props.DESC_SECAO).add(props.SECAO);
-          }
-        }
-
         const camadaRotulos = tile.layers[CAMADA_ROTULOS];
         if (!camadaRotulos) continue;
         for (let i = 0; i < camadaRotulos.length; i++) {
           const feature = camadaRotulos.feature(i);
           const props = feature.properties;
 
-          // Busca é só por fazenda/seção (código ou nome/DESC_SECAO) —
-          // talhão isolado não entra mais no índice: buscar o número de um
-          // talhão específico misturava resultados de fazendas diferentes
-          // e atrapalhava achar a fazenda certa.
           if ("talhao" in props && "secao" in props) continue;
 
           const [lng, lat] = feature.toGeoJSON(x, y, z).geometry.coordinates;

@@ -1159,7 +1159,14 @@ input[type="file"]::file-selector-button:hover {
   bottom: 16px;
   right: 16px;
   width: 280px;
-  max-height: min(60vh, 480px);
+  /* O painel e a pilha de controles nativos do MapLibre (zoom+bússola,
+     localização, home, medição, track, satélite — 6 grupos, ~380px de
+     altura) ficam no mesmo canto direito, então dividem a mesma faixa
+     horizontal. Sem o terceiro termo, um talhão com muitos atributos
+     deixava o painel alto o bastante pra invadir a área da pilha de
+     botões por cima (não é só estética — os botões ficavam inacessíveis
+     atrás do painel). 420px reserva a altura da pilha + folga. */
+  max-height: min(60vh, 480px, calc(100% - 420px));
   overflow-y: auto;
 }
 

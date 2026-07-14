@@ -1576,6 +1576,65 @@ confirmar numa sessão futura antes de tentar de novo os itens da
 `PROPOSTA_ANIMACOES.md` que dependem dele (ícone de processamento no
 upload de shapefile, hover animado no "Remover").
 
+**Busca não achava fazenda com código SECAO existente + painel de
+atributos sobreposto aos botões laterais (2026-07-14)**: o Leo buscou
+"10003" (código SECAO visível no próprio painel de atributos de um
+Talhão, farm "PEDRA") e recebeu "Nada encontrado.", além de reportar o
+painel de atributos encostando nos botões de controle do MapLibre
+(zoom/bússola/localização/home/medição/track/satélite, 6 grupos
+empilhados no canto superior-direito).
+
+Causa raiz da busca, achada com uma instrumentação de debug temporária
+(removida depois de confirmar o fix — não sobrou no código): a camada
+principal (polígono, ex: Talhões/Limites) é gerada **sem** a flag
+`-r1` do tippecanoe (só a camada de `rotulos` usa `-r1`, ver
+`pipeline/rotulos/README.md`) — no `header.minZoom` (0 na prática), o
+"drop-rate" padrão do tippecanoe descarta a esmagadora maioria das
+feições do polígono pra caber no limite de bytes do tile. Medido direto
+nos dados reais de "Usina da Pedra": de 1053 códigos SECAO distintos
+que existem no dataset, só **3** sobreviviam no tile de zoom 0. Isso
+não é um bug novo desta sessão — é a mesma classe de problema já
+documentada pra rótulos (2026-07-08), só que ninguém tinha reparado
+porque o código antigo só usava esse mapa de códigos como enriquecimento
+best-effort (a busca por nome continuava funcionando, mascarando o
+problema) até o Leo testar especificamente um código numérico que só
+sobrevivia via uma camada diferente da testada antes. Corrigido em duas
+frentes em `montarIndiceBusca` (`Mapa.jsx`): (1) o mapa `SECAO ->
+DESC_SECAO` agora é agregado a partir de **todas** as camadas
+carregadas (antes só a camada de Limites contribuía; um código só
+presente no polígono de Talhões, como o 10003, nunca entrava no mapa);
+(2) a passagem que lê essa camada principal pra coletar os códigos usa
+`Math.max(header.minZoom, Math.min(8, header.maxZoom))` em vez de
+`header.minZoom` puro — zoom 8 recupera cobertura completa (mesmos 1053
+códigos) gastando só 1-2 tiles por camada, testado via instrumentação
+que comparou contagem de códigos distintos em z0/5/8/10/11/12 (z8 já
+empata com z10+, confirmando que é o teto real, não um artefato de
+zoom baixo). A segunda passagem (que lê a camada de `rotulos` em si
+pra montar as entradas buscáveis) continua em `header.minZoom` sem
+problema, porque `-r1` já garante que ela não sofre esse drop.
+
+Causa do overlap: `.painel-atributos` (`bottom:16px; right:16px`) e a
+pilha de controles do MapLibre (`top-right`, ~380px de altura com os 6
+grupos de botões hoje existentes) ocupam a mesma faixa horizontal do
+canto direito — um Talhão com muitos atributos deixava o painel alto o
+bastante (até 480px, `max-height` antigo) pra o topo dele invadir a
+área da pilha de botões por cima. Corrigido em `index.css` acrescentando
+um terceiro termo ao `max-height` do painel:
+`min(60vh, 480px, calc(100% - 420px))` — reserva 420px (altura medida
+da pilha de controles + folga) no topo do container do mapa, então o
+painel nunca cresce o bastante pra alcançar essa área, não importa
+quantos atributos a feição clicada tenha. Não mexido no mobile (já
+usava `max-height: 34vh`, sem esse sintoma reportado).
+
+Testado via Playwright contra o servidor de dev local (backend `:3000`
+e frontend `:5173`, dado real de produção — login do Leo, mapa "Usina
+da Pedra"): busca por "10003" agora retorna "PEDRA" (antes "Nada
+encontrado."); busca por "pedra" retorna `["PEDRA", "BEBEDOURO DA
+PEDRA"]`; clique num Talhão com todos os 8 atributos abre o painel e a
+caixa delimitadora dele não tem mais interseção vertical com a pilha de
+controles (`overlap_y = 0px`, antes positivo) — confirmado também
+visualmente por screenshot. Zero erro de console nos dois fluxos.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
