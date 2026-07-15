@@ -47,6 +47,13 @@ const ROTULOS_SCRIPTS_DIR =
   process.env.ROTULOS_SCRIPTS_DIR ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../pipeline/rotulos");
 
+// Testado contra produção real (Render free tier, só 0.1 CPU): o Talhões
+// completo (~7500 feições) levou ~8min de ponta a ponta, e o script de
+// rótulos sozinho (o passo mais lento, roda polylabel feição a feição em
+// Python puro) não termina dentro de 5min nessa instância — 5min bastava
+// na máquina de desenvolvimento (CPU de verdade), mas não no free tier.
+const TIMEOUT_CONVERSAO = 15 * 60 * 1000;
+
 // PATH do processo filho: binários Cygwin-compilados precisam achar
 // cygwin1.dll e as outras DLLs do runtime, que não estão no PATH normal
 // do Windows.
@@ -172,7 +179,7 @@ async function converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamada
     await execFileAsync(
       OGR2OGR_PATH,
       ["-f", "GeoJSON", "-t_srs", "EPSG:4326", caminhoGeojson, caminhoShp],
-      { env, timeout: 5 * 60 * 1000 }
+      { env, timeout: TIMEOUT_CONVERSAO }
     );
   } catch (err) {
     throw new Error(
@@ -203,7 +210,7 @@ async function converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamada
         "--force",
         caminhoGeojson,
       ],
-      { env, timeout: 5 * 60 * 1000 }
+      { env, timeout: TIMEOUT_CONVERSAO }
     );
   } catch (err) {
     throw new Error(
@@ -231,7 +238,7 @@ async function converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamada
         ...estrategiaRotulos.argsExtras,
         caminhoRotulosGeojson,
       ],
-      { env, timeout: 5 * 60 * 1000 }
+      { env, timeout: TIMEOUT_CONVERSAO }
     );
   } catch (err) {
     throw new Error(
@@ -245,7 +252,7 @@ async function converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamada
     await execFileAsync(
       TIPPECANOE_PATH,
       [`--output=${caminhoRotulosPmtiles}`, "--layer=rotulos", "-z17", "-r1", "--force", caminhoRotulosGeojson],
-      { env, timeout: 5 * 60 * 1000 }
+      { env, timeout: TIMEOUT_CONVERSAO }
     );
   } catch (err) {
     throw new Error(`falha ao gerar .pmtiles de rótulos: ${err.stderr || err.message}`);
@@ -255,7 +262,7 @@ async function converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamada
     await execFileAsync(
       TILEJOIN_PATH,
       ["-f", "-o", caminhoPmtilesFinal, caminhoPmtilesGeometria, caminhoRotulosPmtiles],
-      { env, timeout: 5 * 60 * 1000 }
+      { env, timeout: TIMEOUT_CONVERSAO }
     );
   } catch (err) {
     throw new Error(
