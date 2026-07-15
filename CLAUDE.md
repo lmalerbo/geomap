@@ -1868,23 +1868,14 @@ selecionar os arquivos soltos do shapefile direto).
   adivinhar a projeção, o que já causou geometria/rótulo em posição
   errada antes nesta sessão (ver entrada "Pipeline de rótulos assumia
   CRS fixo" acima).
-- **Risco aceito, não resolvido agora**: o pipeline inteiro (até 5
-  binários em sequência: `ogr2ogr`, `tippecanoe`-geometria, `python3`-
-  rótulos, `tippecanoe`-rótulos, `tile-join`) roda dentro de uma única
-  requisição HTTP síncrona, sem fila/worker — confirmado que leva 1-3+
-  minutos pra ~7500 feições (Talhões real). `backend/src/server.js`
-  ganhou `server.requestTimeout = 10 * 60 * 1000` (Node por padrão corta
-  em 5min desde a v18) — remove uma causa de falha conhecida antes
-  mesmo de testar, mas o timeout do proxy do próprio Render pra um
-  processo Node de vida longa é **genuinamente desconhecido** sem testar
-  contra o serviço no ar. Decisão consciente: não construir fila/worker
-  preventivamente (escopo bem maior) — testar depois do deploy real se a
-  Talhões inteira completa por HTTP; só virar item de verdade se o teste
-  confirmar que é um problema.
+- **Risco identificado e corrigido testando contra produção real**: o
+  pipeline inteiro (até 5 binários em sequência: `ogr2ogr`, `tippecanoe`-
+  geometria, `python3`-rótulos, `tippecanoe`-rótulos, `tile-join`) roda
+  dentro de uma única requisição HTTP síncrona, sem fila/worker.
 
-Testado localmente (Docker Desktop indisponível — só a lógica em si, não
-a imagem) contra o backend rodando direto via Node com os binários
-Cygwin apontados no `.env` (mesmo padrão de sempre, `PYTHON_PATH`/
+Testado primeiro localmente (Docker Desktop indisponível — só a lógica
+em si, não a imagem) contra o backend rodando direto via Node com os
+binários Cygwin apontados no `.env` (mesmo padrão de sempre, `PYTHON_PATH`/
 `TILEJOIN_PATH` novos adicionados lá), **contra o banco/R2 reais**
 (descoberta no processo: o `backend/.env` local desta máquina aponta pro
 mesmíssimo Neon/R2 de produção, não um banco de dev separado — validado
@@ -1905,8 +1896,52 @@ com camadas de teste descartáveis (`__teste_*__`) sob o mapa real
 5. `PUT .../arquivo` com arquivos soltos (não só `POST`) → `200`,
    mesma validação/conversão do `POST`.
 
-Todas as camadas de teste removidas ao final; `admin/mapas` confirmado
-de volta em `camadaCount: 6` pros dois mapas reais ("Geral"/"Temático").
+**Deploy real no Render (2026-07-15)**: confirmado com o Leo, direto no
+dashboard, que **não dá pra trocar o Runtime de um serviço já existente**
+de Node pra Docker — não existe esse campo em nenhuma tela de Settings
+(conferido em "General" e "Build", só tem Build Command/Root Directory,
+sem seletor de Runtime/Language). Resolvido criando um serviço novo,
+`geomap-docker` (`https://geomap-docker.onrender.com`), com Docker
+Runtime + Dockerfile Path `backend/Dockerfile` + Docker Build Context
+Directory `.`, env vars copiadas do serviço antigo (`geomap`, ainda no
+ar em `geomap-vr68.onrender.com` — a troca de qual serviço o frontend usa
+**ainda não foi feita**, ver pendência abaixo).
+
+Reproduzidos os 5 testes acima contra `geomap-docker` de verdade (mesmo
+banco/R2 do serviço antigo, confirmado via `GET /admin/mapas` batendo
+"Geral"/"Temático" com `camadaCount: 6` nos dois) — todos passaram,
+inclusive `ogr2ogr`/`tippecanoe`/`python3`/`tile-join` resolvendo certo
+de dentro do container. Achado real só possível de ver em produção: o
+Talhões **completo** (~7500 feições, `Talhoes_da_Pedra_06_07_2026_fme.zip`)
+levou **8 minutos** e falhou — o passo de rótulos sozinho (mais lento,
+`polylabel` feição a feição em Python puro) bateu no timeout de 5min de
+cada `execFileAsync` antes de terminar (chegou a 5500 de 7500 processados
+no log de erro). O free tier do Render só tem **0.1 CPU** — bem mais
+lento que a máquina de desenvolvimento, onde o mesmo pipeline completo
+levava só 1-3 minutos. Corrigido subindo `TIMEOUT_CONVERSAO` (novo,
+compartilhado pelos 5 `execFileAsync` de `admin.js`) pra 15min e
+`server.requestTimeout` pra 20min — reexecutado o teste do Talhões
+completo depois do redeploy (que reaproveitou cache de camadas do Docker,
+bem mais rápido que o build inicial): `201` em **11m39s**, `.pmtiles`
+final de 20.704.771 bytes com os 2 `vector_layers` esperados (geometria,
+25 campos do DBF, maxzoom 16; `rotulos`, maxzoom 17) — mesmo tamanho na
+casa dos bytes do arquivo gerado manualmente numa sessão anterior.
+
+Todas as camadas de teste removidas ao final de cada rodada (local e
+produção); `admin/mapas` sempre conferido de volta em `camadaCount: 6`
+pros dois mapas reais.
+
+**Pendente (só o Leo decide/faz)**: o frontend em produção
+(`lmalerbo.github.io/geomap/`) ainda aponta pro serviço **antigo**
+(`geomap-vr68.onrender.com`, Node puro, sem os binários — upload de
+shapefile ainda falha lá). O serviço novo (`geomap-docker`, com tudo
+funcionando, testado à exaustão acima) só passa a valer de verdade
+depois que `VITE_API_URL` no workflow do frontend for trocado pra
+`https://geomap-docker.onrender.com` e o GitHub Pages for republicado —
+nenhum dos dois foi feito ainda. Até lá, os dois serviços seguem no ar
+em paralelo, compartilhando o mesmo banco/R2 (mudança num não afeta o
+outro além do storage compartilhado). Depois da troca confirmada e
+funcionando, o serviço antigo (`geomap`) pode ser desligado.
 
 ## graphify
 
