@@ -256,11 +256,16 @@ que nem dá pra rodar programa não aprovado pelo TI no PC cogitado
       onde uma falha transitória de rede vai acontecer mais cedo ou
       mais tarde
 
-**Fora do escopo**: upload de `.zip` (conversão shapefile no próprio
-backend, Fase 3.7) não funciona no Render sem uma imagem Docker
-customizada com `tippecanoe`/`ogr2ogr` — falha com mensagem clara, não
-derruba o servidor. Fluxo recomendado por agora: continuar convertendo
-localmente e publicar o `.pmtiles` pronto.
+**Resolvido (2026-07-14)**: o pendente acima (upload de shapefile não
+funcionava no Render sem Docker, e mesmo local nunca gerava rótulo) foi
+fechado — `backend/Dockerfile` traz `ogr2ogr`/`tippecanoe`/`tile-join`/
+Python pra produção, e a conversão passou a gerar rótulos automaticamente
+quando a camada tem os campos certos (TALHAO+SECAO ou DESC_SECAO). A tela
+de Gerenciar camadas também parou de pedir `.zip` — agora aceita os
+arquivos soltos do shapefile (`.shp`/`.dbf`/`.shx`/`.prj`) selecionados de
+uma vez, apontando especificamente qual está faltando se for o caso. Ver
+`CLAUDE.md` (entrada "Docker no Render + rótulos automáticos + upload sem
+zip") pro relato técnico completo.
 
 **Deploy de verdade concluído (2026-07-13)** — testado ponta a ponta em
 produção, com dado real (as 6 camadas de "Usina da Pedra" reenviadas):

@@ -185,13 +185,26 @@ export async function listarGruposAdmin(token) {
   return resp.json();
 }
 
-export async function enviarCamadaAdmin(token, { nome, versao, categoria, mapaId, arquivo }) {
+// Decide o campo multipart certo pra um ou mais arquivos selecionados: um
+// único .pmtiles vai no campo "arquivo" (como sempre foi); qualquer outra
+// seleção (1+ arquivos soltos do shapefile: .shp/.dbf/.shx/.prj/.cpg/.qmd,
+// sem precisar zipar) vai no campo "arquivos" (plural) — ver
+// backend/src/routes/admin.js.
+function anexarArquivos(dados, arquivos) {
+  if (arquivos.length === 1 && arquivos[0].name.toLowerCase().endsWith(".pmtiles")) {
+    dados.append("arquivo", arquivos[0]);
+  } else {
+    for (const arquivo of arquivos) dados.append("arquivos", arquivo);
+  }
+}
+
+export async function enviarCamadaAdmin(token, { nome, versao, categoria, mapaId, arquivos }) {
   const dados = new FormData();
   dados.append("nome", nome);
   dados.append("versao", versao);
   dados.append("categoria", categoria);
   dados.append("mapaId", mapaId);
-  dados.append("arquivo", arquivo);
+  anexarArquivos(dados, arquivos);
 
   const resp = await fetch(`${API_URL}/admin/camadas`, {
     method: "POST",
@@ -202,10 +215,10 @@ export async function enviarCamadaAdmin(token, { nome, versao, categoria, mapaId
   return resp.json();
 }
 
-export async function atualizarArquivoCamadaAdmin(token, camadaId, { versao, arquivo }) {
+export async function atualizarArquivoCamadaAdmin(token, camadaId, { versao, arquivos }) {
   const dados = new FormData();
   dados.append("versao", versao);
-  dados.append("arquivo", arquivo);
+  anexarArquivos(dados, arquivos);
 
   const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/arquivo`, {
     method: "PUT",

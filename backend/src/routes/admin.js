@@ -5,6 +5,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import multer from "multer";
 import bcrypt from "bcrypt";
 import AdmZip from "adm-zip";
@@ -32,6 +33,19 @@ const execFileAsync = promisify(execFile);
 const OGR2OGR_PATH = process.env.OGR2OGR_PATH || "ogr2ogr";
 const TIPPECANOE_PATH = process.env.TIPPECANOE_PATH || "tippecanoe";
 const CYGWIN_BIN_DIR = process.env.CYGWIN_BIN_DIR || null;
+// Geração automática de rótulos (número do talhão / nome da fazenda) —
+// mesmo padrão de PATH das duas variáveis acima. python3/tile-join
+// resolvem via PATH dentro da imagem Docker de produção; local Windows
+// aponta pros binários Cygwin (tile-join.exe sai do mesmo `make install`
+// do tippecanoe.exe, ver pipeline/rotulos/README.md).
+const PYTHON_PATH = process.env.PYTHON_PATH || "python3";
+const TILEJOIN_PATH = process.env.TILEJOIN_PATH || "tile-join";
+// pipeline/rotulos fica 3 níveis acima deste arquivo (routes -> src ->
+// backend -> raiz do repo) tanto em dev local quanto dentro da imagem
+// Docker, que espelha essa mesma estrutura (ver backend/Dockerfile).
+const ROTULOS_SCRIPTS_DIR =
+  process.env.ROTULOS_SCRIPTS_DIR ||
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../pipeline/rotulos");
 
 // PATH do processo filho: binários Cygwin-compilados precisam achar
 // cygwin1.dll e as outras DLLs do runtime, que não estão no PATH normal
@@ -45,140 +59,272 @@ function envParaConversao() {
 // nunca toca disco local, que num host free-tier (Render) não é
 // persistente entre deploys/restarts. Destino final é sempre o R2 (ver
 // lib/storage.js).
+//
+// Dois campos multipart: "arquivo" (um .pmtiles pronto ou, ainda
+// suportado por baixo do capô, um .zip com o shapefile) e "arquivos"
+// (plural — os arquivos soltos do shapefile selecionados de uma vez, sem
+// precisar zipar; ver processarArquivoRecebido). A tela de admin hoje só
+// usa um dos dois por envio, nunca os dois juntos.
+const EXTENSOES_ARQUIVO_UNICO = new Set([".pmtiles", ".zip"]);
+const EXTENSOES_ARQUIVOS_SHAPEFILE = new Set([".shp", ".dbf", ".shx", ".prj", ".cpg", ".qmd"]);
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 300 * 1024 * 1024 }, // 300MB — folga generosa pro tamanho típico de .pmtiles/.zip
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (ext !== ".pmtiles" && ext !== ".zip") {
-      return cb(new Error("arquivo precisa ser .pmtiles ou um .zip com o shapefile (.shp/.dbf/.shx)"));
+    if (file.fieldname === "arquivo" && EXTENSOES_ARQUIVO_UNICO.has(ext)) {
+      return cb(null, true);
     }
-    cb(null, true);
+    if (file.fieldname === "arquivos" && EXTENSOES_ARQUIVOS_SHAPEFILE.has(ext)) {
+      return cb(null, true);
+    }
+    cb(new Error(`"${file.originalname}" não é um tipo de arquivo aceito aqui`));
   },
 });
 
-// .zip (shapefile) -> .pmtiles, mesmos passos de pipeline/shp_para_pmtiles.sh
-// (ogr2ogr pra GeoJSON, depois tippecanoe), só que orquestrado a partir do
-// Node em vez de rodado manualmente. V1 cobre só geometria — rótulos
-// (número do talhão no mapa) continuam um passo manual à parte, ver
-// pipeline/rotulos/README.md.
-async function converterShapefileParaPmtiles(caminhoZip, nomeCamadaArquivo) {
-  const pastaTemp = path.join(os.tmpdir(), `geomap-shp-${crypto.randomUUID()}`);
-  await fs.promises.mkdir(pastaTemp, { recursive: true });
+// Middleware compartilhado pelas duas rotas que recebem arquivo de camada
+// (criar e atualizar) — mesma configuração de campos nos dois casos.
+const uploadArquivoCamada = upload.fields([
+  { name: "arquivo", maxCount: 1 },
+  { name: "arquivos", maxCount: 10 },
+]);
 
+// Popula pastaTemp com um shapefile a partir de um .zip enviado como
+// arquivo único — caminho ainda suportado (baixo custo manter, AdmZip já
+// é dependência), mesmo a tela de admin não pedindo mais isso do admin.
+async function extrairZipShapefile(pastaTemp, bufferZip) {
+  const caminhoZipTemp = path.join(os.tmpdir(), `geomap-upload-${crypto.randomUUID()}.zip`);
+  await fs.promises.writeFile(caminhoZipTemp, bufferZip);
   try {
-    const zip = new AdmZip(caminhoZip);
-    zip.extractAllTo(pastaTemp, true);
-
-    const arquivos = await fs.promises.readdir(pastaTemp);
-    const shp = arquivos.find((f) => f.toLowerCase().endsWith(".shp"));
-    if (!shp) {
-      throw new Error("o .zip não contém nenhum arquivo .shp");
-    }
-    const base = shp.slice(0, -4);
-    const temDbf = arquivos.some((f) => f.toLowerCase() === `${base.toLowerCase()}.dbf`);
-    const temShx = arquivos.some((f) => f.toLowerCase() === `${base.toLowerCase()}.shx`);
-    if (!temDbf || !temShx) {
-      throw new Error("o .zip precisa conter .shp, .dbf e .shx (shapefile é multi-arquivo)");
-    }
-
-    const caminhoShp = path.join(pastaTemp, shp);
-    const caminhoGeojson = path.join(pastaTemp, `${base}.geojson`);
-    // Escreve dentro da própria pastaTemp (nunca em STORAGE_DIR, que não
-    // existe mais) — tippecanoe precisa de um caminho de disco de verdade
-    // pra rodar via execFile; o resultado sobe pro R2 como Buffer depois.
-    const caminhoPmtiles = path.join(pastaTemp, `${crypto.randomUUID()}.pmtiles`);
-    const env = envParaConversao();
-
-    try {
-      await execFileAsync(
-        OGR2OGR_PATH,
-        ["-f", "GeoJSON", "-t_srs", "EPSG:4326", caminhoGeojson, caminhoShp],
-        { env, timeout: 5 * 60 * 1000 }
-      );
-    } catch (err) {
-      throw new Error(
-        err.code === "ENOENT"
-          ? `ogr2ogr não encontrado (OGR2OGR_PATH=${OGR2OGR_PATH}) — confira a configuração no .env`
-          : `falha ao converter .shp pra GeoJSON: ${err.stderr || err.message}`
-      );
-    }
-
-    try {
-      await execFileAsync(
-        TIPPECANOE_PATH,
-        [
-          `--output=${caminhoPmtiles}`,
-          `--layer=${nomeCamadaArquivo || base}`,
-          // maximum-zoom FIXO (não "g"/guess): o "guess" escolhe o maxzoom
-          // com base no espaçamento entre features pra deixá-las
-          // visualmente distinguíveis — pra um dado pouco denso (poucos
-          // pontos bem espaçados, ex: sedes de unidade), escolhe um
-          // maxzoom absurdamente baixo (chegou a 0 num teste real), o que
-          // quantiza as coordenadas num grid gigante (~9km no zoom 0) e
-          // faz a feição gravar num lugar bem diferente da posição real —
-          // não é bug de exibição, o dado já fica errado dentro do
-          // .pmtiles. 16 preserva precisão de poucos metros pra qualquer
-          // densidade de feição (ponto/linha/polígono).
-          "--maximum-zoom=16",
-          "--drop-densest-as-needed",
-          "--force",
-          caminhoGeojson,
-        ],
-        { env, timeout: 5 * 60 * 1000 }
-      );
-    } catch (err) {
-      throw new Error(
-        err.code === "ENOENT"
-          ? `tippecanoe não encontrado (TIPPECANOE_PATH=${TIPPECANOE_PATH}) — confira a configuração no .env`
-          : `falha ao gerar .pmtiles: ${err.stderr || err.message}`
-      );
-    }
-
-    return fs.promises.readFile(caminhoPmtiles);
+    new AdmZip(caminhoZipTemp).extractAllTo(pastaTemp, true);
   } finally {
-    await fs.promises.rm(pastaTemp, { recursive: true, force: true });
+    await fs.promises.unlink(caminhoZipTemp).catch(() => {});
   }
 }
 
-// Decide, pela extensão real do upload, se usa o .pmtiles direto (valida a
-// assinatura) ou converte um .zip de shapefile — sempre sobe o resultado
-// pro R2 com uma chave nova (UUID). Retorna a chave final (o que salvar em
-// arquivo_path). Arquivo chega inteiro em memória (file.buffer, ver
-// multer.memoryStorage acima) — nunca precisa tocar disco pro caso comum
-// (.pmtiles pronto); só o caminho de conversão de .zip usa disco
-// temporário (os.tmpdir()), porque tippecanoe/ogr2ogr exigem arquivo de
-// verdade via execFile.
-async function processarArquivoRecebido(file, nomeCamada) {
-  const ext = path.extname(file.originalname).toLowerCase();
+// Popula pastaTemp com os arquivos soltos do shapefile selecionados de
+// uma vez no navegador (sem zip) — grava cada um com o nome original,
+// preservando a base compartilhada, essencial pro ogr2ogr achar os
+// arquivos irmãos pela convenção de nomenclatura do shapefile.
+async function gravarArquivosSoltos(pastaTemp, arquivos) {
+  for (const arquivo of arquivos) {
+    await fs.promises.writeFile(path.join(pastaTemp, arquivo.originalname), arquivo.buffer);
+  }
+}
 
-  if (ext === ".pmtiles") {
-    if (file.buffer.subarray(0, 7).toString("utf8") !== "PMTiles") {
-      throw new Error("arquivo não parece ser um .pmtiles válido");
-    }
-    const chave = `${crypto.randomUUID()}.pmtiles`;
-    await salvarArquivo(chave, file.buffer);
-    return chave;
+// Confere .shp + os obrigatórios (.dbf/.shx/.prj) numa pasta já populada
+// (via zip extraído ou arquivos soltos) — aponta especificamente o que
+// falta, em vez de uma mensagem genérica de "shapefile incompleto". .prj
+// virou obrigatório aqui: sem ele, tanto o ogr2ogr (-t_srs sozinho conta
+// com auto-detecção da projeção de origem) quanto os scripts de rótulo
+// (ver decidirEstrategiaRotulos/gerar_rotulos.py) dependem de adivinhar a
+// projeção — já causou geometria/rótulo em posição errada antes.
+async function validarShapefileNaPasta(pastaTemp) {
+  const arquivos = await fs.promises.readdir(pastaTemp);
+  const shp = arquivos.find((f) => f.toLowerCase().endsWith(".shp"));
+  if (!shp) {
+    throw new Error("nenhum arquivo .shp encontrado");
+  }
+  const base = shp.slice(0, -4).toLowerCase();
+  const faltando = [".dbf", ".shx", ".prj"].filter(
+    (ext) => !arquivos.some((f) => f.toLowerCase() === `${base}${ext}`)
+  );
+  if (faltando.length > 0) {
+    throw new Error(`faltando: ${faltando.join(", ")}`);
+  }
+  return shp;
+}
+
+// Decide se gera rótulos e com qual estratégia, pelos campos do próprio
+// GeoJSON já convertido — mesmo critério que o frontend já usa pra
+// decidir `ehTalhao` em Mapa.jsx (presença do campo TALHAO). Retorna null
+// quando a camada não é desse tipo (Municípios, Malhas Viárias, Unidades,
+// Pontos de Captação) — comportamento de hoje preservado, só geometria.
+async function decidirEstrategiaRotulos(caminhoGeojson) {
+  const geojson = JSON.parse(await fs.promises.readFile(caminhoGeojson, "utf8"));
+  const campos = Object.keys(geojson.features?.[0]?.properties || {});
+  if (campos.includes("TALHAO") && campos.includes("SECAO")) {
+    return { script: "gerar_rotulos.py", argsExtras: [] };
+  }
+  if (campos.includes("DESC_SECAO")) {
+    return { script: "gerar_rotulos_por_atributo.py", argsExtras: ["DESC_SECAO"] };
+  }
+  return null;
+}
+
+// .shp (numa pasta já populada, com .dbf/.shx/.prj do lado) -> .pmtiles.
+// Mesmos passos de pipeline/shp_para_pmtiles.sh (ogr2ogr pra GeoJSON,
+// tippecanoe pra geometria), orquestrado a partir do Node. Depois de
+// gerar a geometria, decide se gera rótulos (pipeline/rotulos/README.md)
+// e, se sim, roda o script Python correspondente, gera o .pmtiles de
+// rótulos com `-r1` (desliga o drop-rate padrão do tippecanoe, que apaga
+// a maioria dos rótulos em zooms intermediários) e junta os dois com
+// tile-join — mesma receita já validada manualmente nesta sessão.
+async function converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamadaArquivo) {
+  const base = nomeShp.slice(0, -4);
+  const caminhoShp = path.join(pastaTemp, nomeShp);
+  const caminhoGeojson = path.join(pastaTemp, `${base}.geojson`);
+  const caminhoPmtilesGeometria = path.join(pastaTemp, `${crypto.randomUUID()}.pmtiles`);
+  const env = envParaConversao();
+
+  try {
+    await execFileAsync(
+      OGR2OGR_PATH,
+      ["-f", "GeoJSON", "-t_srs", "EPSG:4326", caminhoGeojson, caminhoShp],
+      { env, timeout: 5 * 60 * 1000 }
+    );
+  } catch (err) {
+    throw new Error(
+      err.code === "ENOENT"
+        ? `ogr2ogr não encontrado (OGR2OGR_PATH=${OGR2OGR_PATH}) — confira a configuração no .env`
+        : `falha ao converter .shp pra GeoJSON: ${err.stderr || err.message}`
+    );
   }
 
-  if (ext === ".zip") {
-    // converterShapefileParaPmtiles precisa de um caminho de disco de
-    // verdade (ogr2ogr/tippecanoe rodam via execFile) — grava o buffer
-    // recebido num zip temporário só pra isso, nunca em STORAGE_DIR.
-    const caminhoZipTemp = path.join(os.tmpdir(), `geomap-upload-${crypto.randomUUID()}.zip`);
-    await fs.promises.writeFile(caminhoZipTemp, file.buffer);
+  try {
+    await execFileAsync(
+      TIPPECANOE_PATH,
+      [
+        `--output=${caminhoPmtilesGeometria}`,
+        `--layer=${nomeCamadaArquivo || base}`,
+        // maximum-zoom FIXO (não "g"/guess): o "guess" escolhe o maxzoom
+        // com base no espaçamento entre features pra deixá-las
+        // visualmente distinguíveis — pra um dado pouco denso (poucos
+        // pontos bem espaçados, ex: sedes de unidade), escolhe um
+        // maxzoom absurdamente baixo (chegou a 0 num teste real), o que
+        // quantiza as coordenadas num grid gigante (~9km no zoom 0) e
+        // faz a feição gravar num lugar bem diferente da posição real —
+        // não é bug de exibição, o dado já fica errado dentro do
+        // .pmtiles. 16 preserva precisão de poucos metros pra qualquer
+        // densidade de feição (ponto/linha/polígono).
+        "--maximum-zoom=16",
+        "--drop-densest-as-needed",
+        "--force",
+        caminhoGeojson,
+      ],
+      { env, timeout: 5 * 60 * 1000 }
+    );
+  } catch (err) {
+    throw new Error(
+      err.code === "ENOENT"
+        ? `tippecanoe não encontrado (TIPPECANOE_PATH=${TIPPECANOE_PATH}) — confira a configuração no .env`
+        : `falha ao gerar .pmtiles: ${err.stderr || err.message}`
+    );
+  }
+
+  const estrategiaRotulos = await decidirEstrategiaRotulos(caminhoGeojson);
+  if (!estrategiaRotulos) {
+    return fs.promises.readFile(caminhoPmtilesGeometria);
+  }
+
+  const caminhoRotulosGeojson = path.join(pastaTemp, `${crypto.randomUUID()}-rotulos.geojson`);
+  const caminhoRotulosPmtiles = path.join(pastaTemp, `${crypto.randomUUID()}-rotulos.pmtiles`);
+  const caminhoPmtilesFinal = path.join(pastaTemp, `${crypto.randomUUID()}-final.pmtiles`);
+
+  try {
+    await execFileAsync(
+      PYTHON_PATH,
+      [
+        path.join(ROTULOS_SCRIPTS_DIR, estrategiaRotulos.script),
+        caminhoShp,
+        ...estrategiaRotulos.argsExtras,
+        caminhoRotulosGeojson,
+      ],
+      { env, timeout: 5 * 60 * 1000 }
+    );
+  } catch (err) {
+    throw new Error(
+      err.code === "ENOENT"
+        ? `python não encontrado (PYTHON_PATH=${PYTHON_PATH}) — confira a configuração no .env`
+        : `falha ao gerar rótulos: ${err.stderr || err.message}`
+    );
+  }
+
+  try {
+    await execFileAsync(
+      TIPPECANOE_PATH,
+      [`--output=${caminhoRotulosPmtiles}`, "--layer=rotulos", "-z17", "-r1", "--force", caminhoRotulosGeojson],
+      { env, timeout: 5 * 60 * 1000 }
+    );
+  } catch (err) {
+    throw new Error(`falha ao gerar .pmtiles de rótulos: ${err.stderr || err.message}`);
+  }
+
+  try {
+    await execFileAsync(
+      TILEJOIN_PATH,
+      ["-f", "-o", caminhoPmtilesFinal, caminhoPmtilesGeometria, caminhoRotulosPmtiles],
+      { env, timeout: 5 * 60 * 1000 }
+    );
+  } catch (err) {
+    throw new Error(
+      err.code === "ENOENT"
+        ? `tile-join não encontrado (TILEJOIN_PATH=${TILEJOIN_PATH}) — confira a configuração no .env`
+        : `falha ao juntar geometria e rótulos: ${err.stderr || err.message}`
+    );
+  }
+
+  return fs.promises.readFile(caminhoPmtilesFinal);
+}
+
+// Decide, pelo que chegou no multipart, se usa o .pmtiles direto (valida
+// a assinatura), converte um .zip de shapefile, ou converte arquivos
+// soltos do shapefile (upload sem zip) — sempre sobe o resultado pro R2
+// com uma chave nova (UUID). Retorna a chave final (o que salvar em
+// arquivo_path). Arquivo(s) chegam inteiros em memória (buffer, ver
+// multer.memoryStorage acima) — só a conversão usa disco temporário
+// (os.tmpdir()), porque tippecanoe/ogr2ogr exigem arquivo de verdade via
+// execFile.
+async function processarArquivoRecebido({ arquivoUnico, arquivosShapefile }, nomeCamada) {
+  if (arquivoUnico) {
+    const ext = path.extname(arquivoUnico.originalname).toLowerCase();
+
+    if (ext === ".pmtiles") {
+      if (arquivoUnico.buffer.subarray(0, 7).toString("utf8") !== "PMTiles") {
+        throw new Error("arquivo não parece ser um .pmtiles válido");
+      }
+      const chave = `${crypto.randomUUID()}.pmtiles`;
+      await salvarArquivo(chave, arquivoUnico.buffer);
+      return chave;
+    }
+
+    if (ext === ".zip") {
+      const pastaTemp = path.join(os.tmpdir(), `geomap-shp-${crypto.randomUUID()}`);
+      await fs.promises.mkdir(pastaTemp, { recursive: true });
+      let bufferPmtiles;
+      try {
+        await extrairZipShapefile(pastaTemp, arquivoUnico.buffer);
+        const nomeShp = await validarShapefileNaPasta(pastaTemp);
+        bufferPmtiles = await converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamada);
+      } finally {
+        await fs.promises.rm(pastaTemp, { recursive: true, force: true });
+      }
+      const chave = `${crypto.randomUUID()}.pmtiles`;
+      await salvarArquivo(chave, bufferPmtiles);
+      return chave;
+    }
+
+    throw new Error("arquivo precisa ser .pmtiles ou .zip");
+  }
+
+  if (arquivosShapefile.length > 0) {
+    const pastaTemp = path.join(os.tmpdir(), `geomap-shp-${crypto.randomUUID()}`);
+    await fs.promises.mkdir(pastaTemp, { recursive: true });
     let bufferPmtiles;
     try {
-      bufferPmtiles = await converterShapefileParaPmtiles(caminhoZipTemp, nomeCamada);
+      await gravarArquivosSoltos(pastaTemp, arquivosShapefile);
+      const nomeShp = await validarShapefileNaPasta(pastaTemp);
+      bufferPmtiles = await converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamada);
     } finally {
-      await fs.promises.unlink(caminhoZipTemp).catch(() => {});
+      await fs.promises.rm(pastaTemp, { recursive: true, force: true });
     }
     const chave = `${crypto.randomUUID()}.pmtiles`;
     await salvarArquivo(chave, bufferPmtiles);
     return chave;
   }
 
-  throw new Error("arquivo precisa ser .pmtiles ou .zip");
+  throw new Error("selecione um .pmtiles ou os arquivos do shapefile (.shp/.dbf/.shx/.prj)");
 }
 
 adminRouter.use(exigirAutenticacao, exigirAdmin);
@@ -679,9 +825,13 @@ adminRouter.get("/admin/camadas", async (req, res) => {
 // escopo desta rota — o admin roda o pipeline localmente e faz upload do
 // resultado), cria o registro em camadas associado a um mapa. Permissão
 // não entra mais aqui — vive no mapa (ver /admin/mapas acima).
-adminRouter.post("/admin/camadas", upload.single("arquivo"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ erro: "arquivo .pmtiles ou .zip (shapefile) é obrigatório" });
+adminRouter.post("/admin/camadas", uploadArquivoCamada, async (req, res) => {
+  const arquivoUnico = req.files?.arquivo?.[0] || null;
+  const arquivosShapefile = req.files?.arquivos || [];
+  if (!arquivoUnico && arquivosShapefile.length === 0) {
+    return res
+      .status(400)
+      .json({ erro: "selecione um .pmtiles ou os arquivos do shapefile (.shp/.dbf/.shx/.prj)" });
   }
 
   const mapaId = Number(req.body.mapaId);
@@ -698,7 +848,7 @@ adminRouter.post("/admin/camadas", upload.single("arquivo"), async (req, res) =>
 
   let nomeArquivoFinal;
   try {
-    nomeArquivoFinal = await processarArquivoRecebido(req.file, nome);
+    nomeArquivoFinal = await processarArquivoRecebido({ arquivoUnico, arquivosShapefile }, nome);
   } catch (err) {
     return res.status(400).json({ erro: err.message });
   }
@@ -773,13 +923,17 @@ adminRouter.get("/admin/camadas/:id/arquivo", async (req, res) => {
 // apagado — fica renomeado com sufixo de timestamp como backup leve,
 // caso o upload novo seja ruim (sem UI de navegação por versões antigas,
 // só a garantia de não perder o anterior de imediato).
-adminRouter.put("/admin/camadas/:id/arquivo", upload.single("arquivo"), async (req, res) => {
+adminRouter.put("/admin/camadas/:id/arquivo", uploadArquivoCamada, async (req, res) => {
   const camadaId = Number(req.params.id);
   if (!Number.isInteger(camadaId)) {
     return res.status(400).json({ erro: "id de camada inválido" });
   }
-  if (!req.file) {
-    return res.status(400).json({ erro: "arquivo .pmtiles ou .zip (shapefile) é obrigatório" });
+  const arquivoUnico = req.files?.arquivo?.[0] || null;
+  const arquivosShapefile = req.files?.arquivos || [];
+  if (!arquivoUnico && arquivosShapefile.length === 0) {
+    return res
+      .status(400)
+      .json({ erro: "selecione um .pmtiles ou os arquivos do shapefile (.shp/.dbf/.shx/.prj)" });
   }
 
   const versao = (req.body.versao || "").trim();
@@ -795,7 +949,7 @@ adminRouter.put("/admin/camadas/:id/arquivo", upload.single("arquivo"), async (r
 
   let nomeArquivoFinal;
   try {
-    nomeArquivoFinal = await processarArquivoRecebido(req.file, camadaAtual.nome);
+    nomeArquivoFinal = await processarArquivoRecebido({ arquivoUnico, arquivosShapefile }, camadaAtual.nome);
   } catch (err) {
     return res.status(400).json({ erro: err.message });
   }

@@ -44,8 +44,13 @@ function mesclarConfigAtributos(campos, salvos) {
 
 const FORM_UPLOAD_VAZIO = { nome: "", versao: "1.0", categoria: "", mapaId: "" };
 
-function ehZip(arquivo) {
-  return arquivo?.name.toLowerCase().endsWith(".zip");
+// true quando a seleção atual vai passar pela conversão (shapefile: .zip
+// único, ou os arquivos soltos selecionados sem zipar) — usado só pro
+// texto do botão ("Convertendo…" vs "Enviando…"); um único .pmtiles não
+// precisa de conversão nenhuma.
+function ehConversaoShapefile(arquivos) {
+  if (!arquivos || arquivos.length === 0) return false;
+  return arquivos.length > 1 || !arquivos[0].name.toLowerCase().endsWith(".pmtiles");
 }
 
 // Some sozinha depois de um tempo — antes a confirmação "✓ Salvo às…"
@@ -76,7 +81,7 @@ export default function AdminCamadas() {
     ...FORM_UPLOAD_VAZIO,
     mapaId: searchParams.get("mapaId") || "",
   });
-  const [arquivoUpload, setArquivoUpload] = useState(null);
+  const [arquivoUpload, setArquivoUpload] = useState([]);
   const [enviando, setEnviando] = useState(false);
   const [erroUpload, setErroUpload] = useState(null);
 
@@ -87,7 +92,7 @@ export default function AdminCamadas() {
 
   const [arquivoForm, setArquivoForm] = useState(null); // { nome }
   const [novaVersao, setNovaVersao] = useState("");
-  const [novoArquivo, setNovoArquivo] = useState(null);
+  const [novoArquivo, setNovoArquivo] = useState([]);
   const [removendo, setRemovendo] = useState(false);
   const [salvandoArquivo, setSalvandoArquivo] = useState(false);
   const [salvoArquivoEm, setSalvoArquivoEm] = useState(null);
@@ -148,8 +153,8 @@ export default function AdminCamadas() {
 
   async function enviarNovaCamada(e) {
     e.preventDefault();
-    if (!arquivoUpload) {
-      setErroUpload("Selecione um arquivo .pmtiles ou .zip (shapefile)");
+    if (arquivoUpload.length === 0) {
+      setErroUpload("Selecione um .pmtiles ou os arquivos do shapefile (.shp/.dbf/.shx/.prj)");
       return;
     }
     if (!formUpload.mapaId) {
@@ -159,9 +164,9 @@ export default function AdminCamadas() {
     setEnviando(true);
     setErroUpload(null);
     try {
-      const nova = await enviarCamadaAdmin(sessao.token, { ...formUpload, arquivo: arquivoUpload });
+      const nova = await enviarCamadaAdmin(sessao.token, { ...formUpload, arquivos: arquivoUpload });
       setFormUpload(FORM_UPLOAD_VAZIO);
-      setArquivoUpload(null);
+      setArquivoUpload([]);
       document.getElementById("campo-arquivo-pmtiles").value = "";
       setMostrarUpload(false);
       await carregarCamadas();
@@ -228,7 +233,7 @@ export default function AdminCamadas() {
 
         setArquivoForm({ nome: camada?.nome || "" });
         setNovaVersao(camada?.versao || "");
-        setNovoArquivo(null);
+        setNovoArquivo([]);
 
         setTemRotulosNoDado(temRotulos);
         setEhPontoAtual(ehPonto);
@@ -280,8 +285,8 @@ export default function AdminCamadas() {
 
   async function enviarNovoArquivo(e) {
     e.preventDefault();
-    if (!novoArquivo) {
-      setErroDetalhe("Selecione um arquivo .pmtiles ou .zip (shapefile)");
+    if (novoArquivo.length === 0) {
+      setErroDetalhe("Selecione um .pmtiles ou os arquivos do shapefile (.shp/.dbf/.shx/.prj)");
       return;
     }
     setSalvandoArquivo(true);
@@ -289,9 +294,9 @@ export default function AdminCamadas() {
     try {
       await atualizarArquivoCamadaAdmin(sessao.token, camadaSelecionadaId, {
         versao: novaVersao,
-        arquivo: novoArquivo,
+        arquivos: novoArquivo,
       });
-      setNovoArquivo(null);
+      setNovoArquivo([]);
       await carregarCamadas();
       setSalvoArquivoEm(new Date());
       setSujo(false);
@@ -577,23 +582,26 @@ export default function AdminCamadas() {
                 />
               </label>
               <label className="campo-form-admin">
-                Arquivo (.zip do shapefile ou .pmtiles já convertido)
+                Arquivo (.pmtiles já convertido, ou os arquivos do shapefile)
                 <input
                   id="campo-arquivo-pmtiles"
                   type="file"
-                  accept=".pmtiles,.zip"
+                  multiple
+                  accept=".pmtiles,.shp,.dbf,.shx,.prj,.cpg,.qmd"
                   required
-                  onChange={(e) => setArquivoUpload(e.target.files[0] || null)}
+                  onChange={(e) => setArquivoUpload(Array.from(e.target.files))}
                 />
                 <span className="ajuda-campo-form-admin">
-                  Zip precisa conter .shp + .dbf + .shx (e .prj, se tiver). Converte automaticamente —
-                  sem rótulo/número no mapa ainda, isso continua manual por enquanto.
+                  Selecione um .pmtiles pronto, ou os arquivos soltos do shapefile de uma vez
+                  (.shp/.dbf/.shx/.prj, sem precisar zipar) — converte e gera o rótulo/número no
+                  mapa automaticamente quando a camada tiver os campos certos (TALHAO+SECAO ou
+                  DESC_SECAO).
                 </span>
               </label>
               <button type="submit" disabled={enviando}>
                 {enviando && <span className="spinner" aria-hidden="true" />}
                 {enviando
-                  ? ehZip(arquivoUpload)
+                  ? ehConversaoShapefile(arquivoUpload)
                     ? "Convertendo shapefile… isso pode levar alguns minutos"
                     : "Enviando…"
                   : "Adicionar camada"}
@@ -683,16 +691,17 @@ export default function AdminCamadas() {
                   />
                   <input
                     type="file"
-                    accept=".pmtiles,.zip"
+                    multiple
+                    accept=".pmtiles,.shp,.dbf,.shx,.prj,.cpg,.qmd"
                     onChange={(e) => {
-                      setNovoArquivo(e.target.files[0] || null);
+                      setNovoArquivo(Array.from(e.target.files));
                       setSujo(true);
                     }}
-                    aria-label="Novo arquivo (.zip do shapefile ou .pmtiles)"
+                    aria-label="Novo arquivo (.pmtiles pronto ou os arquivos do shapefile)"
                   />
                   <button type="submit" disabled={salvandoArquivo}>
                     {salvandoArquivo && <span className="spinner" aria-hidden="true" />}
-                    {salvandoArquivo && ehZip(novoArquivo) ? "Convertendo…" : "Atualizar arquivo"}
+                    {salvandoArquivo && ehConversaoShapefile(novoArquivo) ? "Convertendo…" : "Atualizar arquivo"}
                   </button>
                 </form>
 

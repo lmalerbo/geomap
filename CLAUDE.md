@@ -1803,6 +1803,111 @@ comando `curl` que precisava dele, nunca tocando disco — mesmo padrão
 de segurança de credencial já em vigor o resto da sessão pra `.env`/
 `.mcp.json`, agora também vale pra token JWT obtido em runtime.
 
+**Docker no Render + rótulos automáticos + upload sem zip (2026-07-14)**:
+o Leo bateu no `ogr2ogr não encontrado` tentando atualizar Talhões pela
+tela — o mesmo bug de sempre (Render não tem esses binários), resolvido
+na hora subindo o arquivo manualmente (ver entrada anterior). Mas ele
+pediu pra resolver isso de vez: Docker no Render (binários de conversão
+em produção) + geração automática de rótulos (nunca existiu, nem local —
+v1 sempre cobriu só geometria) + parar de pedir `.zip` do admin (queria
+selecionar os arquivos soltos do shapefile direto).
+
+- **`backend/Dockerfile`** (novo, raiz `backend/`, mas **contexto de
+  build = raiz do repo** — só assim consegue copiar `pipeline/rotulos/`,
+  irmão de `backend/`, não filho): `node:20-bookworm-slim` (glibc, evita
+  atrito do Alpine/musl com o `bcrypt` nativo e com GDAL), instala
+  `gdal-bin` (`ogr2ogr`), compila `tippecanoe`+`tile-join` do source
+  (mesma receita já validada em `.github/workflows/pipeline.yml`, só
+  adaptada pro apt não-interativo do Debian), instala as deps Python
+  pinadas (`pipeline/requirements.txt`) via `pip install
+  --break-system-packages` (obrigatório no Debian 12+, PEP 668). Single-
+  stage de propósito — `npm ci` do `bcrypt` já precisa do toolchain de
+  build que a compilação do tippecanoe também usa, não vale a pena
+  separar em multi-stage só por isso. **Não testado localmente** (Docker
+  Desktop não está instalado nesta máquina) — só depois do deploy real
+  no Render dá pra confirmar que a imagem builda e sobe.
+- **Passo manual pendente no Render (só o Leo consegue fazer)**: trocar o
+  Runtime do serviço existente de Node pra Docker (Dockerfile Path =
+  `backend/Dockerfile`, Docker Build Context Directory = `.`). Incerteza
+  real registrada no plano: não dá pra saber se o Render deixa trocar o
+  runtime de um serviço já existente ou se exige criar um serviço novo
+  (o que mudaria a URL `.onrender.com` e exigiria reapontar o frontend)
+  sem checar o dashboard de verdade. **A linha "Backend: Render — sem
+  Docker, buildpack Node puro" mais acima neste arquivo só deve ser
+  corrigida depois que o Leo confirmar que o switch (ou o serviço novo)
+  está no ar** — não mudar antes disso.
+- **Rótulos automáticos**: depois da conversão de geometria de sempre
+  (`ogr2ogr` → GeoJSON → `tippecanoe`), `converterPastaShapefileParaPmtiles`
+  (nova, `admin.js`) decide se gera rótulo lendo os campos do próprio
+  GeoJSON — `TALHAO`+`SECAO` → `gerar_rotulos.py` (rótulo por talhão);
+  só `DESC_SECAO` (sem `TALHAO`) → `gerar_rotulos_por_atributo.py ...
+  DESC_SECAO` (rótulo por fazenda/seção); nenhum dos dois → só geometria,
+  sem mudança (Municípios, Malhas Viárias, Unidades, Pontos de Captação).
+  Mesmo critério que o frontend já usa pra decidir `ehTalhao` em
+  `Mapa.jsx`. Quando gera rótulo, roda `tippecanoe -r1 -z17` no
+  GeoJSON de rótulos e junta com `tile-join` — exatamente a receita de
+  `pipeline/rotulos/README.md`, agora automática. Três variáveis novas
+  no mesmo padrão de `OGR2OGR_PATH`/`TIPPECANOE_PATH`: `PYTHON_PATH`
+  (default `python3`), `TILEJOIN_PATH` (default `tile-join`),
+  `ROTULOS_SCRIPTS_DIR` (default: 3 níveis acima de `admin.js`, resolve
+  igual local e na imagem Docker, que espelha a mesma estrutura de
+  pastas do repo).
+- **Upload sem zip**: `POST /admin/camadas`/`PUT
+  /admin/camadas/:id/arquivo` ganharam um segundo campo multipart,
+  `"arquivos"` (plural, até 10), ao lado do `"arquivo"` de sempre (um
+  `.pmtiles` pronto — `.zip` também continua aceito nesse campo, baixo
+  custo manter). `AdminCamadas.jsx` trocou o `<input type="file">` por
+  `multiple accept=".pmtiles,.shp,.dbf,.shx,.prj,.cpg,.qmd"` — o admin
+  seleciona um `.pmtiles` OU os arquivos soltos do shapefile de uma vez
+  (Ctrl/Shift-clique), sem precisar zipar. `validarShapefileNaPasta`
+  (nova) aponta especificamente o que falta (`"faltando: .shx, .prj"`)
+  em vez da mensagem genérica de antes — usada tanto pro caminho de
+  `.zip` extraído quanto pro de arquivos soltos, mesma validação nos
+  dois. `.prj` virou **obrigatório** (antes só `.shp`/`.dbf`/`.shx`) —
+  sem ele, tanto o `ogr2ogr` quanto os scripts de rótulo dependem de
+  adivinhar a projeção, o que já causou geometria/rótulo em posição
+  errada antes nesta sessão (ver entrada "Pipeline de rótulos assumia
+  CRS fixo" acima).
+- **Risco aceito, não resolvido agora**: o pipeline inteiro (até 5
+  binários em sequência: `ogr2ogr`, `tippecanoe`-geometria, `python3`-
+  rótulos, `tippecanoe`-rótulos, `tile-join`) roda dentro de uma única
+  requisição HTTP síncrona, sem fila/worker — confirmado que leva 1-3+
+  minutos pra ~7500 feições (Talhões real). `backend/src/server.js`
+  ganhou `server.requestTimeout = 10 * 60 * 1000` (Node por padrão corta
+  em 5min desde a v18) — remove uma causa de falha conhecida antes
+  mesmo de testar, mas o timeout do proxy do próprio Render pra um
+  processo Node de vida longa é **genuinamente desconhecido** sem testar
+  contra o serviço no ar. Decisão consciente: não construir fila/worker
+  preventivamente (escopo bem maior) — testar depois do deploy real se a
+  Talhões inteira completa por HTTP; só virar item de verdade se o teste
+  confirmar que é um problema.
+
+Testado localmente (Docker Desktop indisponível — só a lógica em si, não
+a imagem) contra o backend rodando direto via Node com os binários
+Cygwin apontados no `.env` (mesmo padrão de sempre, `PYTHON_PATH`/
+`TILEJOIN_PATH` novos adicionados lá), **contra o banco/R2 reais**
+(descoberta no processo: o `backend/.env` local desta máquina aponta pro
+mesmíssimo Neon/R2 de produção, não um banco de dev separado — validado
+com camadas de teste descartáveis (`__teste_*__`) sob o mapa real
+"Geral", sempre removidas ao final, nunca criando mapa novo):
+
+1. Falta `.shx`/`.prj` (só `.shp`+`.dbf` enviados) → `400`
+   `{"erro":"faltando: .shx, .prj"}`.
+2. Shapefile sintético sem `TALHAO`/`SECAO`/`DESC_SECAO` (fixture
+   existente, `pipeline/fixtures/gerar_shp_sintetico.py`) → `201`,
+   `.pmtiles` resultante com só 1 `vector_layers` (sem `rotulos`).
+3. Shapefile sintético novo com `TALHAO`+`SECAO`+`DESC_SECAO` (2 talhões
+   fake, script descartável só desta sessão) → `201` em ~5s, `.pmtiles`
+   com os 2 `vector_layers` esperados (geometria maxzoom 16 + `rotulos`
+   maxzoom 17, campos batendo com `gerar_rotulos.py`).
+4. `.pmtiles` pronto no campo `"arquivo"` (regressão) → `201`, caminho
+   antigo intacto.
+5. `PUT .../arquivo` com arquivos soltos (não só `POST`) → `200`,
+   mesma validação/conversão do `POST`.
+
+Todas as camadas de teste removidas ao final; `admin/mapas` confirmado
+de volta em `camadaCount: 6` pros dois mapas reais ("Geral"/"Temático").
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
