@@ -625,6 +625,10 @@ async function adicionarCamada(map, protocol, mapa) {
       preenchimento.modo === "simples"
         ? preenchimento.cor
         : preenchimento.corSemCategoria || preenchimento.corAbaixoDoMinimo,
+    // Cor real do contorno — camada só-contorno (ex: Rio, Limites) usa essa
+    // cor no swatch da legenda, não a de preenchimento (que pode ter sido
+    // configurada com uma cor totalmente diferente e nunca aparece no mapa).
+    corContorno: contorno.cor,
     opacidadePreenchimento: preenchimento.opacidade,
     opacidadeContorno: contorno.opacidade,
     // "circle" (fill/contorno independentes) ou "symbol" (ícone SDF, uma
@@ -1359,6 +1363,11 @@ export default function Mapa() {
                   const info = camadasCarregadasRef.current.get(m.id);
                   const cor = info?.cor || m.estiloConfig?.cor || corDaCamada(m.id);
                   const preenchido = (info?.opacidadePreenchimento ?? 0) > 0;
+                  // Swatch vazado (só-contorno) precisa da cor do CONTORNO,
+                  // não da de preenchimento — são independentes desde a
+                  // simbologia estilo QGIS, e o preenchimento nem chega a
+                  // aparecer no mapa quando a camada é só-contorno.
+                  const corSwatch = preenchido ? cor : info?.corContorno || cor;
                   return (
                     <label key={m.id} className="linha-camada">
                       <input
@@ -1368,7 +1377,7 @@ export default function Mapa() {
                       />
                       <span
                         className={`swatch-camada${preenchido ? "" : " swatch-camada--contorno"}`}
-                        style={preenchido ? { backgroundColor: cor } : { borderColor: cor }}
+                        style={preenchido ? { backgroundColor: corSwatch } : { borderColor: corSwatch }}
                       />
                       <span className="nome-camada">{m.nome}</span>
                       {errosCamada[m.id] && (
