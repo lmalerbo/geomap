@@ -2220,6 +2220,93 @@ notificação sobrevive a trocar de tela — `localStorage` limpo depois,
 versão da camada confirmada atualizada no backend, zero erro de
 console.
 
+**Painel de atributos: renomear, arrastar-e-soltar pra reordenar,
+marcar/ocultar todos (2026-07-17)**: o Leo descreveu o problema com uma
+camada de 30 atributos — reordenar (pegar o último e jogar pro
+primeiro) só existia via botões ↑/↓ de 1 passo (30 cliques), renomear
+não existia (nem no schema — o nome exibido no mapa pro usuário final
+sempre foi o nome cru do campo, tipo "DESC_SECAO"), e não tinha
+marcar/ocultar todos de uma vez. Confirmado com ele (`AskUserQuestion`)
+que reordenar seria por arrastar-e-soltar de verdade (as outras opções
+consideradas: campo numérico de posição, ou só adicionar botões
+"Topo"/"Fim").
+
+- `atributos_config` ganhou `rotulo` por campo (sem migration — jsonb
+  schema-less, mesmo padrão de sempre; `mesclarConfigAtributos`
+  default pro próprio nome do campo se não houver customização salva,
+  então nenhuma camada já publicada muda de comportamento).
+- Reordenar: HTML5 Drag and Drop nativo (`draggable` + onDragStart/
+  onDragOver/onDrop/onDragEnd), sem lib nova — `moverAtributoPara(origem,
+  destino)` faz splice+insert, resolvendo de 1 gesto o caso "último pro
+  primeiro" que motivou o pedido.
+- Renomear: `<input type="text">` editável por linha
+  (`.campo-rotulo-atributo`), com o nome cru do campo aparecendo como
+  dica discreta ao lado só quando o rótulo foi customizado.
+- Marcar/ocultar todos: 2 botões novos acima da lista
+  (`marcarTodosAtributos(visivel)`).
+- `Mapa.jsx`: `aplicarConfigAtributos` passou a devolver uma **lista**
+  `[{campo, rotulo, valor}]` em vez de um objeto chaveado por `campo` —
+  usar o rótulo (editável, não garantidamente único) como chave de
+  objeto arriscaria duas linhas diferentes colidirem se acabassem com o
+  mesmo texto; o painel de atributos (`<dl className="atributos-grid">`)
+  agora exibe `rotulo` em vez do nome cru do campo.
+
+Bug real encontrado e corrigido no processo, achado só ao testar contra
+dado com 25+ campos (o fixture inicial só tinha 1, mascarava o
+problema): o `onDrop` lia `arrastandoIndice` do **state** (via
+closure) pra decidir origem/destino — mas React 18 trata eventos de
+drag como "continuous priority" (mesma categoria de scroll/pointermove),
+então `setState` dentro de `onDragStart` não é garantido flush síncrono
+antes do próximo evento da mesma sequência (`dragover`/`drop`
+disparados logo em seguida); na prática o `onDrop` via a closure ANTIGA
+de `arrastandoIndice` (ainda `null`), então o `if (arrastandoIndice !==
+null)` nunca era verdadeiro e a reordenação nunca acontecia — sem
+nenhum erro, silenciosamente. Corrigido trocando a fonte de verdade pra
+um `useRef` (`arrastandoIndiceRef`, sempre lê o valor atual, não
+depende de re-render) — `arrastandoIndice` (state) continua existindo
+só pro feedback visual (opacity da linha sendo arrastada).
+
+Lição de processo cara, registrada em detalhe porque envolveu dado
+real: a primeira rodada de testes (antes do fix acima) usou a camada
+REAL "Talhões" (não uma descartável) pra testar reordenar/renomear, e
+o passo de restauração (`PUT .../atributos`) tinha um bug **no
+script de teste** — mandava o array direto no corpo da requisição em
+vez de `{atributos: [...]}` (o formato que `salvarConfigAtributos` do
+próprio app usa) — o backend rejeitou com `400`, e como o teste não
+verificava esse status antes de seguir, o rótulo de teste
+(`"__TESTE RENOMEADO__"`) ficou **gravado de verdade** no campo `SECAO`
+da camada 25 ("Talhões") em produção. Descoberto na rodada seguinte de
+testes (o snapshot "antes" já vinha com esse valor preso). Uma
+tentativa de correção automática (varrer TODAS as camadas em produção
+procurando rótulo de teste e corrigindo) foi **bloqueada pelo
+classificador de auto-mode** (escrita em massa não solicitada em
+recurso compartilhado) — corretamente, é o tipo de ação que precisa de
+autorização explícita. Perguntado ao Leo (`AskUserQuestion`) se eu
+podia aplicar uma correção bem restrita (só esse 1 campo, só o
+`rotulo`, confirmando o resto do registro intacto) — ele preferiu
+corrigir manualmente pela própria tela. **Pendente**: confirmar que o
+rótulo de `SECAO` na camada 25 ("Talhões") voltou de
+`"__TESTE RENOMEADO__"` pro nome original antes de considerar isso
+fechado. Lição pra qualquer teste futuro que grave em `atributos_config`/
+`estilo_config` de uma camada real: nunca prosseguir sem checar o
+`status` de CADA chamada da API, inclusive (especialmente) a de
+restauração — e preferir uma camada **descartável** (criada só pro
+teste, removida no final via `DELETE /admin/camadas/:id`) sempre que a
+mutação for mais que uma leitura, exatamente como o padrão já
+estabelecido pra testes de mapa/usuário nesta sessão.
+
+Reteste completo depois do fix, desta vez contra uma camada 100%
+descartável (`__teste_atributos_dnd__`, criada a partir dos bytes reais
+de "Talhões" — 27 campos, suficiente pra exercitar o caso "último pro
+primeiro" de verdade — removida via `DELETE` ao final,
+independentemente do resultado dos testes acima dela): renomear afeta
+exatamente 1 campo (não mais 2, confirmando que a duplicação vista
+antes era resíduo do dado de produção já corrompido pela rodada
+anterior, não um bug de código), drag moveu a última linha
+("VARIEDADE") pra primeira posição preservando o conteúdo de todas as
+outras, marcar/ocultar todos funcionou, salvar confirmado no backend
+com a estrutura exata esperada, zero erro de console.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -712,12 +712,12 @@ input[type="file"]::file-selector-button:hover {
 .linha-atributo-admin {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
+  cursor: grab;
   transition:
     opacity 150ms ease,
     background-color 150ms ease;
@@ -731,22 +731,52 @@ input[type="file"]::file-selector-button:hover {
   opacity: 0.55;
 }
 
-.linha-atributo-admin label {
+/* Arrastar-e-soltar nativo (sem lib) — a linha sendo arrastada fica meio
+   transparente, mesmo idioma visual de "isso está em movimento" já usado
+   noutros lugares do app (ex: opacity durante um fetch). */
+.linha-atributo-admin--arrastando {
+  opacity: 0.4;
+}
+
+.alca-arrastar {
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.campo-rotulo-atributo {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.campo-rotulo-atributo:hover,
+.campo-rotulo-atributo:focus {
+  border-color: var(--border);
+  background: #fff;
+}
+
+/* Só aparece quando o rótulo foi customizado (diferente do nome cru do
+   campo) — contexto de qual coluna do dado original está por trás, sem
+   poluir a lista quando ninguém renomeou nada ainda. */
+.nome-campo-bruto {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.acoes-em-massa-atributos {
   display: flex;
-  align-items: center;
   gap: 8px;
-  font-size: 14px;
-}
-
-.botoes-ordem {
-  display: flex;
-  gap: 4px;
-}
-
-.botoes-ordem button {
-  padding: 4px 10px;
-  min-height: 32px;
-  font-size: 14px;
+  margin-bottom: 10px;
 }
 
 .acoes-admin-atributos {

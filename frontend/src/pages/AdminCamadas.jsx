@@ -36,15 +36,20 @@ const MAX_CATEGORIAS = 30;
 const MAX_CAMPOS_ADICIONAIS = 2;
 
 // Junta os campos disponíveis no .pmtiles (fonte da verdade dos nomes) com
-// a config já salva (visibilidade/ordem) — campo novo entra visível no
-// fim; campo que a config lembrava mas sumiu do dado é descartado.
+// a config já salva (visibilidade/ordem/rótulo) — campo novo entra visível
+// no fim, com rótulo = próprio nome (até o admin renomear); campo que a
+// config lembrava mas sumiu do dado é descartado.
 function mesclarConfigAtributos(campos, salvos) {
   const porCampo = new Map(salvos.map((s) => [s.campo, s]));
   const ordenados = [...salvos].sort((a, b) => a.ordem - b.ordem).map((s) => s.campo);
   const restantes = campos.filter((c) => !porCampo.has(c));
   return [...ordenados, ...restantes]
     .filter((campo) => campos.includes(campo))
-    .map((campo) => ({ campo, visivel: porCampo.get(campo)?.visivel ?? true }));
+    .map((campo) => ({
+      campo,
+      visivel: porCampo.get(campo)?.visivel ?? true,
+      rotulo: porCampo.get(campo)?.rotulo || campo,
+    }));
 }
 
 const FORM_UPLOAD_VAZIO = { nome: "", versao: "1.0", categoria: "", mapaId: "" };
@@ -124,6 +129,15 @@ export default function AdminCamadas() {
   const [atributosLinhas, setAtributosLinhas] = useState(null);
   const [salvandoAtributos, setSalvandoAtributos] = useState(false);
   const [salvoAtributosEm, setSalvoAtributosEm] = useState(null);
+  const [arrastandoIndice, setArrastandoIndice] = useState(null); // só o feedback visual (opacity)
+  // Fonte de verdade pro onDrop — um ref, não o state acima. Eventos de
+  // drag (dragstart/dragover/drop) são "continuous priority" no React 18,
+  // então setState dentro deles não é garantido flush síncrono antes do
+  // próximo evento da mesma sequência; ler `arrastandoIndice` (state) direto
+  // no onDrop arriscava pegar o valor de ANTES do dragstart (closure velha),
+  // fazendo o drop nunca reordenar nada. Ref não tem esse problema — sempre
+  // lê o valor atual, não depende de re-render ter acontecido.
+  const arrastandoIndiceRef = useRef(null);
 
   useAutoDismiss(salvoArquivoEm, setSalvoArquivoEm);
   useAutoDismiss(salvoEstiloEm, setSalvoEstiloEm);
@@ -602,12 +616,26 @@ export default function AdminCamadas() {
     setSujo(true);
   }
 
-  function moverAtributo(indice, direcao) {
+  function marcarTodosAtributos(visivel) {
+    setAtributosLinhas((atual) => atual.map((linha) => ({ ...linha, visivel })));
+    setSujo(true);
+  }
+
+  function atualizarRotuloAtributo(indice, rotulo) {
+    setAtributosLinhas((atual) => atual.map((linha, i) => (i === indice ? { ...linha, rotulo } : linha)));
+    setSujo(true);
+  }
+
+  // Reordena via arrastar-e-soltar nativo (sem lib) — moverAtributoPara tira
+  // o item de `origem` e insere na posição `destino`, empurrando o resto.
+  // Resolve de 1 vez o caso "pegar o último e jogar pro primeiro", que com
+  // botões ↑/↓ de 1 passo exigiria N cliques.
+  function moverAtributoPara(origem, destino) {
+    if (origem === destino) return;
     setAtributosLinhas((atual) => {
       const novo = [...atual];
-      const alvo = indice + direcao;
-      if (alvo < 0 || alvo >= novo.length) return atual;
-      [novo[indice], novo[alvo]] = [novo[alvo], novo[indice]];
+      const [item] = novo.splice(origem, 1);
+      novo.splice(destino, 0, item);
       return novo;
     });
     setSujo(true);
@@ -620,6 +648,7 @@ export default function AdminCamadas() {
       const atributos = atributosLinhas.map((l, ordem) => ({
         campo: l.campo,
         visivel: l.visivel,
+        rotulo: l.rotulo,
         ordem,
       }));
       await salvarConfigAtributos(sessao.token, camadaSelecionadaId, atributos);
@@ -1485,38 +1514,54 @@ export default function AdminCamadas() {
                 <p className="contagem-atributos">
                   {atributosLinhas.filter((l) => l.visivel).length} de {atributosLinhas.length} visíveis
                 </p>
+                <div className="acoes-em-massa-atributos">
+                  <button type="button" className="botao-secundario" onClick={() => marcarTodosAtributos(true)}>
+                    Marcar todos visíveis
+                  </button>
+                  <button type="button" className="botao-secundario" onClick={() => marcarTodosAtributos(false)}>
+                    Ocultar todos
+                  </button>
+                </div>
                 <ul className="lista-atributos-admin">
                   {atributosLinhas.map((linha, i) => (
                     <li
                       key={linha.campo}
-                      className={`linha-atributo-admin${linha.visivel ? "" : " linha-atributo-admin--oculto"}`}
+                      draggable
+                      onDragStart={() => {
+                        arrastandoIndiceRef.current = i;
+                        setArrastandoIndice(i);
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => {
+                        if (arrastandoIndiceRef.current !== null) moverAtributoPara(arrastandoIndiceRef.current, i);
+                        arrastandoIndiceRef.current = null;
+                        setArrastandoIndice(null);
+                      }}
+                      onDragEnd={() => {
+                        arrastandoIndiceRef.current = null;
+                        setArrastandoIndice(null);
+                      }}
+                      className={`linha-atributo-admin${linha.visivel ? "" : " linha-atributo-admin--oculto"}${
+                        arrastandoIndice === i ? " linha-atributo-admin--arrastando" : ""
+                      }`}
                     >
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={linha.visivel}
-                          onChange={() => alternarAtributoVisivel(i)}
-                        />
-                        {linha.campo}
-                      </label>
-                      <div className="botoes-ordem">
-                        <button
-                          type="button"
-                          onClick={() => moverAtributo(i, -1)}
-                          disabled={i === 0}
-                          aria-label={`Mover ${linha.campo} pra cima`}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moverAtributo(i, 1)}
-                          disabled={i === atributosLinhas.length - 1}
-                          aria-label={`Mover ${linha.campo} pra baixo`}
-                        >
-                          ↓
-                        </button>
-                      </div>
+                      <span className="alca-arrastar" aria-hidden="true" title="Arraste pra reordenar">
+                        ⠿
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={linha.visivel}
+                        onChange={() => alternarAtributoVisivel(i)}
+                        aria-label={`Mostrar ${linha.campo} no painel de atributos`}
+                      />
+                      <input
+                        type="text"
+                        className="campo-rotulo-atributo"
+                        value={linha.rotulo}
+                        onChange={(e) => atualizarRotuloAtributo(i, e.target.value)}
+                        aria-label={`Nome exibido pro campo ${linha.campo}`}
+                      />
+                      {linha.rotulo !== linha.campo && <span className="nome-campo-bruto">{linha.campo}</span>}
                     </li>
                   ))}
                 </ul>

@@ -64,7 +64,7 @@ Limites. Renomeada de `mapas` na migration 006, quando o conceito de
 | versao | text | ex: "1.2" |
 | categoria | text | ex: Agronomia, Infraestrutura |
 | arquivo_path | text | caminho do .pmtiles no servidor |
-| atributos_config | jsonb | `[{campo, visivel, ordem}]` — editável no painel de admin (migration 003); NULL = mostra tudo, ordem bruta do vector tile |
+| atributos_config | jsonb | `[{campo, visivel, ordem, rotulo}]` — editável no painel de admin (migration 003; `rotulo` sem migration, 2026-07-17 — config salva sem esse campo cai pro próprio `campo` como rótulo, `mesclarConfigAtributos` no frontend); NULL = mostra tudo, ordem bruta do vector tile, rótulo = nome do campo |
 | estilo_config | jsonb | Formato novo (2026-07-11, sem migration — ver `frontend/src/lib/estiloCamada.js`, `normalizarEstiloConfig`): `{preenchimento: {modo: "simples"\|"categorizado"\|"graduado", cor, opacidade, campo, categorias: [{valor,cor}], corSemCategoria, campoNumerico, classes: [{ate,cor}], corAbaixoDoMinimo}, contorno: {cor,largura,opacidade}, rotulo: {mostrar,origem:"pipeline"\|"atributo",campo,tamanhoFonte,cor,zoomMinimo}, visibilidade: {zoomMinimo,zoomMaximo}}`. Camadas salvas antes disso ficam no formato antigo flat (`{cor, opacidadePreenchimento, mostrarRotulo, zoomRotulo}`, migration 004) — `normalizarEstiloConfig` lê os dois formatos e sempre devolve o novo completo, então **não precisou de migração de banco**; NULL/vazio = heurística padrão (presença do campo TALHAO) |
 | publicado_em | timestamp | |
 

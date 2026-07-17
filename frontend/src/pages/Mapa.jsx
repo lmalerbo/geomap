@@ -186,14 +186,22 @@ function construirFiltroGrupo(propriedades) {
   return null;
 }
 
-// Filtra/ordena os atributos exibidos no painel conforme configurado no
-// painel de admin. Sem config (mapa ainda não configurado) mostra tudo,
-// na ordem bruta do vector tile — comportamento de sempre.
+// Filtra/ordena/renomeia os atributos exibidos no painel conforme
+// configurado no painel de admin. Sem config (mapa ainda não configurado)
+// mostra tudo, na ordem bruta do vector tile, rótulo = nome do campo —
+// comportamento de sempre. Devolve uma lista (não mais um objeto chaveado
+// por campo) porque o rótulo exibido é editável pelo admin e não é
+// garantidamente único — usar como chave de objeto arriscaria duas linhas
+// diferentes colidirem se acabassem com o mesmo texto.
 function aplicarConfigAtributos(propriedades, config) {
-  if (!config || config.length === 0) return propriedades;
-  const resultado = {};
-  for (const { campo, visivel } of [...config].sort((a, b) => a.ordem - b.ordem)) {
-    if (visivel && campo in propriedades) resultado[campo] = propriedades[campo];
+  if (!config || config.length === 0) {
+    return Object.entries(propriedades).map(([campo, valor]) => ({ campo, rotulo: campo, valor }));
+  }
+  const resultado = [];
+  for (const { campo, visivel, rotulo } of [...config].sort((a, b) => a.ordem - b.ordem)) {
+    if (visivel && campo in propriedades) {
+      resultado.push({ campo, rotulo: rotulo || campo, valor: propriedades[campo] });
+    }
   }
   return resultado;
 }
@@ -1614,9 +1622,9 @@ export default function Mapa() {
                 {itemSelecionado.camada}
               </h2>
               <dl className="atributos-grid" key={selecao.indice}>
-                {Object.entries(itemSelecionado.propriedades).map(([chave, valor]) => (
-                  <div key={chave} className="linha-atributo">
-                    <dt>{chave}</dt>
+                {itemSelecionado.propriedades.map(({ campo, rotulo, valor }) => (
+                  <div key={campo} className="linha-atributo">
+                    <dt>{rotulo}</dt>
                     <dd>{String(valor)}</dd>
                   </div>
                 ))}
