@@ -1229,6 +1229,30 @@ input[type="file"]::file-selector-button:hover {
   animation: entrada 150ms var(--ease-padrao);
 }
 
+/* Em desktop de verdade (não tablet — 1100px fica acima da faixa
+   641-899px já verificada sem overflow) sobra tela de sobra: o painel
+   fixo de 280px deixava valor comprido (nome de empresa, descrição de
+   solo) espremido em 2 colunas de ~120px, quebrando linha o tempo
+   inteiro. Mais largura + altura aqui, mesma proteção de altura contra
+   a pilha de controles de sempre (só o teto absoluto sobe, de 480 pra
+   640px). Precisa vir DEPOIS das regras base acima — mesma especificidade
+   (1 classe), então a ordem no arquivo decide, não a media query sozinha. */
+@media (min-width: 1100px) {
+  .painel-atributos {
+    width: min(34vw, 520px);
+    max-height: min(70vh, 640px, calc(100% - 420px));
+  }
+
+  /* auto-fit em vez das 2 colunas fixas de cima — com o painel mais largo,
+     acomoda 3 colunas sozinho quando cabe; encolhe pra 2 sem precisar de
+     outro breakpoint manual por largura. minmax(150px,1fr) só faz sentido
+     aqui: em 280px (tablet/mobile) não cabe nem 1x e colapsaria pra 1
+     coluna só, regredindo as 2 colunas já testadas nessa largura. */
+  .atributos-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
 .atributos-grid .linha-atributo {
   padding: 8px 0;
 }
@@ -1785,4 +1809,8 @@ input[type="file"]::file-selector-button:hover {
 .linha-atributo dd {
   margin: 0;
   font-size: 15px;
+  /* Valor sem espaço (ex: "PARCERIA/ARRENDAMENTO") não tinha onde quebrar
+     linha sozinho e vazava pra fora da coluna — mais visível ainda com 3
+     colunas em desktop (colunas mais estreitas que o texto). */
+  overflow-wrap: break-word;
 }
