@@ -5,6 +5,7 @@ import { sincronizarMapas } from "../lib/sync.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import MenuLateral from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
+import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 
 function IconeMenu() {
   return (
@@ -25,6 +26,13 @@ export default function Inicio() {
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [offline, setOffline] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
+  // Nada baixado ainda neste dispositivo/navegador (primeira sincronização
+  // de verdade, ou o IndexedDB foi limpo — ex: Safari/iOS pode purgar
+  // armazenamento por inatividade) — baseado no que a leitura local (efeito
+  // 1) achou, não num "já vi isso" salvo em localStorage, porque o cenário
+  // que importa avisar é justamente "sincronizando do zero agora".
+  const [semCamadasLocais, setSemCamadasLocais] = useState(false);
+  const [avisoSincronizacaoFechado, setAvisoSincronizacaoFechado] = useState(false);
 
   function contarCamadasPorMapa(camadas) {
     const contagem = new Map();
@@ -39,6 +47,7 @@ export default function Inicio() {
     Promise.all([listarMapasDisponiveis(), listarMapasBaixados()]).then(([locais, camadas]) => {
       setMapas(locais);
       setContagemCamadas(contarCamadasPorMapa(camadas));
+      setSemCamadasLocais(camadas.length === 0);
     });
   }, []);
 
@@ -99,6 +108,11 @@ export default function Inicio() {
         aoFechar={() => setMenuAberto(false)}
         ehAdmin={sessao.usuario.papel === "admin"}
         aoSair={handleSair}
+      />
+
+      <AvisoPrimeiraSincronizacao
+        mostrar={sincronizando && semCamadasLocais && !avisoSincronizacaoFechado}
+        aoFechar={() => setAvisoSincronizacaoFechado(true)}
       />
 
       <div className="painel-admin">

@@ -28,6 +28,7 @@ import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
+import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 
 function IconeMenu() {
   return (
@@ -725,6 +726,11 @@ export default function Mapa() {
   const [sincronizando, setSincronizando] = useState(true);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [offline, setOffline] = useState(false);
+  // Nada baixado localmente pra este mapa ainda — mesmo raciocínio de
+  // Inicio.jsx (ver AvisoPrimeiraSincronizacao): baseado no estado real do
+  // IndexedDB, não num "já vi isso" salvo em localStorage.
+  const [semCamadasLocais, setSemCamadasLocais] = useState(false);
+  const [avisoSincronizacaoFechado, setAvisoSincronizacaoFechado] = useState(false);
   const [selecao, setSelecao] = useState(null);
   // Recolhido por padrão em qualquer tamanho de tela — antes só recolhia
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
@@ -887,6 +893,7 @@ export default function Mapa() {
       const doMapa = locais.filter((c) => c.mapaId === mapaId);
       setMapasLocais(doMapa);
       setCamadasVisiveis(new Set(doMapa.map((m) => m.id)));
+      setSemCamadasLocais(doMapa.length === 0);
     });
   }, [mapaPronto, mapaId]);
 
@@ -1298,6 +1305,11 @@ export default function Mapa() {
         aoFechar={() => setMenuAberto(false)}
         ehAdmin={sessao.usuario.papel === "admin"}
         aoSair={handleSair}
+      />
+
+      <AvisoPrimeiraSincronizacao
+        mostrar={sincronizando && semCamadasLocais && !avisoSincronizacaoFechado}
+        aoFechar={() => setAvisoSincronizacaoFechado(true)}
       />
 
       <div className="area-mapa">
