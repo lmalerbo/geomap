@@ -95,6 +95,7 @@ export function useImportacaoTemporaria(mapRef, mapaPronto) {
 
   return {
     arquivoTemporario,
+    setArquivoTemporario,
     temporariaVisivel,
     setTemporariaVisivel,
     importandoArquivo,

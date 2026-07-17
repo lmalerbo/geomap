@@ -676,6 +676,29 @@ input[type="file"]::file-selector-button:hover {
   gap: 8px;
 }
 
+/* Preenchimento categorizado combinando até 3 campos — cada campo extra é
+   um select + botão de remover na mesma linha (ver AdminCamadas.jsx). */
+.linha-campo-combinado {
+  display: flex;
+  gap: 6px;
+}
+
+.linha-campo-combinado select {
+  flex: 1;
+}
+
+.botao-remover-campo-combinado {
+  flex-shrink: 0;
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-muted);
+  font-size: 18px;
+  border-radius: 6px;
+}
+
 .lista-atributos-admin {
   list-style: none;
   margin: 0;
@@ -1217,22 +1240,57 @@ input[type="file"]::file-selector-button:hover {
 }
 
 /* Canto inferior-esquerdo — medição/atributos já ocupam o direito, evita
-   sobrepor se as duas ferramentas estiverem ativas ao mesmo tempo. */
+   sobrepor se as duas ferramentas estiverem ativas ao mesmo tempo. Largura
+   280px (igual .painel-atributos) — 260px ficava apertado com os botões
+   novos (seguir câmera, pausar/continuar, grade de exportar/compartilhar/
+   ver no mapa/limpar). */
 .painel-track {
   bottom: 16px;
   left: 16px;
-  width: 260px;
+  width: 280px;
 }
 
-.painel-track h3 {
+/* Título + botão fechar como linha flex normal, em vez do botão fechar
+   absolutamente posicionado (.painel-flutuante .fechar) sobre um
+   padding-right "no olho" no h3 — o padding antigo (24px) reservava menos
+   espaço do que o botão realmente ocupa (36px + 8px de inset = 44px),
+   então o fim do texto "Gravar percurso" ficava embaixo do botão. Flex com
+   space-between não depende de acertar nenhum número mágico. */
+.cabecalho-painel-track {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 0 10px;
-  padding-right: 24px;
+}
+
+.cabecalho-painel-track h3 {
+  margin: 0;
   font-size: 15px;
+}
+
+.painel-track .cabecalho-painel-track .fechar {
+  position: static;
+  flex-shrink: 0;
 }
 
 .painel-track > button {
   width: 100%;
   margin-bottom: 10px;
+}
+
+.aviso-track {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.opcao-seguir-camera {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  font-size: 13px;
 }
 
 .botao-track-gravando {
@@ -1253,13 +1311,33 @@ input[type="file"]::file-selector-button:hover {
   }
 }
 
+/* Distância ao vivo em destaque enquanto grava — antes era um parágrafo
+   genérico igual ao de "parado", perdido no meio do card. */
+.resultado-track-ativo {
+  font-size: 16px;
+  font-weight: 600;
+}
+
 .acoes-painel-track {
   display: flex;
   gap: 8px;
+  margin-bottom: 10px;
 }
 
 .acoes-painel-track button {
   flex: 1;
+}
+
+/* 4 ações pós-gravação (Exportar/Compartilhar/Ver no mapa/Limpar) — uma
+   única linha flex esticada ficava apertada com 4 botões em vez das 2 de
+   antes. */
+.acoes-painel-track--grade {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.acoes-painel-track--grade button {
+  flex: initial;
 }
 
 .opcoes-modo-medicao {
@@ -1684,7 +1762,7 @@ input[type="file"]::file-selector-button:hover {
   .painel-track {
     left: 8px;
     bottom: 8px;
-    width: min(220px, calc(100vw - 16px));
+    width: min(260px, calc(100vw - 16px));
   }
 }
 

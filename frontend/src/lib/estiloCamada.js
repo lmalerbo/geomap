@@ -5,12 +5,25 @@ const PREENCHIMENTO_VAZIO = {
   cor: null,
   opacidade: 0,
   campo: null,
+  // Campos extras pra categorizar combinando valores de até 3 campos (igual
+  // "Valores únicos, muitos campos" do ArcGIS Pro) — vazio (o caso comum,
+  // 1 campo só) preserva o comportamento de sempre.
+  camposAdicionais: [],
   categorias: [],
   corSemCategoria: "#999999",
   campoNumerico: null,
   classes: [],
   corAbaixoDoMinimo: "#999999",
 };
+
+// Separador usado tanto pra montar o valor combinado (chave de categorias[])
+// quanto na expressão MapLibre (concat) que produz esse mesmo valor em
+// runtime — precisa ser idêntico dos dois lados pro "match" bater. Caractere
+// de controle (Unit Separator, U+001F) proposital, escrito via escape (nunca
+// literal na fonte — caractere invisível direto no arquivo já causou bug de
+// encoding nesse projeto antes): não aparece em dado de atributo real, então
+// nunca colide com um valor genuíno de campo.
+export const SEPARADOR_CAMPOS = "\u001F";
 
 const CONTORNO_VAZIO = { cor: null, largura: 1.5, opacidade: 1 };
 
@@ -84,6 +97,7 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
         ...preenchimento,
         opacidade: numeroOuPadrao(preenchimento.opacidade, opacidadeHeuristica),
         classes: preenchimento.classes.map((c) => ({ ...c, ate: numeroOuPadrao(c.ate, 0) })),
+        camposAdicionais: Array.isArray(preenchimento.camposAdicionais) ? preenchimento.camposAdicionais : [],
       },
       contorno: {
         ...contorno,
@@ -118,13 +132,29 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
   };
 }
 
+// Expressão MapLibre que produz o valor a comparar no "match" — um "get"
+// simples (1 campo, o caso comum) ou um "concat" dos campos escolhidos
+// unidos por SEPARADOR_CAMPOS (categorizado combinando até 3 campos, igual
+// "Valores únicos, muitos campos" do ArcGIS Pro) — precisa bater exatamente
+// com o valor combinado montado em lerValoresUnicosCombinados
+// (pmtilesValores.js), que é o mesmo texto usado como chave em
+// categorias[].valor.
+function expressaoValorCategoria(preenchimento) {
+  const campos = [preenchimento.campo, ...preenchimento.camposAdicionais];
+  if (campos.length === 1) return ["get", campos[0]];
+  return [
+    "concat",
+    ...campos.flatMap((campo, i) => (i === 0 ? [["to-string", ["get", campo]]] : [SEPARADOR_CAMPOS, ["to-string", ["get", campo]]])),
+  ];
+}
+
 // Monta a expressão de fill-color do MapLibre a partir do preenchimento
 // normalizado — um valor literal (modo simples) ou uma expressão
 // data-driven (categorizado/graduado).
 export function expressaoCorPreenchimento(preenchimento) {
   if (preenchimento.modo === "categorizado" && preenchimento.campo && preenchimento.categorias.length > 0) {
     const pares = preenchimento.categorias.flatMap((c) => [c.valor, c.cor]);
-    return ["match", ["get", preenchimento.campo], ...pares, preenchimento.corSemCategoria];
+    return ["match", expressaoValorCategoria(preenchimento), ...pares, preenchimento.corSemCategoria];
   }
   if (preenchimento.modo === "graduado" && preenchimento.campoNumerico && preenchimento.classes.length > 0) {
     const ordenadas = [...preenchimento.classes].sort((a, b) => a.ate - b.ate);
@@ -143,8 +173,17 @@ export function expressaoCorPreenchimento(preenchimento) {
 
 // Atribui cores da paleta categórica validada (dataviz), por índice — igual
 // ao critério já usado pra cor padrão de camada, mas aqui por valor único.
+// `valoresUnicos` já vem combinado (join por SEPARADOR_CAMPOS) quando há
+// mais de 1 campo — a função não precisa saber disso, só atribui cor.
 export function gerarCategorias(valoresUnicos) {
   return valoresUnicos.map((valor, i) => ({ valor, cor: PALETA_HEX[i % PALETA_HEX.length] }));
+}
+
+// Texto legível de um valor de categorias[] (possivelmente combinado de
+// vários campos) pra exibir no admin — troca SEPARADOR_CAMPOS por " / ".
+// Sem efeito num valor de 1 campo só (não contém o separador).
+export function formatarValorCategoria(valor) {
+  return String(valor).split(SEPARADOR_CAMPOS).join(" / ");
 }
 
 // Atribui formas por índice, ciclando FORMAS_PONTO — mesmo critério de

@@ -1489,37 +1489,89 @@ export default function Mapa() {
         <aside className={`painel-flutuante painel-track${track.mostrarPainelTrack ? " aberto" : ""}`}>
           {track.mostrarPainelTrack && (
             <>
-              <button
-                type="button"
-                className="fechar"
-                onClick={() => track.setMostrarPainelTrack(false)}
-                aria-label="Fechar gravação de percurso"
-                title="Fechar gravação de percurso"
-              >
-                ×
-              </button>
-              <h3>Gravar percurso</h3>
-              {track.gravandoPercurso ? (
-                <button type="button" className="botao-track-gravando" onClick={track.pararGravacaoPercurso}>
-                  ● Parar gravação
+              <div className="cabecalho-painel-track">
+                <h3>Gravar percurso</h3>
+                <button
+                  type="button"
+                  className="fechar"
+                  onClick={() => track.setMostrarPainelTrack(false)}
+                  aria-label="Fechar gravação de percurso"
+                  title="Fechar gravação de percurso"
+                >
+                  ×
                 </button>
-              ) : (
+              </div>
+
+              {track.gravandoPercurso && (
+                <p className="aviso-track">
+                  Mantenha o app aberto — trocar de app ou travar a tela manualmente interrompe a gravação.
+                </p>
+              )}
+
+              {track.gravandoPercurso && (
+                <label className="opcao-seguir-camera">
+                  <input
+                    type="checkbox"
+                    checked={track.seguirCamera}
+                    onChange={() => track.setSeguirCamera((s) => !s)}
+                  />
+                  📍 Seguir minha localização
+                </label>
+              )}
+
+              {!track.gravandoPercurso ? (
                 <button type="button" onClick={track.iniciarGravacaoPercurso}>
                   Iniciar gravação
                 </button>
+              ) : (
+                <div className="acoes-painel-track">
+                  {track.pausado ? (
+                    <button type="button" onClick={track.continuarGravacaoPercurso}>
+                      ▶ Continuar
+                    </button>
+                  ) : (
+                    <button type="button" className="botao-secundario" onClick={track.pausarGravacaoPercurso}>
+                      ⏸ Pausar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={track.pausado ? "botao-secundario" : "botao-track-gravando"}
+                    onClick={track.pararGravacaoPercurso}
+                  >
+                    ● Parar gravação
+                  </button>
+                </div>
               )}
-              <p className="resultado-medicao">
+
+              <p className={`resultado-medicao${track.gravandoPercurso ? " resultado-track-ativo" : ""}`}>
                 {track.gravandoPercurso
-                  ? `Gravando… ${track.distanciaPercursoAtual ?? "0 m"}`
+                  ? `${track.pausado ? "Pausado…" : "Gravando…"} ${track.distanciaPercursoAtual ?? "0 m"}`
                   : track.distanciaPercursoAtual
                     ? `Percurso gravado: ${track.distanciaPercursoAtual}`
                     : "Clique em \"Iniciar gravação\" e mantenha o app aberto durante o percurso."}
               </p>
               {track.erroTrack && <p className="erro">{track.erroTrack}</p>}
-              {!track.gravandoPercurso && track.pontosPercurso.length > 0 && (
-                <div className="acoes-painel-track">
+              {!track.gravandoPercurso && track.distanciaPercursoAtual && (
+                <div className="acoes-painel-track acoes-painel-track--grade">
                   <button type="button" className="botao-secundario" onClick={track.exportarPercurso}>
                     Exportar KML
+                  </button>
+                  <button type="button" className="botao-secundario" onClick={track.compartilharPercurso}>
+                    Compartilhar
+                  </button>
+                  <button
+                    type="button"
+                    className="botao-secundario"
+                    onClick={() => {
+                      temporaria.setArquivoTemporario({
+                        nome: `Percurso — ${new Date().toLocaleString("pt-BR")}`,
+                        geojson: track.geojsonPercursoAtual,
+                      });
+                      temporaria.setTemporariaVisivel(true);
+                    }}
+                  >
+                    Ver no mapa
                   </button>
                   <button type="button" className="botao-limpar-medicao" onClick={track.limparPercurso}>
                     Limpar

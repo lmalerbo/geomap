@@ -22,14 +22,18 @@ import {
   gerarCategorias,
   gerarRampaClasses,
   gerarCategoriasForma,
+  formatarValorCategoria,
   FORMAS_PONTO,
 } from "../lib/estiloCamada.js";
-import { lerValoresUnicos, lerMinMax, detectarTipoGeometria } from "../lib/pmtilesValores.js";
+import { lerValoresUnicos, lerValoresUnicosCombinados, lerMinMax, detectarTipoGeometria } from "../lib/pmtilesValores.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 
 const CAMADA_ROTULOS = "rotulos";
 const MAX_CATEGORIAS = 30;
+// Campo principal + até 2 adicionais = 3 no total, mesmo teto do "Valores
+// únicos, muitos campos" do ArcGIS Pro.
+const MAX_CAMPOS_ADICIONAIS = 2;
 
 // Junta os campos disponíveis no .pmtiles (fonte da verdade dos nomes) com
 // a config já salva (visibilidade/ordem) — campo novo entra visível no
@@ -402,6 +406,28 @@ export default function AdminCamadas() {
     setSujo(true);
   }
 
+  // Categorizado combinando até 3 campos (igual "Valores únicos, muitos
+  // campos" do ArcGIS Pro) — o principal fica em preenchimento.campo (select
+  // de sempre), estes são os 0-2 extras. Mudar/remover não limpa categorias
+  // sozinho (mesmo comportamento de sempre ao trocar o campo principal) —
+  // usuário clica "Gerar categorias" de novo pra recalcular.
+  function adicionarCampoAdicional() {
+    if (estiloForm.preenchimento.camposAdicionais.length >= MAX_CAMPOS_ADICIONAIS) return;
+    atualizarPreenchimento("camposAdicionais", [...estiloForm.preenchimento.camposAdicionais, ""]);
+  }
+
+  function atualizarCampoAdicional(indice, valor) {
+    const campos = estiloForm.preenchimento.camposAdicionais.map((c, i) => (i === indice ? valor : c));
+    atualizarPreenchimento("camposAdicionais", campos);
+  }
+
+  function removerCampoAdicional(indice) {
+    atualizarPreenchimento(
+      "camposAdicionais",
+      estiloForm.preenchimento.camposAdicionais.filter((_, i) => i !== indice)
+    );
+  }
+
   function atualizarContorno(campo, valor) {
     setEstiloForm((atual) => ({ ...atual, contorno: { ...atual.contorno, [campo]: valor } }));
     setSujo(true);
@@ -454,7 +480,11 @@ export default function AdminCamadas() {
     setGerandoCategorias(true);
     setAvisoEstilo(null);
     try {
-      const valores = await lerValoresUnicos(pmtiles, sourceLayerId, estiloForm.preenchimento.campo);
+      const campos = [estiloForm.preenchimento.campo, ...estiloForm.preenchimento.camposAdicionais];
+      const valores =
+        campos.length === 1
+          ? await lerValoresUnicos(pmtiles, sourceLayerId, campos[0])
+          : await lerValoresUnicosCombinados(pmtiles, sourceLayerId, campos);
       if (valores.length === 0) {
         setAvisoEstilo("Nenhum valor encontrado pra esse campo.");
       } else if (valores.length > MAX_CATEGORIAS) {
@@ -841,11 +871,49 @@ export default function AdminCamadas() {
                         ))}
                       </select>
                     </label>
+
+                    {estiloForm.preenchimento.camposAdicionais.map((campoAdicional, i) => (
+                      <label key={i} className="campo-form-admin campo-form-admin--combinado">
+                        Combinar com
+                        <span className="linha-campo-combinado">
+                          <select
+                            value={campoAdicional}
+                            onChange={(e) => atualizarCampoAdicional(i, e.target.value)}
+                          >
+                            <option value="">Selecione…</option>
+                            {camposDisponiveis.map((campo) => (
+                              <option key={campo} value={campo}>
+                                {campo}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="botao-remover-campo-combinado"
+                            onClick={() => removerCampoAdicional(i)}
+                            aria-label="Remover este campo da combinação"
+                            title="Remover este campo da combinação"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      </label>
+                    ))}
+                    {estiloForm.preenchimento.camposAdicionais.length < MAX_CAMPOS_ADICIONAIS && (
+                      <button type="button" className="botao-secundario" onClick={adicionarCampoAdicional}>
+                        + Combinar com outro campo
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       className="botao-secundario"
                       onClick={gerarCategoriasParaCampo}
-                      disabled={!estiloForm.preenchimento.campo || gerandoCategorias}
+                      disabled={
+                        !estiloForm.preenchimento.campo ||
+                        estiloForm.preenchimento.camposAdicionais.some((c) => !c) ||
+                        gerandoCategorias
+                      }
                     >
                       {gerandoCategorias ? "Lendo valores…" : "Gerar categorias a partir dos dados"}
                     </button>
@@ -858,7 +926,7 @@ export default function AdminCamadas() {
                               value={cat.cor}
                               onChange={(e) => atualizarCategoria(i, e.target.value)}
                             />
-                            <span>{String(cat.valor)}</span>
+                            <span>{formatarValorCategoria(cat.valor)}</span>
                           </li>
                         ))}
                       </ul>
@@ -1051,7 +1119,7 @@ export default function AdminCamadas() {
                                     </option>
                                   ))}
                                 </select>
-                                <span>{String(cat.valor)}</span>
+                                <span>{formatarValorCategoria(cat.valor)}</span>
                               </li>
                             ))}
                           </ul>
