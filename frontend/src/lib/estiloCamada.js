@@ -14,6 +14,12 @@ const PREENCHIMENTO_VAZIO = {
   campoNumerico: null,
   classes: [],
   corAbaixoDoMinimo: "#999999",
+  // Modo "gradiente" (transição contínua entre 2 cores, sem degraus —
+  // diferente do "graduado" acima, que é por faixas discretas).
+  corInicial: null,
+  corFinal: null,
+  min: 0,
+  max: 100,
 };
 
 // Separador usado tanto pra montar o valor combinado (chave de categorias[])
@@ -25,7 +31,7 @@ const PREENCHIMENTO_VAZIO = {
 // nunca colide com um valor genuíno de campo.
 export const SEPARADOR_CAMPOS = "\u001F";
 
-const CONTORNO_VAZIO = { cor: null, largura: 1.5, opacidade: 1 };
+const CONTORNO_VAZIO = { cor: null, largura: 1.5, opacidade: 1, estiloTraco: "solido" };
 
 const ROTULO_VAZIO = {
   mostrar: true,
@@ -74,6 +80,22 @@ function numeroOuPadrao(valor, padrao) {
   return Number.isFinite(n) ? n : padrao;
 }
 
+// Decide se a camada desenha só contorno, só preenchimento, ou os dois —
+// campo de nível superior novo (tipoDesenho), só relevante pra camada
+// não-ponto (Mapa.jsx ignora isso pra ponto). Config já salva com esse
+// campo usa ele direto; config salva ANTES dele existir (toda camada já
+// publicada) infere a partir das opacidades já salvas, pra continuar
+// renderizando exatamente igual sem precisar resalvar.
+function tipoDesenhoOuPadrao(bruto, preenchimento, contorno) {
+  if (bruto?.tipoDesenho) return bruto.tipoDesenho;
+  const temContorno = contorno.opacidade > 0;
+  const temPreenchimento = preenchimento.opacidade > 0;
+  if (temContorno && temPreenchimento) return "ambos";
+  if (temContorno) return "contorno";
+  if (temPreenchimento) return "preenchimento";
+  return "ambos";
+}
+
 export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = false, corPadrao = "#2a78d6" } = {}) {
   // Talhão ganha preenchimento translúcido (dá pra ver o mapa base por
   // baixo); ponto ganha preenchimento praticamente sólido (era um "circle-
@@ -92,18 +114,23 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
     const rotulo = { ...ROTULO_VAZIO, zoomMinimo: zoomRotuloHeuristico, ...bruto.rotulo };
     const visibilidade = { ...VISIBILIDADE_VAZIA, ...bruto.visibilidade };
     const simbolo = { ...SIMBOLO_VAZIO, ...bruto.simbolo };
+    const preenchimentoFinal = {
+      ...preenchimento,
+      opacidade: numeroOuPadrao(preenchimento.opacidade, opacidadeHeuristica),
+      classes: preenchimento.classes.map((c) => ({ ...c, ate: numeroOuPadrao(c.ate, 0) })),
+      camposAdicionais: Array.isArray(preenchimento.camposAdicionais) ? preenchimento.camposAdicionais : [],
+      min: numeroOuPadrao(preenchimento.min, 0),
+      max: numeroOuPadrao(preenchimento.max, 100),
+    };
+    const contornoFinal = {
+      ...contorno,
+      largura: numeroOuPadrao(contorno.largura, 1.5),
+      opacidade: numeroOuPadrao(contorno.opacidade, 1),
+    };
     return {
-      preenchimento: {
-        ...preenchimento,
-        opacidade: numeroOuPadrao(preenchimento.opacidade, opacidadeHeuristica),
-        classes: preenchimento.classes.map((c) => ({ ...c, ate: numeroOuPadrao(c.ate, 0) })),
-        camposAdicionais: Array.isArray(preenchimento.camposAdicionais) ? preenchimento.camposAdicionais : [],
-      },
-      contorno: {
-        ...contorno,
-        largura: numeroOuPadrao(contorno.largura, 1.5),
-        opacidade: numeroOuPadrao(contorno.opacidade, 1),
-      },
+      tipoDesenho: tipoDesenhoOuPadrao(bruto, preenchimentoFinal, contornoFinal),
+      preenchimento: preenchimentoFinal,
+      contorno: contornoFinal,
       rotulo: {
         ...rotulo,
         tamanhoFonte: numeroOuPadrao(rotulo.tamanhoFonte, 12),
@@ -122,10 +149,13 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
   const opacidade = numeroOuPadrao(bruto?.opacidadePreenchimento, opacidadeHeuristica);
   const zoomMinimo = numeroOuPadrao(bruto?.zoomRotulo, zoomRotuloHeuristico);
   const mostrar = bruto?.mostrarRotulo ?? true;
+  const preenchimentoAntigo = { ...PREENCHIMENTO_VAZIO, cor, opacidade };
+  const contornoAntigo = { ...CONTORNO_VAZIO, cor };
 
   return {
-    preenchimento: { ...PREENCHIMENTO_VAZIO, cor, opacidade },
-    contorno: { ...CONTORNO_VAZIO, cor },
+    tipoDesenho: tipoDesenhoOuPadrao(bruto, preenchimentoAntigo, contornoAntigo),
+    preenchimento: preenchimentoAntigo,
+    contorno: contornoAntigo,
     rotulo: { ...ROTULO_VAZIO, mostrar, zoomMinimo },
     visibilidade: { ...VISIBILIDADE_VAZIA },
     simbolo: { ...SIMBOLO_VAZIO },
@@ -156,6 +186,23 @@ export function expressaoCorPreenchimento(preenchimento) {
     const pares = preenchimento.categorias.flatMap((c) => [c.valor, c.cor]);
     return ["match", expressaoValorCategoria(preenchimento), ...pares, preenchimento.corSemCategoria];
   }
+  if (
+    preenchimento.modo === "gradiente" &&
+    preenchimento.campoNumerico &&
+    preenchimento.corInicial &&
+    preenchimento.corFinal &&
+    preenchimento.max > preenchimento.min
+  ) {
+    return [
+      "interpolate",
+      ["linear"],
+      ["get", preenchimento.campoNumerico],
+      preenchimento.min,
+      preenchimento.corInicial,
+      preenchimento.max,
+      preenchimento.corFinal,
+    ];
+  }
   if (preenchimento.modo === "graduado" && preenchimento.campoNumerico && preenchimento.classes.length > 0) {
     const ordenadas = [...preenchimento.classes].sort((a, b) => a.ate - b.ate);
     const passos = ordenadas.slice(0, -1).flatMap((c) => [c.ate, c.cor]);
@@ -169,6 +216,17 @@ export function expressaoCorPreenchimento(preenchimento) {
     ];
   }
   return preenchimento.cor;
+}
+
+// dasharray do MapLibre é em múltiplos da largura da linha, não pixels
+// fixos — os valores abaixo dão um traço/pontinho proporcional em
+// qualquer largura configurada. "Pontilhado" usa um dash quase-zero com
+// ponta arredondada (line-cap: round), o jeito padrão de desenhar bolinha
+// em vez de traço no MapLibre; "sólido" não usa dasharray nenhum.
+export function expressaoTracoLinha(estiloTraco) {
+  if (estiloTraco === "tracejado") return { dasharray: [3, 2], cap: "butt" };
+  if (estiloTraco === "pontilhado") return { dasharray: [0.1, 1.5], cap: "round" };
+  return { dasharray: null, cap: "butt" };
 }
 
 // Atribui cores da paleta categórica validada (dataviz), por índice — igual

@@ -406,6 +406,13 @@ export default function AdminCamadas() {
     setSujo(true);
   }
 
+  // Campo de nível superior do estilo (hoje só tipoDesenho) — mesmo padrão
+  // dos outros atualizarX, sem sub-objeto.
+  function atualizarEstiloFormCampo(campo, valor) {
+    setEstiloForm((atual) => ({ ...atual, [campo]: valor }));
+    setSujo(true);
+  }
+
   // Categorizado combinando até 3 campos (igual "Valores únicos, muitos
   // campos" do ArcGIS Pro) — o principal fica em preenchimento.campo (select
   // de sempre), estes são os 0-2 extras. Mudar/remover não limpa categorias
@@ -541,6 +548,29 @@ export default function AdminCamadas() {
           estiloForm.preenchimento.cor || corDaCamada(camadaSelecionadaId)
         );
         atualizarPreenchimento("classes", classes);
+      }
+    } catch (e) {
+      setAvisoEstilo(e.message);
+    } finally {
+      setCalculandoFaixas(false);
+    }
+  }
+
+  async function calcularFaixaGradiente() {
+    const { pmtiles, sourceLayerId } = detalheAtualRef.current;
+    if (!pmtiles || !sourceLayerId || !estiloForm.preenchimento.campoNumerico) return;
+    setCalculandoFaixas(true);
+    setAvisoEstilo(null);
+    try {
+      const minMax = await lerMinMax(pmtiles, sourceLayerId, estiloForm.preenchimento.campoNumerico);
+      if (!minMax) {
+        setAvisoEstilo("Nenhum valor numérico encontrado pra esse campo.");
+      } else {
+        setEstiloForm((atual) => ({
+          ...atual,
+          preenchimento: { ...atual.preenchimento, min: minMax.min, max: minMax.max },
+        }));
+        setSujo(true);
       }
     } catch (e) {
       setAvisoEstilo(e.message);
@@ -828,7 +858,42 @@ export default function AdminCamadas() {
               <div className="cartao-form-admin">
                 <h2>Estilo</h2>
 
-                <h3 className="subtitulo-estilo">Preenchimento</h3>
+                {!ehPontoAtual && (
+                  <>
+                    <h3 className="subtitulo-estilo">Tipo de desenho</h3>
+                    <label className="campo-form-admin campo-form-admin--checkbox">
+                      <input
+                        type="radio"
+                        name="tipo-desenho"
+                        checked={estiloForm.tipoDesenho === "contorno"}
+                        onChange={() => atualizarEstiloFormCampo("tipoDesenho", "contorno")}
+                      />
+                      Só contorno (linha)
+                    </label>
+                    <label className="campo-form-admin campo-form-admin--checkbox">
+                      <input
+                        type="radio"
+                        name="tipo-desenho"
+                        checked={estiloForm.tipoDesenho === "preenchimento"}
+                        onChange={() => atualizarEstiloFormCampo("tipoDesenho", "preenchimento")}
+                      />
+                      Só preenchimento
+                    </label>
+                    <label className="campo-form-admin campo-form-admin--checkbox">
+                      <input
+                        type="radio"
+                        name="tipo-desenho"
+                        checked={estiloForm.tipoDesenho === "ambos"}
+                        onChange={() => atualizarEstiloFormCampo("tipoDesenho", "ambos")}
+                      />
+                      Preenchimento + contorno
+                    </label>
+                  </>
+                )}
+
+                {(ehPontoAtual || estiloForm.tipoDesenho !== "contorno") && (
+                  <>
+                    <h3 className="subtitulo-estilo">Preenchimento</h3>
                 <label className="campo-form-admin">
                   Modo
                   <select
@@ -838,6 +903,7 @@ export default function AdminCamadas() {
                     <option value="simples">Cor única</option>
                     <option value="categorizado">Categorizado (1 cor por valor de um campo)</option>
                     <option value="graduado">Graduado (rampa de cor por faixa numérica)</option>
+                    <option value="gradiente">Gradiente contínuo (2 cores por faixa numérica)</option>
                   </select>
                 </label>
 
@@ -1001,6 +1067,65 @@ export default function AdminCamadas() {
                   </>
                 )}
 
+                {estiloForm.preenchimento.modo === "gradiente" && (
+                  <>
+                    <label className="campo-form-admin">
+                      Campo numérico
+                      <select
+                        value={estiloForm.preenchimento.campoNumerico || ""}
+                        onChange={(e) => atualizarPreenchimento("campoNumerico", e.target.value)}
+                      >
+                        <option value="">Selecione…</option>
+                        {camposDisponiveis.map((campo) => (
+                          <option key={campo} value={campo}>
+                            {campo}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="campo-form-admin campo-form-admin--cor">
+                      Cor inicial
+                      <input
+                        type="color"
+                        value={estiloForm.preenchimento.corInicial || "#ffffff"}
+                        onChange={(e) => atualizarPreenchimento("corInicial", e.target.value)}
+                      />
+                    </label>
+                    <label className="campo-form-admin campo-form-admin--cor">
+                      Cor final
+                      <input
+                        type="color"
+                        value={estiloForm.preenchimento.corFinal || "#000000"}
+                        onChange={(e) => atualizarPreenchimento("corFinal", e.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="botao-secundario"
+                      onClick={calcularFaixaGradiente}
+                      disabled={!estiloForm.preenchimento.campoNumerico || calculandoFaixas}
+                    >
+                      {calculandoFaixas ? "Calculando…" : "Calcular faixa automaticamente"}
+                    </button>
+                    <label className="campo-form-admin">
+                      Valor mínimo (cor inicial)
+                      <input
+                        type="number"
+                        value={estiloForm.preenchimento.min}
+                        onChange={(e) => atualizarPreenchimento("min", Number(e.target.value))}
+                      />
+                    </label>
+                    <label className="campo-form-admin">
+                      Valor máximo (cor final)
+                      <input
+                        type="number"
+                        value={estiloForm.preenchimento.max}
+                        onChange={(e) => atualizarPreenchimento("max", Number(e.target.value))}
+                      />
+                    </label>
+                  </>
+                )}
+
                 <label className="campo-form-admin">
                   Opacidade do preenchimento ({estiloForm.preenchimento.opacidade})
                   <input
@@ -1012,7 +1137,11 @@ export default function AdminCamadas() {
                     onChange={(e) => atualizarPreenchimento("opacidade", Number(e.target.value))}
                   />
                 </label>
+                  </>
+                )}
 
+                {(ehPontoAtual || estiloForm.tipoDesenho !== "preenchimento") && (
+                  <>
                 <h3 className="subtitulo-estilo">Contorno</h3>
                 <label className="campo-form-admin campo-form-admin--cor">
                   Cor
@@ -1044,6 +1173,21 @@ export default function AdminCamadas() {
                     onChange={(e) => atualizarContorno("opacidade", Number(e.target.value))}
                   />
                 </label>
+                {!ehPontoAtual && (
+                  <label className="campo-form-admin">
+                    Estilo do traço
+                    <select
+                      value={estiloForm.contorno.estiloTraco}
+                      onChange={(e) => atualizarContorno("estiloTraco", e.target.value)}
+                    >
+                      <option value="solido">Sólido</option>
+                      <option value="tracejado">Tracejado</option>
+                      <option value="pontilhado">Pontilhado</option>
+                    </select>
+                  </label>
+                )}
+                  </>
+                )}
 
                 {ehPontoAtual && (
                   <>

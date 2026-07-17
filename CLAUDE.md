@@ -2041,6 +2041,82 @@ depois de alguns minutos) — e via navegador (Playwright): formulário
 libera a tela na hora, indicador aparece/some corretamente, camada nova
 aparece na lista sozinha, zero erro de console.
 
+**Painel de simbologia unificado (2026-07-17)**: o Leo comparou o editor
+de estilo atual com o painel de Simbologia do QGIS e pediu 3 coisas:
+tratar a simbologia como uma decisão só (linha/preenchimento/os dois,
+não como efeito colateral de zerar um slider de opacidade), linhas
+tracejadas/pontilhadas, e preenchimento em gradiente contínuo a partir
+de 2 cores (diferente do "Graduado" já existente, que são faixas
+discretas). Fora de escopo (decidido de propósito, não pedido):
+preenchimento com textura/hachurado (exigiria gerar um padrão como
+imagem via canvas, projeto à parte) e estilo de união/deslocamento de
+traço.
+
+- **`tipoDesenho`** novo (`estiloCamada.js`), campo de nível superior do
+  estilo normalizado (`"preenchimento" | "contorno" | "ambos"`), só
+  relevante pra camada não-ponto — ponto mantém a lógica própria de
+  círculo/ícone já existente, sem mudança nenhuma. Compatibilidade:
+  config já salva (toda camada publicada antes desta leva) infere o
+  valor a partir das opacidades já salvas (`tipoDesenhoOuPadrao`) — uma
+  camada como "Limites" (histórico: só contorno, preenchimento sempre
+  zerado) abriu direto marcada em "Só contorno (linha)", sem precisar
+  resalvar nada.
+- A aplicação do gate em `Mapa.jsx` (`adicionarCamada`) é **uma única
+  mudança**: logo após desestruturar `estilo`, zera
+  `preenchimento.opacidade`/`contorno.opacidade` na origem conforme
+  `tipoDesenho` — como todo o resto da função (paint inicial e o
+  `opacidadePreenchimento`/`opacidadeContorno` devolvidos pro efeito de
+  liga/desliga camada) já lia essas opacidades como única fonte da
+  verdade, não precisou tocar em mais nenhum lugar (nem no efeito de
+  toggle, nem na lógica de clique/`queryRenderedFeatures`).
+- **Traço tracejado/pontilhado**: `contorno.estiloTraco` novo
+  (`"solido" | "tracejado" | "pontilhado"`), mapeado em
+  `expressaoTracoLinha` (`estiloCamada.js`) pra `line-dasharray` +
+  `line-cap` do MapLibre — pontilhado usa um dash quase-zero
+  (`[0.1, 1.5]`) com `line-cap: "round"`, o jeito padrão de desenhar
+  bolinha em vez de traço.
+- **Gradiente contínuo**: 4ª opção no mesmo `<select>` de Modo do
+  preenchimento (ao lado de simples/categorizado/graduado, mantidos
+  intactos — decisão confirmada com o Leo via `AskUserQuestion` de não
+  substituir "Graduado", que já existe e pode estar em uso). Usa
+  `corInicial`/`corFinal`/`min`/`max` novos em `preenchimento`, uma
+  expressão `["interpolate", ["linear"], ...]` de verdade (transição
+  suave, diferente do `"step"` do Graduado) — com guarda pra só montar
+  a expressão se `max > min` (interpolate do MapLibre lança exceção com
+  stops não-crescentes), caindo de volta pra cor simples enquanto o
+  admin não configurou os dois lados ainda. Botão "Calcular faixa
+  automaticamente" reaproveita `lerMinMax` (`pmtilesValores.js`, já
+  existente do modo Graduado) — mesmo padrão de handler que já existia,
+  só grava em `min`/`max` em vez de gerar `classes`.
+- `AdminCamadas.jsx`: bloco novo "Tipo de desenho" (3 radio buttons, no
+  topo da seção Estilo, mesmo padrão visual já usado no seletor de modo
+  do Símbolo) esconde a seção Preenchimento ou Contorno inteira
+  conforme a escolha — pra camada de ponto, nem esse bloco nem o select
+  "Estilo do traço" aparecem (`line-dasharray` só existe em layer tipo
+  "line", não em "circle"/"symbol").
+- Backend **não precisou de nenhuma mudança** — `estilo_config` é jsonb
+  sem validação de schema (`PUT /admin/camadas/:id/estilo` grava
+  `req.body.estilo` direto), confirmado lendo `admin.js` antes de
+  implementar; campos novos entram de graça.
+
+Testado com Playwright direto contra produção real (não existe banco de
+dev separado nesta máquina — `backend/.env` local aponta pro mesmo
+Neon/R2, lição já registrada antes nesta sessão), logado com a conta do
+Leo. Como reconstruir o estado original via clique-a-clique na UI seria
+frágil (a seção Preenchimento começa escondida numa camada só-contorno,
+por exemplo), o teste tirou um snapshot do `estilo_config` via `GET
+/admin/camadas/:id/estilo` **antes** de qualquer mudança e restaurou com
+um `PUT` exato desse mesmo JSON no final — confirmado programaticamente
+que o estado pós-restauração bate byte a byte com o original (`Limites`,
+mapa "Geral"). Nesse meio-tempo, confirmado: "Só contorno" esconde
+Preenchimento e vice-versa, "Calcular faixa automaticamente" preencheu
+min/max reais (`AREA`, 0.51–2600.18) a partir dos tiles já baixados,
+salvar gravou `tipoDesenho`/modo `"gradiente"`/`estiloTraco:
+"pontilhado"` corretamente no banco, camada de ponto ("Unidades") não
+mostrou os blocos novos, zero erro de console. Script de teste (continha
+a senha da conta usada) apagado ao final, nunca commitado — mesmo
+cuidado de credencial já registrado antes nesta sessão pra JWT/token.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

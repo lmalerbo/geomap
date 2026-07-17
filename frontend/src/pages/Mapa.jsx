@@ -12,6 +12,7 @@ import { corDaCamada } from "../lib/paleta.js";
 import {
   normalizarEstiloConfig,
   expressaoCorPreenchimento,
+  expressaoTracoLinha,
   expressaoIconePorCategoria,
   usaIconeSimbolo,
   corHaloIcone,
@@ -406,8 +407,18 @@ async function adicionarCamada(map, protocol, mapa) {
     ehPonto,
     corPadrao: corDaCamada(mapa.id),
   });
-  const { preenchimento, contorno, rotulo, visibilidade, simbolo } = estilo;
+  const { preenchimento, contorno, rotulo, visibilidade, simbolo, tipoDesenho } = estilo;
+  // tipoDesenho ("preenchimento" | "contorno" | "ambos") só se aplica a
+  // camada não-ponto — zera a opacidade do lado suprimido na origem, antes
+  // de qualquer leitura dela abaixo. Como todo o resto da função (paint
+  // inicial e o opacidadePreenchimento/opacidadeContorno devolvidos pro
+  // efeito de liga/desliga camada) já usa preenchimento.opacidade/
+  // contorno.opacidade como única fonte da verdade, isso basta pra
+  // tipoDesenho valer nos dois lugares sem mexer em mais nada.
+  if (!ehPonto && tipoDesenho === "contorno") preenchimento.opacidade = 0;
+  if (!ehPonto && tipoDesenho === "preenchimento") contorno.opacidade = 0;
   const corPreenchimento = expressaoCorPreenchimento(preenchimento);
+  const traco = expressaoTracoLinha(contorno.estiloTraco);
   // Rótulo "direto de atributo" não depende da camada rotulos do pipeline —
   // funciona em qualquer camada; "pipeline" só fica disponível se ela existir.
   const mostrarRotulo = rotulo.mostrar && (rotulo.origem === "atributo" || temRotulosPipeline);
@@ -474,11 +485,13 @@ async function adicionarCamada(map, protocol, mapa) {
         "source-layer": camadaPrincipal.id,
         minzoom: visibilidade.zoomMinimo,
         maxzoom: visibilidade.zoomMaximo,
+        layout: { "line-cap": traco.cap },
         paint: {
           "line-color": contorno.cor,
           "line-width": contorno.largura,
           "line-opacity": contorno.opacidade,
           "line-opacity-transition": { duration: 300 },
+          ...(traco.dasharray ? { "line-dasharray": traco.dasharray } : {}),
         },
       },
       beforeId
