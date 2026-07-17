@@ -1198,6 +1198,56 @@ input[type="file"]::file-selector-button:hover {
   padding: 4px 8px;
 }
 
+/* Avisos globais de job em segundo plano (JobsContext) — fixed, não
+   absolute, porque precisam aparecer em cima de QUALQUER tela (o usuário
+   pode ter saído de Gerenciar camadas antes do job terminar). Topo-centro
+   evita tanto os cantos já ocupados no mapa (atributos/medição/track no
+   bottom, controles do MapLibre no top-right) quanto o menu lateral
+   (z-index 21) — por isso 100 aqui. */
+.pilha-toasts {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  font-size: 14px;
+  animation: entrada var(--dur-entrada) var(--ease-saida);
+}
+
+.toast--sucesso {
+  border-left: 4px solid var(--accent);
+}
+
+.toast--erro {
+  border-left: 4px solid var(--erro);
+}
+
+.toast .fechar {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
 .painel-atributos {
   bottom: 16px;
   right: 16px;

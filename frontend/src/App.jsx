@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
+import { JobsProvider } from "./context/JobsContext.jsx";
 
 // Code-splitting por rota (Lighthouse apontou ~230 KiB de JS não usado no
 // primeiro load — em boa parte MapLibre GL + libs de importação de
@@ -46,70 +47,76 @@ function MapaRoteado() {
 export default function App() {
   return (
     <AuthProvider>
-      {/* import.meta.env.BASE_URL vem do "base" do vite.config.js — "/" local,
-          "/geomap/" no build do GitHub Pages (ver GITHUB_PAGES nesse config).
-          Sem isso as rotas do React Router não batem com a URL real numa
-          project page do GitHub Pages. */}
-      <BrowserRouter basename={import.meta.env.BASE_URL}>
-        <Suspense fallback={<CarregandoRota />}>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/inicio"
-              element={
-                <RotaProtegida>
-                  <Inicio />
-                </RotaProtegida>
-              }
-            />
-            <Route
-              path="/mapa/:mapaId"
-              element={
-                <RotaProtegida>
-                  <MapaRoteado />
-                </RotaProtegida>
-              }
-            />
-            {/* Tela-grade /admin foi substituída pelo menu lateral (MenuLateral.jsx,
-                acionado do cabeçalho de Inicio.jsx/Mapa.jsx) — link direto pra
-                /admin cai na primeira seção. */}
-            <Route path="/admin" element={<Navigate to="/admin/mapas" replace />} />
-            <Route
-              path="/admin/camadas"
-              element={
-                <RotaAdmin>
-                  <AdminCamadas />
-                </RotaAdmin>
-              }
-            />
-            <Route
-              path="/admin/mapas"
-              element={
-                <RotaAdmin>
-                  <AdminMapas />
-                </RotaAdmin>
-              }
-            />
-            <Route
-              path="/admin/usuarios"
-              element={
-                <RotaAdmin>
-                  <AdminUsuarios />
-                </RotaAdmin>
-              }
-            />
-            <Route
-              path="/admin/estatisticas"
-              element={
-                <RotaAdmin>
-                  <AdminEstatisticas />
-                </RotaAdmin>
-              }
-            />
-            <Route path="*" element={<Navigate to="/inicio" replace />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
+      {/* JobsProvider fica fora das <Routes> de propósito — precisa
+          continuar montado enquanto o usuário navega entre telas (ou o
+          polling de job em segundo plano, que sobrevive à troca de tela,
+          pararia junto com o componente que o criou). */}
+      <JobsProvider>
+        {/* import.meta.env.BASE_URL vem do "base" do vite.config.js — "/" local,
+            "/geomap/" no build do GitHub Pages (ver GITHUB_PAGES nesse config).
+            Sem isso as rotas do React Router não batem com a URL real numa
+            project page do GitHub Pages. */}
+        <BrowserRouter basename={import.meta.env.BASE_URL}>
+          <Suspense fallback={<CarregandoRota />}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route
+                path="/inicio"
+                element={
+                  <RotaProtegida>
+                    <Inicio />
+                  </RotaProtegida>
+                }
+              />
+              <Route
+                path="/mapa/:mapaId"
+                element={
+                  <RotaProtegida>
+                    <MapaRoteado />
+                  </RotaProtegida>
+                }
+              />
+              {/* Tela-grade /admin foi substituída pelo menu lateral (MenuLateral.jsx,
+                  acionado do cabeçalho de Inicio.jsx/Mapa.jsx) — link direto pra
+                  /admin cai na primeira seção. */}
+              <Route path="/admin" element={<Navigate to="/admin/mapas" replace />} />
+              <Route
+                path="/admin/camadas"
+                element={
+                  <RotaAdmin>
+                    <AdminCamadas />
+                  </RotaAdmin>
+                }
+              />
+              <Route
+                path="/admin/mapas"
+                element={
+                  <RotaAdmin>
+                    <AdminMapas />
+                  </RotaAdmin>
+                }
+              />
+              <Route
+                path="/admin/usuarios"
+                element={
+                  <RotaAdmin>
+                    <AdminUsuarios />
+                  </RotaAdmin>
+                }
+              />
+              <Route
+                path="/admin/estatisticas"
+                element={
+                  <RotaAdmin>
+                    <AdminEstatisticas />
+                  </RotaAdmin>
+                }
+              />
+              <Route path="*" element={<Navigate to="/inicio" replace />} />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+      </JobsProvider>
     </AuthProvider>
   );
 }

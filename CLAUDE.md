@@ -2171,6 +2171,55 @@ verificação via API (schema salvo exatamente como esperado) e do reuso
 literal do mesmo padrão de `match` expression já validado pelo
 preenchimento categorizado em sessões anteriores.
 
+**Notificação global de job em segundo plano (2026-07-17)**: o Leo
+reportou um upload preso em "Processando…" (só demora mesmo — camadas
+com geração de rótulos podem levar minutos) e perguntou se dava pra
+sair da tela e ainda assim ser avisado quando terminasse. Resposta
+honesta: hoje não — o polling do job vivia só dentro de
+`AdminCamadas.jsx`, morria ao trocar de tela (mesmo o job continuando
+normalmente no backend). Corrigido com `frontend/src/context/
+JobsContext.jsx` (novo) — `JobsProvider` montado em `App.jsx`, **fora**
+das `<Routes>` (junto de `AuthProvider`), então nunca desmonta ao
+navegar entre telas, só no logout de verdade:
+
+- Estado de jobs pendentes (`{jobId, rotulo}`) persistido em
+  `localStorage` (`geomap_jobs_pendentes`) — sobrevive tanto a trocar de
+  tela quanto a recarregar a página. Ao montar, retoma o polling de
+  qualquer job que já estivesse pendente antes (reload no meio de uma
+  conversão não "esquece" o job). Simplificação aceita: chave por
+  navegador, não por usuário (uso normal é 1 admin por navegador).
+- Quando um job termina (concluído ou erro), aparece um **toast global**
+  (`.pilha-toasts`, topo-centro da tela, `z-index: 100` — acima do menu
+  lateral) — visível não importa em qual tela o usuário estiver no
+  momento, com um resumo curto ("Camada X processada com sucesso." /
+  "Falha ao processar X: ..."), some sozinho depois de 8s ou no clique
+  do "×".
+- `AdminCamadas.jsx` reescrito pra consumir o contexto (`useJobs()`) em
+  vez de manter o próprio polling — `jobsPendentes` (lista global, não
+  só os jobs criados nesta sessão de tela — reabrir a tela depois de um
+  reload já mostra os que ainda estão rodando) alimenta o indicador
+  "Processando…" de sempre; `meusJobsRef` (Map jobId→"criar"|"atualizar",
+  só local) deixa a tela reagir ao RESULTADO de um job que ela mesma
+  disparou (selecionar a camada nova, recarregar a lista) só enquanto o
+  usuário continuar nela — o toast global cobre o aviso em si não
+  importa onde o usuário estiver. Isso também eliminou o workaround de
+  `montadoRef`/StrictMode (2026-07-16) — o polling não vive mais dentro
+  de um componente que desmonta ao trocar de rota, então não tem mais
+  esse problema de origem.
+
+Testado com Playwright contra produção (mesmo padrão de sempre —
+reenviou os bytes **idênticos** do arquivo atual da camada "Rio" de
+volta pra ela mesma via "Atualizar arquivo", só pra exercitar o
+pipeline de job sem mudar conteúdo de verdade; o backend cria um backup
+da versão anterior de qualquer forma, comportamento normal de
+versionamento, não peculiaridade do teste): job registrado no
+`localStorage` logo após enviar, indicador "Processando…" visível,
+**navegou pra `/inicio` antes do job terminar**, e o toast de sucesso
+apareceu lá — fora da tela onde o upload foi iniciado, provando que a
+notificação sobrevive a trocar de tela — `localStorage` limpo depois,
+versão da camada confirmada atualizada no backend, zero erro de
+console.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

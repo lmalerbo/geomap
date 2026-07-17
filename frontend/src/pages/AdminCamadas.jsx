@@ -6,7 +6,6 @@ import {
   listarMapasAdmin,
   enviarCamadaAdmin,
   atualizarArquivoCamadaAdmin,
-  consultarJobAdmin,
   removerCamadaAdmin,
   renomearCamadaAdmin,
   baixarCamadaAdmin,
@@ -27,6 +26,7 @@ import {
 } from "../lib/estiloCamada.js";
 import { lerValoresUnicos, lerValoresUnicosCombinados, lerMinMax, detectarTipoGeometria } from "../lib/pmtilesValores.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useJobs } from "../context/JobsContext.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 
 const CAMADA_ROTULOS = "rotulos";
@@ -90,13 +90,6 @@ export default function AdminCamadas() {
   const [enviando, setEnviando] = useState(false);
   const [erroUpload, setErroUpload] = useState(null);
 
-  // Criar/atualizar camada não trava mais esperando a conversão terminar
-  // (pode levar minutos numa camada grande) — o backend responde na hora
-  // com um jobId e a conversão roda em segundo plano; isso aqui só
-  // acompanha cada job em andamento pra mostrar "Processando…" e refletir
-  // o resultado quando terminar.
-  const [jobsEmAndamento, setJobsEmAndamento] = useState([]); // [{ jobId, rotulo }]
-
   const [camadaSelecionadaId, setCamadaSelecionadaId] = useState(null);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [erroDetalhe, setErroDetalhe] = useState(null);
@@ -148,53 +141,40 @@ export default function AdminCamadas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
 
-  // Some sozinha quando o componente desmonta (troca de tela) — sem isso,
-  // o polling recursivo continuaria chamando setState num componente já
-  // fora da árvore. Reseta pra true dentro do próprio setup do efeito (não
-  // só no valor inicial do useRef) — em StrictMode (dev) o React roda
-  // setup→cleanup→setup na primeira montagem; sem esse reset, o cleanup
-  // do meio deixava montadoRef travado em false pro resto da vida do
-  // componente, mesmo ele continuando montado de verdade (fazia o
-  // polling do job nunca nem tentar consultar o backend).
-  const montadoRef = useRef(true);
+  // Criar/atualizar camada não trava mais esperando a conversão terminar
+  // (pode levar minutos numa camada grande) — o polling em si e o toast de
+  // "concluído"/"erro" vivem em JobsContext (montado uma vez em App.jsx,
+  // fora das <Routes>), não aqui — sobrevive a sair desta tela ou recarregar
+  // a página. `meusJobsRef` só guarda quais jobs ESTA tela disparou (jobId →
+  // "criar"/"atualizar"), pra reagir localmente (selecionar a camada nova,
+  // recarregar a lista) quando o resultado aparece em `resultadosRecentes`
+  // — só tem efeito enquanto o usuário continuar nesta tela; se ele sair,
+  // o toast global ainda avisa, só que sem esse extra de conveniência.
+  const { jobsPendentes, resultadosRecentes, adicionarJob } = useJobs();
+  const meusJobsRef = useRef(new Map());
+
   useEffect(() => {
-    montadoRef.current = true;
-    return () => {
-      montadoRef.current = false;
-    };
-  }, []);
-
-  // Consulta GET /admin/jobs/:id a cada poucos segundos até o status virar
-  // "concluido" ou "erro" — usado tanto por criar quanto por atualizar
-  // camada (ver enviarNovaCamada/enviarNovoArquivo). `rotulo` é só o nome
-  // pra mostrar no indicador "Processando…".
-  function acompanharJob(jobId, rotulo, { aoSucesso, aoErro }) {
-    setJobsEmAndamento((atual) => [...atual, { jobId, rotulo }]);
-
-    async function consultar() {
-      if (!montadoRef.current) return;
-      let job;
-      try {
-        job = await consultarJobAdmin(sessao.token, jobId);
-      } catch {
-        setTimeout(consultar, 4000);
-        return;
+    for (const resultado of resultadosRecentes) {
+      const tipo = meusJobsRef.current.get(resultado.jobId);
+      if (!tipo) continue;
+      meusJobsRef.current.delete(resultado.jobId);
+      if (resultado.status === "erro") {
+        setErroLista(
+          tipo === "criar"
+            ? `Falha ao criar "${resultado.rotulo}": ${resultado.erro}`
+            : `Falha ao atualizar arquivo de "${resultado.rotulo}": ${resultado.erro}`
+        );
+        continue;
       }
-      if (!montadoRef.current) return;
-      if (job.status === "processando") {
-        setTimeout(consultar, 4000);
-        return;
-      }
-      setJobsEmAndamento((atual) => atual.filter((j) => j.jobId !== jobId));
-      if (job.status === "concluido") {
-        aoSucesso?.(job);
+      carregarCamadas();
+      if (tipo === "criar") {
+        setCamadaSelecionadaId(resultado.camadaId);
       } else {
-        aoErro?.(job);
+        setSalvoArquivoEm(new Date());
       }
     }
-
-    setTimeout(consultar, 2000);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultadosRecentes]);
 
   const camadasFiltradas = useMemo(
     () =>
@@ -231,13 +211,8 @@ export default function AdminCamadas() {
       setArquivoUpload([]);
       document.getElementById("campo-arquivo-pmtiles").value = "";
       setMostrarUpload(false);
-      acompanharJob(jobId, nomeCamada, {
-        aoSucesso: async (job) => {
-          await carregarCamadas();
-          setCamadaSelecionadaId(job.camadaId);
-        },
-        aoErro: (job) => setErroLista(`Falha ao criar "${nomeCamada}": ${job.erro}`),
-      });
+      meusJobsRef.current.set(jobId, "criar");
+      adicionarJob(jobId, nomeCamada);
     } catch (err) {
       setErroUpload(err.message);
     } finally {
@@ -366,13 +341,8 @@ export default function AdminCamadas() {
       });
       setNovoArquivo([]);
       setSujo(false);
-      acompanharJob(jobId, nomeCamada, {
-        aoSucesso: async () => {
-          await carregarCamadas();
-          setSalvoArquivoEm(new Date());
-        },
-        aoErro: (job) => setErroLista(`Falha ao atualizar arquivo de "${nomeCamada}": ${job.erro}`),
-      });
+      meusJobsRef.current.set(jobId, "atualizar");
+      adicionarJob(jobId, nomeCamada);
     } catch (e) {
       setErroDetalhe(e.message);
     } finally {
@@ -697,9 +667,9 @@ export default function AdminCamadas() {
 
           {erroLista && <p className="erro">{erroLista}</p>}
 
-          {jobsEmAndamento.length > 0 && (
+          {jobsPendentes.length > 0 && (
             <ul className="lista-jobs-em-andamento">
-              {jobsEmAndamento.map((job) => (
+              {jobsPendentes.map((job) => (
                 <li key={job.jobId}>
                   <span className="spinner" aria-hidden="true" />
                   Processando "{job.rotulo}"…
