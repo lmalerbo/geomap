@@ -832,6 +832,60 @@ adminRouter.get("/admin/camadas", async (req, res) => {
 // escopo desta rota — o admin roda o pipeline localmente e faz upload do
 // resultado), cria o registro em camadas associado a um mapa. Permissão
 // não entra mais aqui — vive no mapa (ver /admin/mapas acima).
+// Conversão de shapefile grande pode levar minutos (ver TIMEOUT_CONVERSAO
+// acima) — POST/PUT de camada não seguram mais a conexão HTTP esse tempo
+// todo. Validam tudo que é rápido de checar de forma síncrona (arquivo
+// presente, campos obrigatórios, mapa/camada existe) e devolvem um jobId
+// na hora; a conversão em si roda em segundo plano (funções abaixo, sem
+// await no handler) e quem chamou consulta GET /admin/jobs/:id até o
+// status virar concluido/erro. Contrato uniforme (sempre 202+jobId,
+// mesmo pra .pmtiles pronto que resolve em <1s) — importante pra uma
+// futura automação não precisar ramificar por tipo de arquivo.
+async function criarJob(tipo, camadaId) {
+  const id = crypto.randomUUID();
+  await pool.query(`INSERT INTO jobs_conversao (id, tipo, camada_id) VALUES ($1, $2, $3)`, [
+    id,
+    tipo,
+    camadaId,
+  ]);
+  return id;
+}
+
+async function concluirJob(jobId, camadaId) {
+  await pool.query(
+    `UPDATE jobs_conversao SET status = 'concluido', camada_id = $2, atualizado_em = now() WHERE id = $1`,
+    [jobId, camadaId]
+  );
+}
+
+async function falharJob(jobId, erro) {
+  await pool.query(
+    `UPDATE jobs_conversao SET status = 'erro', erro = $2, atualizado_em = now() WHERE id = $1`,
+    [jobId, erro]
+  );
+}
+
+async function processarCriacaoEmSegundoPlano(jobId, { arquivoUnico, arquivosShapefile, mapaId, nome, versao, categoria }) {
+  let nomeArquivoFinal;
+  try {
+    nomeArquivoFinal = await processarArquivoRecebido({ arquivoUnico, arquivosShapefile }, nome);
+  } catch (err) {
+    return falharJob(jobId, err.message);
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [mapaId, nome, versao, categoria, nomeArquivoFinal]
+    );
+    await concluirJob(jobId, rows[0].id);
+  } catch (err) {
+    await apagarArquivo(nomeArquivoFinal);
+    await falharJob(jobId, err.code === "23503" ? "mapa não encontrado" : err.message);
+  }
+}
+
 adminRouter.post("/admin/camadas", uploadArquivoCamada, async (req, res) => {
   const arquivoUnico = req.files?.arquivo?.[0] || null;
   const arquivosShapefile = req.files?.arquivos || [];
@@ -852,28 +906,16 @@ adminRouter.post("/admin/camadas", uploadArquivoCamada, async (req, res) => {
   if (!nome || !versao) {
     return res.status(400).json({ erro: "nome e versão são obrigatórios" });
   }
-
-  let nomeArquivoFinal;
-  try {
-    nomeArquivoFinal = await processarArquivoRecebido({ arquivoUnico, arquivosShapefile }, nome);
-  } catch (err) {
-    return res.status(400).json({ erro: err.message });
+  const { rows: mapaRows } = await pool.query("SELECT id FROM mapas WHERE id = $1", [mapaId]);
+  if (!mapaRows[0]) {
+    return res.status(400).json({ erro: "mapa não encontrado" });
   }
 
-  try {
-    const { rows } = await pool.query(
-      `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id, mapa_id, nome, versao, categoria, publicado_em`,
-      [mapaId, nome, versao, categoria, nomeArquivoFinal]
-    );
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    await apagarArquivo(nomeArquivoFinal);
-    if (err.code === "23503") {
-      return res.status(400).json({ erro: "mapa não encontrado" });
-    }
-    throw err;
-  }
+  const jobId = await criarJob("criar_camada", null);
+  res.status(202).json({ jobId });
+  processarCriacaoEmSegundoPlano(jobId, { arquivoUnico, arquivosShapefile, mapaId, nome, versao, categoria }).catch(
+    (err) => console.error(`Job ${jobId} (criar_camada) falhou:`, err)
+  );
 });
 
 // Remover camada: apaga o registro (logs ficam com camada_id NULL, ver
@@ -930,6 +972,31 @@ adminRouter.get("/admin/camadas/:id/arquivo", async (req, res) => {
 // apagado — fica renomeado com sufixo de timestamp como backup leve,
 // caso o upload novo seja ruim (sem UI de navegação por versões antigas,
 // só a garantia de não perder o anterior de imediato).
+async function processarAtualizacaoEmSegundoPlano(jobId, camadaId, { arquivoUnico, arquivosShapefile, versao, nomeCamadaAtual, arquivoPathAtual }) {
+  let nomeArquivoFinal;
+  try {
+    nomeArquivoFinal = await processarArquivoRecebido({ arquivoUnico, arquivosShapefile }, nomeCamadaAtual);
+  } catch (err) {
+    return falharJob(jobId, err.message);
+  }
+
+  // Arquivo antigo não é apagado — copiado (cópia server-side no R2, sem
+  // baixar/reenviar) com sufixo de timestamp como backup leve, caso o
+  // upload novo seja ruim (sem UI de navegação por versões antigas, só a
+  // garantia de não perder o anterior de imediato). Ambas as chamadas
+  // toleram o arquivo antigo já não existir (mesmo comportamento de
+  // antes com fs.rename).
+  await copiarArquivo(arquivoPathAtual, `${arquivoPathAtual}.bak-${Date.now()}`);
+  await apagarArquivo(arquivoPathAtual);
+
+  await pool.query(`UPDATE camadas SET arquivo_path = $1, versao = $2 WHERE id = $3`, [
+    nomeArquivoFinal,
+    versao,
+    camadaId,
+  ]);
+  await concluirJob(jobId, camadaId);
+}
+
 adminRouter.put("/admin/camadas/:id/arquivo", uploadArquivoCamada, async (req, res) => {
   const camadaId = Number(req.params.id);
   if (!Number.isInteger(camadaId)) {
@@ -954,29 +1021,26 @@ adminRouter.put("/admin/camadas/:id/arquivo", uploadArquivoCamada, async (req, r
     return res.status(404).json({ erro: "camada não encontrada" });
   }
 
-  let nomeArquivoFinal;
-  try {
-    nomeArquivoFinal = await processarArquivoRecebido({ arquivoUnico, arquivosShapefile }, camadaAtual.nome);
-  } catch (err) {
-    return res.status(400).json({ erro: err.message });
-  }
+  const jobId = await criarJob("atualizar_arquivo", camadaId);
+  res.status(202).json({ jobId });
+  processarAtualizacaoEmSegundoPlano(jobId, camadaId, {
+    arquivoUnico,
+    arquivosShapefile,
+    versao,
+    nomeCamadaAtual: camadaAtual.nome,
+    arquivoPathAtual: camadaAtual.arquivo_path,
+  }).catch((err) => console.error(`Job ${jobId} (atualizar_arquivo) falhou:`, err));
+});
 
-  // Arquivo antigo não é apagado — copiado (cópia server-side no R2, sem
-  // baixar/reenviar) com sufixo de timestamp como backup leve, caso o
-  // upload novo seja ruim (sem UI de navegação por versões antigas, só a
-  // garantia de não perder o anterior de imediato). Ambas as chamadas
-  // toleram o arquivo antigo já não existir (mesmo comportamento de
-  // antes com fs.rename).
-  await copiarArquivo(camadaAtual.arquivo_path, `${camadaAtual.arquivo_path}.bak-${Date.now()}`);
-  await apagarArquivo(camadaAtual.arquivo_path);
-
-  const atualizado = await pool.query(
-    `UPDATE camadas SET arquivo_path = $1, versao = $2 WHERE id = $3
-     RETURNING id, mapa_id, nome, versao, categoria, publicado_em`,
-    [nomeArquivoFinal, versao, camadaId]
+adminRouter.get("/admin/jobs/:id", async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT id, tipo, status, erro, camada_id AS "camadaId" FROM jobs_conversao WHERE id = $1`,
+    [req.params.id]
   );
-
-  res.json(atualizado.rows[0]);
+  if (!rows[0]) {
+    return res.status(404).json({ erro: "job não encontrado" });
+  }
+  res.json(rows[0]);
 });
 
 adminRouter.get("/admin/camadas/:id/atributos", async (req, res) => {

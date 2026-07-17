@@ -194,6 +194,26 @@ input[type="file"]::file-selector-button:hover {
   color: var(--accent);
 }
 
+.lista-jobs-em-andamento {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lista-jobs-em-andamento li {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .carregando-mapa {
   position: absolute;
   inset: 0;

@@ -1943,6 +1943,104 @@ em paralelo, compartilhando o mesmo banco/R2 (mudança num não afeta o
 outro além do storage compartilhado). Depois da troca confirmada e
 funcionando, o serviço antigo (`geomap`) pode ser desligado.
 
+**Resolvido (2026-07-16)**: `VITE_API_URL` trocado (via `gh variable
+set`) pra `https://geomap-docker.onrender.com`, workflow do GitHub Pages
+disparado manualmente (`gh workflow run`), deploy confirmado — o CSP
+gerado no build (`connect-src`) já mostra o domínio novo. Serviço antigo
+(`geomap`, `geomap-vr68.onrender.com`) segue no ar por decisão do Leo
+(sem pressa nem risco em deixar ligado, só consome cota do free tier à
+toa) — ele decide quando desligar.
+
+**Conversão assíncrona (jobs), 2026-07-16**: mesmo com Docker no Render
+resolvendo os binários em produção, o Talhões completo levava 11-12min —
+o Leo achou isso "quebrando" a experiência (não um erro técnico, só
+tempo demais com a tela travada). Cogitado reduzir o tempo em si (upar
+plano do Render, migrar pra VPS) — descartado por ele mesmo depois que
+expliquei que "grátis e rápido" não existe pra esse tipo de carga
+sustentada (free tiers de nuvem são limitados por design justamente pra
+impedir isso; Oracle Cloud Always Free já tinha sido descartado antes
+nesta sessão por não ser confiável). O pedido virou "não trava a tela
+enquanto roda" — e, no mesmo fôlego, o Leo mencionou uma automação futura
+(um script dentro da rede da empresa, de olho numa pasta com exports do
+Data Lake Oracle, sincronizando Talhões/Limites sozinho). Escopo
+combinado: focar só em tornar a API assíncrona agora (resolve a tela
+travada **e** deixa a base pronta pra essa automação futura); decidir
+onde/quando esse script roda fica pra depois.
+
+- **Tabela nova `jobs_conversao`** (migration 008): `id` (UUID gerado no
+  Node, mesmo padrão das chaves de arquivo — evita depender de
+  `pgcrypto`), `tipo` (`criar_camada`/`atualizar_arquivo`), `status`
+  (`processando`/`concluido`/`erro`), `erro`, `camada_id` (nulo até a
+  camada existir de fato, pra `criar_camada`).
+- **`POST /admin/camadas`/`PUT /admin/camadas/:id/arquivo`**: mantêm toda
+  a validação rápida síncrona de antes (arquivo presente, campos
+  obrigatórios, mapa/camada existe — inclusive um `SELECT` novo
+  confirmando o `mapaId` existe **antes** de aceitar o job, pra não
+  gastar minutos de conversão só pra falhar no fim por FK) — depois
+  disso, criam a linha em `jobs_conversao` e respondem **`202 {jobId}`
+  na hora**, sempre, mesmo pra um `.pmtiles` pronto que resolveria em
+  <1s. Contrato uniforme de propósito: uma futura automação nunca
+  precisa ramificar por tipo de arquivo, sempre faz `poll` do job.
+  `processarCriacaoEmSegundoPlano`/`processarAtualizacaoEmSegundoPlano`
+  rodam **sem** `await` no handler (fire-and-forget, só um `.catch()`
+  logando — mesmo princípio que já levou a `express-async-errors` numa
+  leva anterior, nunca deixar uma rejection derrubar o processo) e fazem
+  o mesmo `INSERT`/`UPDATE` em `camadas` que a rota fazia antes, só que
+  depois da conversão terminar. `GET /admin/jobs/:id` novo, pra consultar.
+- **Frontend**: `enviarCamadaAdmin`/`atualizarArquivoCamadaAdmin`
+  (`api.js`) agora devolvem `{jobId}`; `consultarJobAdmin` novo.
+  `AdminCamadas.jsx` ganhou `acompanharJob` (polling recursivo via
+  `setTimeout`, não `setInterval` — evita sobreposição se uma consulta
+  demorar mais que o intervalo) e um indicador "Processando…" simples
+  (lista de jobs em andamento, `.lista-jobs-em-andamento`) — o formulário
+  fecha e libera a tela assim que o `202` volta, sem esperar a conversão.
+- **Bug real encontrado testando no navegador, específico de dev
+  (StrictMode)**: o indicador "Processando…" nunca sumia — nenhuma
+  requisição a `GET /admin/jobs/:id` sequer aparecia na aba de rede.
+  Causa: `montadoRef` (`useRef(true)`, usado pra não fazer `setState`
+  num componente já desmontado) só recebia `true` como valor **inicial**
+  do `useRef` — o React StrictMode (dev) roda `setup→cleanup→setup` na
+  primeira montagem de qualquer componente; o `cleanup` do meio zerava
+  `montadoRef.current` pra `false`, e como o `setup` (efeito com deps
+  `[]`) não fazia nada além de devolver a função de cleanup, nada
+  restaurava pra `true` depois — `montadoRef.current` ficava `false`
+  **pra sempre**, mesmo com o componente genuinamente montado, fazendo
+  `acompanharJob` desistir na primeira checagem (`if
+  (!montadoRef.current) return;`) sem nunca chegar a consultar o
+  backend. Mesma classe de bug já documentada antes nesta sessão (busca
+  no mapa, ver entrada "Busca aproximava de lugar errado"). Corrigido
+  fazendo o próprio `setup` do efeito reatribuir `montadoRef.current =
+  true`, não só confiar no valor inicial do `useRef`.
+- **Outro achado, esse só no processo de debugar o item acima, não é bug
+  de produto**: um primeiro teste mostrou o formulário levando "30s" pra
+  fechar — parecia um bug sério, mas era só um bug no **script de teste**
+  (Playwright): `locator(".form-upload-camada .erro").innerText()`
+  chamado sem timeout curto, numa hora em que esse elemento não existia
+  mais (sem erro pra mostrar) — o `.innerText()` do Playwright re-tenta
+  até o timeout default (30s) antes de cair no `.catch()`. Confirmado com
+  uma medição direta de `isVisible()` que o React já tinha atualizado o
+  DOM em <1s. Vale lembrar: medir "isVisible" é mais confiável que
+  chamar um método que espera-e-tenta-de-novo num elemento que pode não
+  existir.
+- **Achado no processo de organizar o commit**: a essa altura o Leo já
+  estava editando `Mapa.jsx`/`useTrackLog.js`/`useImportacaoTemporaria.js`/
+  `trackLog.js`/trechos de `index.css` em paralelo (painel de track log
+  com câmera/pausar/exportar, trabalho dele, não documentado aqui porque
+  não é meu) — commit desta leva feito com staging cirúrgico (`git
+  hash-object`+`git update-index --cacheinfo` pra separar só a minha
+  parte de `index.css`, que tinha as duas mudanças misturadas no mesmo
+  arquivo de trabalho) pra não varrer o trabalho dele pro meio deste
+  commit nem perder nada do que ele tinha em andamento.
+
+Testado localmente (mesmo banco/R2 de produção, camadas de teste
+descartáveis, sempre removidas ao final) — pmtiles direto, shapefile sem
+rótulo, shapefile com rótulo (via PUT), e o Talhões completo (~7500
+feições) rodando de ponta a ponta em segundo plano de verdade (`202`
+imediato, `job.status` virando `concluido` com `camadaId` populado
+depois de alguns minutos) — e via navegador (Playwright): formulário
+libera a tela na hora, indicador aparece/some corretamente, camada nova
+aparece na lista sozinha, zero erro de console.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

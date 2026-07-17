@@ -6,6 +6,7 @@ import {
   listarMapasAdmin,
   enviarCamadaAdmin,
   atualizarArquivoCamadaAdmin,
+  consultarJobAdmin,
   removerCamadaAdmin,
   renomearCamadaAdmin,
   baixarCamadaAdmin,
@@ -85,6 +86,13 @@ export default function AdminCamadas() {
   const [enviando, setEnviando] = useState(false);
   const [erroUpload, setErroUpload] = useState(null);
 
+  // Criar/atualizar camada não trava mais esperando a conversão terminar
+  // (pode levar minutos numa camada grande) — o backend responde na hora
+  // com um jobId e a conversão roda em segundo plano; isso aqui só
+  // acompanha cada job em andamento pra mostrar "Processando…" e refletir
+  // o resultado quando terminar.
+  const [jobsEmAndamento, setJobsEmAndamento] = useState([]); // [{ jobId, rotulo }]
+
   const [camadaSelecionadaId, setCamadaSelecionadaId] = useState(null);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [erroDetalhe, setErroDetalhe] = useState(null);
@@ -135,6 +143,54 @@ export default function AdminCamadas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
 
+  // Some sozinha quando o componente desmonta (troca de tela) — sem isso,
+  // o polling recursivo continuaria chamando setState num componente já
+  // fora da árvore. Reseta pra true dentro do próprio setup do efeito (não
+  // só no valor inicial do useRef) — em StrictMode (dev) o React roda
+  // setup→cleanup→setup na primeira montagem; sem esse reset, o cleanup
+  // do meio deixava montadoRef travado em false pro resto da vida do
+  // componente, mesmo ele continuando montado de verdade (fazia o
+  // polling do job nunca nem tentar consultar o backend).
+  const montadoRef = useRef(true);
+  useEffect(() => {
+    montadoRef.current = true;
+    return () => {
+      montadoRef.current = false;
+    };
+  }, []);
+
+  // Consulta GET /admin/jobs/:id a cada poucos segundos até o status virar
+  // "concluido" ou "erro" — usado tanto por criar quanto por atualizar
+  // camada (ver enviarNovaCamada/enviarNovoArquivo). `rotulo` é só o nome
+  // pra mostrar no indicador "Processando…".
+  function acompanharJob(jobId, rotulo, { aoSucesso, aoErro }) {
+    setJobsEmAndamento((atual) => [...atual, { jobId, rotulo }]);
+
+    async function consultar() {
+      if (!montadoRef.current) return;
+      let job;
+      try {
+        job = await consultarJobAdmin(sessao.token, jobId);
+      } catch {
+        setTimeout(consultar, 4000);
+        return;
+      }
+      if (!montadoRef.current) return;
+      if (job.status === "processando") {
+        setTimeout(consultar, 4000);
+        return;
+      }
+      setJobsEmAndamento((atual) => atual.filter((j) => j.jobId !== jobId));
+      if (job.status === "concluido") {
+        aoSucesso?.(job);
+      } else {
+        aoErro?.(job);
+      }
+    }
+
+    setTimeout(consultar, 2000);
+  }
+
   const camadasFiltradas = useMemo(
     () =>
       filtroMapaId
@@ -164,13 +220,19 @@ export default function AdminCamadas() {
     setEnviando(true);
     setErroUpload(null);
     try {
-      const nova = await enviarCamadaAdmin(sessao.token, { ...formUpload, arquivos: arquivoUpload });
+      const { jobId } = await enviarCamadaAdmin(sessao.token, { ...formUpload, arquivos: arquivoUpload });
+      const nomeCamada = formUpload.nome;
       setFormUpload(FORM_UPLOAD_VAZIO);
       setArquivoUpload([]);
       document.getElementById("campo-arquivo-pmtiles").value = "";
       setMostrarUpload(false);
-      await carregarCamadas();
-      setCamadaSelecionadaId(nova.id);
+      acompanharJob(jobId, nomeCamada, {
+        aoSucesso: async (job) => {
+          await carregarCamadas();
+          setCamadaSelecionadaId(job.camadaId);
+        },
+        aoErro: (job) => setErroLista(`Falha ao criar "${nomeCamada}": ${job.erro}`),
+      });
     } catch (err) {
       setErroUpload(err.message);
     } finally {
@@ -291,15 +353,21 @@ export default function AdminCamadas() {
     }
     setSalvandoArquivo(true);
     setErroDetalhe(null);
+    const nomeCamada = camadas.find((c) => c.id === camadaSelecionadaId)?.nome || "camada";
     try {
-      await atualizarArquivoCamadaAdmin(sessao.token, camadaSelecionadaId, {
+      const { jobId } = await atualizarArquivoCamadaAdmin(sessao.token, camadaSelecionadaId, {
         versao: novaVersao,
         arquivos: novoArquivo,
       });
       setNovoArquivo([]);
-      await carregarCamadas();
-      setSalvoArquivoEm(new Date());
       setSujo(false);
+      acompanharJob(jobId, nomeCamada, {
+        aoSucesso: async () => {
+          await carregarCamadas();
+          setSalvoArquivoEm(new Date());
+        },
+        aoErro: (job) => setErroLista(`Falha ao atualizar arquivo de "${nomeCamada}": ${job.erro}`),
+      });
     } catch (e) {
       setErroDetalhe(e.message);
     } finally {
@@ -536,6 +604,17 @@ export default function AdminCamadas() {
           </div>
 
           {erroLista && <p className="erro">{erroLista}</p>}
+
+          {jobsEmAndamento.length > 0 && (
+            <ul className="lista-jobs-em-andamento">
+              {jobsEmAndamento.map((job) => (
+                <li key={job.jobId}>
+                  <span className="spinner" aria-hidden="true" />
+                  Processando "{job.rotulo}"…
+                </li>
+              ))}
+            </ul>
+          )}
 
           {mostrarUpload && (
             <form onSubmit={enviarNovaCamada} className="cartao-form-admin form-upload-camada">

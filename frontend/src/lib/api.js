@@ -229,6 +229,18 @@ export async function atualizarArquivoCamadaAdmin(token, camadaId, { versao, arq
   return resp.json();
 }
 
+// enviarCamadaAdmin/atualizarArquivoCamadaAdmin agora respondem na hora
+// com { jobId } — a conversão roda em segundo plano no backend (pode
+// levar minutos numa camada grande). Consulta aqui até status virar
+// "concluido" ou "erro".
+export async function consultarJobAdmin(token, jobId) {
+  const resp = await fetch(`${API_URL}/admin/jobs/${jobId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 export async function removerCamadaAdmin(token, camadaId) {
   const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}`, {
     method: "DELETE",

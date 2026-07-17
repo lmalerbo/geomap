@@ -291,7 +291,18 @@ Ver `CLAUDE.md` (entrada "Deploy de verdade executado") para o relato
 completo de cada problema e correção.
 
 **URLs de produção**: site em `https://lmalerbo.github.io/geomap/`,
-API em `https://geomap-vr68.onrender.com`.
+API em `https://geomap-docker.onrender.com` (trocado de
+`geomap-vr68.onrender.com` em 2026-07-16, quando o backend migrou pra
+Docker — o serviço antigo segue no ar por decisão do Leo, sem uso).
+
+**Conversão assíncrona (jobs), 2026-07-16**: upload/atualização de
+camada não trava mais a tela esperando a conversão terminar (podia levar
+~12min pro Talhões completo, mesmo com Docker) — responde na hora com um
+`jobId` e um indicador "Processando…" acompanha em segundo plano. Deixa
+a API pronta pra uma futura automação (script de sincronização batendo
+nas mesmas rotas) — onde/quando esse script roda fica pra decidir depois.
+Ver `CLAUDE.md` (entrada "Conversão assíncrona (jobs)") pro relato
+técnico completo, incluindo um bug de StrictMode encontrado testando.
 
 ## Fase 4 — Ideias futuras (não compromissadas)
 
@@ -300,3 +311,7 @@ API em `https://geomap-vr68.onrender.com`.
 - [ ] Migrar filtragem de permissão pra nível de geometria (PostGIS), não só
       por arquivo/mapa inteiro
 - [ ] Exportação de track log em Shapefile (.SHP) — adiado, ver Fase 3.9
+- [ ] Automação de sincronização de Talhões/Limites: script rodando
+      dentro da rede da empresa, de olho numa pasta com exports novos do
+      Data Lake Oracle, publicando via a API (agora assíncrona, ver
+      acima). Falta decidir onde/quando esse script roda.
