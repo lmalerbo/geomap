@@ -117,6 +117,7 @@ export default function AdminCamadas() {
   const [camposDisponiveis, setCamposDisponiveis] = useState([]);
   const [numClassesGraduado, setNumClassesGraduado] = useState(5);
   const [gerandoCategorias, setGerandoCategorias] = useState(false);
+  const [gerandoCategoriasContorno, setGerandoCategoriasContorno] = useState(false);
   const [gerandoFormas, setGerandoFormas] = useState(false);
   const [calculandoFaixas, setCalculandoFaixas] = useState(false);
   const [avisoEstilo, setAvisoEstilo] = useState(null);
@@ -471,6 +472,14 @@ export default function AdminCamadas() {
     setSujo(true);
   }
 
+  function atualizarCategoriaContorno(indice, cor) {
+    setEstiloForm((atual) => {
+      const categorias = atual.contorno.categorias.map((c, i) => (i === indice ? { ...c, cor } : c));
+      return { ...atual, contorno: { ...atual.contorno, categorias } };
+    });
+    setSujo(true);
+  }
+
   function atualizarClasse(indice, campo, valor) {
     setEstiloForm((atual) => {
       const classes = atual.preenchimento.classes.map((c, i) =>
@@ -505,6 +514,29 @@ export default function AdminCamadas() {
       setAvisoEstilo(e.message);
     } finally {
       setGerandoCategorias(false);
+    }
+  }
+
+  async function gerarCategoriasParaCampoContorno() {
+    const { pmtiles, sourceLayerId } = detalheAtualRef.current;
+    if (!pmtiles || !sourceLayerId || !estiloForm.contorno.campo) return;
+    setGerandoCategoriasContorno(true);
+    setAvisoEstilo(null);
+    try {
+      const valores = await lerValoresUnicos(pmtiles, sourceLayerId, estiloForm.contorno.campo);
+      if (valores.length === 0) {
+        setAvisoEstilo("Nenhum valor encontrado pra esse campo.");
+      } else if (valores.length > MAX_CATEGORIAS) {
+        setAvisoEstilo(
+          `${valores.length} valores únicos encontrados — provavelmente não é um campo de categoria (ex: um ID). Escolha outro campo.`
+        );
+      } else {
+        atualizarContorno("categorias", gerarCategorias(valores));
+      }
+    } catch (e) {
+      setAvisoEstilo(e.message);
+    } finally {
+      setGerandoCategoriasContorno(false);
     }
   }
 
@@ -858,6 +890,8 @@ export default function AdminCamadas() {
               <div className="cartao-form-admin">
                 <h2>Estilo</h2>
 
+                {avisoEstilo && <p className="erro">{avisoEstilo}</p>}
+
                 {!ehPontoAtual && (
                   <>
                     <h3 className="subtitulo-estilo">Tipo de desenho</h3>
@@ -906,8 +940,6 @@ export default function AdminCamadas() {
                     <option value="gradiente">Gradiente contínuo (2 cores por faixa numérica)</option>
                   </select>
                 </label>
-
-                {avisoEstilo && <p className="erro">{avisoEstilo}</p>}
 
                 {estiloForm.preenchimento.modo === "simples" && (
                   <label className="campo-form-admin campo-form-admin--cor">
@@ -1143,14 +1175,77 @@ export default function AdminCamadas() {
                 {(ehPontoAtual || estiloForm.tipoDesenho !== "preenchimento") && (
                   <>
                 <h3 className="subtitulo-estilo">Contorno</h3>
-                <label className="campo-form-admin campo-form-admin--cor">
-                  Cor
-                  <input
-                    type="color"
-                    value={estiloForm.contorno.cor}
-                    onChange={(e) => atualizarContorno("cor", e.target.value)}
-                  />
+                <label className="campo-form-admin">
+                  Modo
+                  <select
+                    value={estiloForm.contorno.modo}
+                    onChange={(e) => atualizarContorno("modo", e.target.value)}
+                  >
+                    <option value="simples">Cor única</option>
+                    <option value="categorizado">Categorizado (1 cor por valor de um campo)</option>
+                  </select>
                 </label>
+
+                {estiloForm.contorno.modo === "simples" && (
+                  <label className="campo-form-admin campo-form-admin--cor">
+                    Cor
+                    <input
+                      type="color"
+                      value={estiloForm.contorno.cor}
+                      onChange={(e) => atualizarContorno("cor", e.target.value)}
+                    />
+                  </label>
+                )}
+
+                {estiloForm.contorno.modo === "categorizado" && (
+                  <>
+                    <label className="campo-form-admin">
+                      Campo
+                      <select
+                        value={estiloForm.contorno.campo || ""}
+                        onChange={(e) => atualizarContorno("campo", e.target.value)}
+                      >
+                        <option value="">Selecione…</option>
+                        {camposDisponiveis.map((campo) => (
+                          <option key={campo} value={campo}>
+                            {campo}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="botao-secundario"
+                      onClick={gerarCategoriasParaCampoContorno}
+                      disabled={!estiloForm.contorno.campo || gerandoCategoriasContorno}
+                    >
+                      {gerandoCategoriasContorno ? "Lendo valores…" : "Gerar categorias a partir dos dados"}
+                    </button>
+                    {estiloForm.contorno.categorias.length > 0 && (
+                      <ul className="lista-categorias-estilo">
+                        {estiloForm.contorno.categorias.map((cat, i) => (
+                          <li key={cat.valor} className="linha-categoria-estilo">
+                            <input
+                              type="color"
+                              value={cat.cor}
+                              onChange={(e) => atualizarCategoriaContorno(i, e.target.value)}
+                            />
+                            <span>{formatarValorCategoria(cat.valor)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <label className="campo-form-admin campo-form-admin--cor">
+                      Cor pros valores sem categoria
+                      <input
+                        type="color"
+                        value={estiloForm.contorno.corSemCategoria}
+                        onChange={(e) => atualizarContorno("corSemCategoria", e.target.value)}
+                      />
+                    </label>
+                  </>
+                )}
+
                 <label className="campo-form-admin">
                   Largura ({estiloForm.contorno.largura}px)
                   <input

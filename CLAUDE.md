@@ -2117,6 +2117,60 @@ mostrou os blocos novos, zero erro de console. Script de teste (continha
 a senha da conta usada) apagado ao final, nunca commitado — mesmo
 cuidado de credencial já registrado antes nesta sessão pra JWT/token.
 
+**Contorno categorizado (2026-07-17, mesmo dia)**: testando o painel
+acima, o Leo reparou que uma camada com preenchimento categorizado por
+`id` (4 categorias, opacidade de preenchimento em 0) não tinha como
+levar essas cores pro **contorno** — só o preenchimento suportava
+"categorizado", o contorno sempre foi 1 cor fixa pra camada toda.
+Estendido o mesmo mecanismo pro contorno:
+
+- `contorno` ganhou `modo` ("simples"|"categorizado"), `campo`,
+  `categorias`, `corSemCategoria` (`estiloCamada.js`) — deliberadamente
+  **sem** combinar múltiplos campos nem graduado/gradiente (não pedido;
+  o preenchimento já cobre esses casos mais elaborados, contorno só
+  precisava do caso simples de 1 campo → 1 cor por valor).
+  `expressaoCorContorno(contorno)` nova, mesmo padrão de
+  `expressaoCorPreenchimento` mas só simples/categorizado.
+- `Mapa.jsx`: `line-color` (camada não-ponto) e `circle-stroke-color`
+  (ponto) passam a usar `expressaoCorContorno(contorno)` em vez de
+  `contorno.cor` direto — cobre os dois tipos de camada com a mesma
+  função. Swatch da legenda (`corContorno` no retorno de
+  `adicionarCamada`) ajustado pra cair em `corSemCategoria` quando
+  `modo !== "simples"`, mesmo raciocínio já usado pro swatch de
+  preenchimento categorizado.
+- `AdminCamadas.jsx`: Contorno ganhou o mesmo trio Modo/Campo/"Gerar
+  categorias a partir dos dados"/lista de cor por valor/"Cor pros
+  valores sem categoria" que o Preenchimento já tinha — reaproveita
+  `gerarCategorias`/`formatarValorCategoria`/`lerValoresUnicos` já
+  existentes, só grava em `contorno.*` em vez de `preenchimento.*`
+  (`atualizarCategoriaContorno`/`gerarCategoriasParaCampoContorno`
+  novos, espelhando os equivalentes de preenchimento).
+
+Bug real encontrado testando (não causado por esta mudança específica,
+mas só ficou visível por causa dela): o aviso de "N valores únicos
+encontrados, provavelmente não é campo de categoria" (`avisoEstilo`) só
+era renderizado **dentro do bloco Preenchimento** (`{avisoEstilo && <p
+className="erro">}` logo abaixo do select de Modo) — clicar "Gerar
+categorias" pro Contorno enquanto Preenchimento estava escondido (ex:
+Tipo de desenho = "Só contorno") setava o aviso normalmente, mas ele
+não aparecia em lugar nenhum da tela, silenciosamente. Corrigido movendo
+esse `<p className="erro">` pra logo abaixo do `<h2>Estilo</h2>`, fora
+de qualquer seção condicional — visível não importa qual bloco (Tipo de
+desenho/Preenchimento/Contorno/Símbolo) disparou o aviso.
+
+Testado com o mesmo padrão de snapshot/restauração via API (camada
+`Limites`, campo `PROPRIEDAD`, 5 categorias) — "Gerar categorias" com um
+campo contínuo (`AREA`) primeiro reproduziu o bug do aviso invisível
+citado acima (sem o fix, a lista ficava vazia sem explicação nenhuma na
+tela); depois do fix, `PROPRIEDAD` gerou as 5 categorias esperadas,
+salvar gravou `contorno.modo/campo/categorias/corSemCategoria`
+corretamente, e a restauração bateu byte a byte com o snapshot original.
+Screenshot do mapa real após salvar não foi conclusivo (caiu num mapa
+quase vazio no zoom capturado) — confiança na correção vem da
+verificação via API (schema salvo exatamente como esperado) e do reuso
+literal do mesmo padrão de `match` expression já validado pelo
+preenchimento categorizado em sessões anteriores.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -12,6 +12,7 @@ import { corDaCamada } from "../lib/paleta.js";
 import {
   normalizarEstiloConfig,
   expressaoCorPreenchimento,
+  expressaoCorContorno,
   expressaoTracoLinha,
   expressaoIconePorCategoria,
   usaIconeSimbolo,
@@ -418,6 +419,7 @@ async function adicionarCamada(map, protocol, mapa) {
   if (!ehPonto && tipoDesenho === "contorno") preenchimento.opacidade = 0;
   if (!ehPonto && tipoDesenho === "preenchimento") contorno.opacidade = 0;
   const corPreenchimento = expressaoCorPreenchimento(preenchimento);
+  const corContorno = expressaoCorContorno(contorno);
   const traco = expressaoTracoLinha(contorno.estiloTraco);
   // Rótulo "direto de atributo" não depende da camada rotulos do pipeline —
   // funciona em qualquer camada; "pipeline" só fica disponível se ela existir.
@@ -487,7 +489,7 @@ async function adicionarCamada(map, protocol, mapa) {
         maxzoom: visibilidade.zoomMaximo,
         layout: { "line-cap": traco.cap },
         paint: {
-          "line-color": contorno.cor,
+          "line-color": corContorno,
           "line-width": contorno.largura,
           "line-opacity": contorno.opacidade,
           "line-opacity-transition": { duration: 300 },
@@ -514,7 +516,7 @@ async function adicionarCamada(map, protocol, mapa) {
           // zerar o preenchimento e deixar só o contorno representando o
           // ponto, ou vice-versa.
           "circle-opacity": preenchimento.opacidade,
-          "circle-stroke-color": contorno.cor,
+          "circle-stroke-color": corContorno,
           "circle-stroke-width": contorno.largura,
           "circle-stroke-opacity": contorno.opacidade,
           "circle-opacity-transition": { duration: 300 },
@@ -641,7 +643,7 @@ async function adicionarCamada(map, protocol, mapa) {
     // Cor real do contorno — camada só-contorno (ex: Rio, Limites) usa essa
     // cor no swatch da legenda, não a de preenchimento (que pode ter sido
     // configurada com uma cor totalmente diferente e nunca aparece no mapa).
-    corContorno: contorno.cor,
+    corContorno: contorno.modo === "simples" ? contorno.cor : contorno.corSemCategoria,
     opacidadePreenchimento: preenchimento.opacidade,
     opacidadeContorno: contorno.opacidade,
     // "circle" (fill/contorno independentes) ou "symbol" (ícone SDF, uma

@@ -31,7 +31,19 @@ const PREENCHIMENTO_VAZIO = {
 // nunca colide com um valor genuíno de campo.
 export const SEPARADOR_CAMPOS = "\u001F";
 
-const CONTORNO_VAZIO = { cor: null, largura: 1.5, opacidade: 1, estiloTraco: "solido" };
+const CONTORNO_VAZIO = {
+  cor: null,
+  largura: 1.5,
+  opacidade: 1,
+  estiloTraco: "solido",
+  // Modo "categorizado" colore o traço/contorno por valor de campo — mesma
+  // ideia do preenchimento categorizado, mas sem combinar múltiplos campos
+  // (não pedido; o preenchimento já cobre esse caso mais elaborado).
+  modo: "simples",
+  campo: null,
+  categorias: [],
+  corSemCategoria: "#999999",
+};
 
 const ROTULO_VAZIO = {
   mostrar: true,
@@ -216,6 +228,17 @@ export function expressaoCorPreenchimento(preenchimento) {
     ];
   }
   return preenchimento.cor;
+}
+
+// Monta line-color/circle-stroke-color a partir do contorno normalizado —
+// mesmo espírito de expressaoCorPreenchimento, mas só simples/categorizado
+// (contorno não tem graduado/gradiente nem combinação de campos, não pedido).
+export function expressaoCorContorno(contorno) {
+  if (contorno.modo === "categorizado" && contorno.campo && contorno.categorias.length > 0) {
+    const pares = contorno.categorias.flatMap((c) => [c.valor, c.cor]);
+    return ["match", ["get", contorno.campo], ...pares, contorno.corSemCategoria];
+  }
+  return contorno.cor;
 }
 
 // dasharray do MapLibre é em múltiplos da largura da linha, não pixels
