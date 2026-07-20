@@ -49,10 +49,41 @@ Edite `.env` e preencha `PASTA_MONITORADA`, `GEOMAP_API_URL` (produção:
 `https://geomap-docker.onrender.com`), `GEOMAP_EMAIL`/`GEOMAP_SENHA` (a
 conta criada no passo 2).
 
-### 4. Descobrir os ids de camada
+### 4. Certificado do firewall da empresa (só nesta rede)
+
+A rede da Pedra Agroindustrial inspeciona tráfego HTTPS por trás de um
+firewall FortiGate — o Windows já confia no certificado dele (instalado
+via TI), mas o Node **não usa o repositório de certificados do
+Windows por padrão**, só o dele próprio. Sem isso, qualquer chamada à
+API de produção falha com `SELF_SIGNED_CERT_IN_CHAIN`/`fetch failed`,
+mesmo com internet normal (`curl`/navegador funcionam, porque esses
+usam o certificado do Windows).
+
+Exportar o certificado uma vez (PowerShell, no Windows desta rede):
+
+```powershell
+$destino = "fortinet-ca.pem"
+$certs = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -match "uspedra.com.br" }
+$conteudo = ""
+foreach ($cert in $certs) {
+    $b64 = [System.Convert]::ToBase64String($cert.RawData, [System.Base64FormattingOptions]::InsertLineBreaks)
+    $conteudo += "-----BEGIN CERTIFICATE-----`n$b64`n-----END CERTIFICATE-----`n"
+}
+[System.IO.File]::WriteAllText($destino, $conteudo)
+```
+
+Isso cria `fortinet-ca.pem` nesta pasta (gitignored — é específico desta
+rede, não faz sentido versionar). `iniciar.cmd`/`listar-camadas.cmd` (e
+os scripts `npm run vigiar`/`npm run listar-camadas`) já apontam pra ele
+via `NODE_EXTRA_CA_CERTS` sozinhos — só rodar direto `node vigiar.mjs`
+sem passar por esses `.cmd` que o erro volta. Se um dia isso rodar fora
+dessa rede (sem o FortiGate no meio), esse passo simplesmente não é
+necessário.
+
+### 5. Descobrir os ids de camada
 
 ```
-node listar-camadas.mjs
+npm run listar-camadas
 ```
 
 Loga com a conta de serviço (ou digite outra credencial só pra essa
@@ -60,7 +91,7 @@ consulta, se preferir) e mostra uma tabela `mapa | camada | id`. Anote os
 ids de **todo mapa** que tiver uma camada "Talhões" ou "Limites" da
 unidade Pedra.
 
-### 5. Preencher `mapeamento-camadas.json`
+### 6. Preencher `mapeamento-camadas.json`
 
 ```json
 {
@@ -79,23 +110,23 @@ loga e ignora arquivos de Limites até isso ser preenchido.
 ## Rodando
 
 ```
-node vigiar.mjs
+npm run vigiar
 ```
 
-Fica rodando indefinidamente (Ctrl+C pra parar). Na primeira execução,
-varre a pasta e processa só o arquivo mais recente de cada tipo (não
-reprocessa o histórico acumulado); depois disso, reage a arquivos novos
-em tempo real.
+(ou clique duas vezes em `iniciar.cmd`). Fica rodando indefinidamente
+(Ctrl+C pra parar). Na primeira execução, varre a pasta e processa só o
+arquivo mais recente de cada tipo (não reprocessa o histórico
+acumulado); depois disso, reage a arquivos novos em tempo real.
 
 ### Manter no ar
 
 Este processo precisa continuar rodando pra funcionar — não é uma tarefa
 que roda e termina. Opções (escolha uma, não implementado aqui):
 
-- **Agendador de Tarefas do Windows**: criar uma tarefa que roda `node
-  vigiar.mjs` na inicialização, com "reiniciar em caso de falha".
-- **PM2** (`npm install -g pm2` — fora do escopo deste pacote): `pm2 start
-  vigiar.mjs`, sobrevive a reinício e reinicia sozinho se cair.
+- **Agendador de Tarefas do Windows**: criar uma tarefa que roda
+  `iniciar.cmd` na inicialização, com "reiniciar em caso de falha".
+- **PM2** (`npm install -g pm2` — fora do escopo deste pacote): `pm2
+  start iniciar.cmd`, sobrevive a reinício e reinicia sozinho se cair.
 - **Terminal aberto**: mais simples, mas para se o terminal fechar ou o
   PC reiniciar.
 
