@@ -304,6 +304,32 @@ nas mesmas rotas) — onde/quando esse script roda fica pra decidir depois.
 Ver `CLAUDE.md` (entrada "Conversão assíncrona (jobs)") pro relato
 técnico completo, incluindo um bug de StrictMode encontrado testando.
 
+**Automação de sincronização de Talhões/Limites, 2026-07-20**: a
+"futura automação" citada acima ganhou uma primeira versão —
+`automacao/vigiar-talhoes-limites/` (Node, sem framework), pacote
+autocontido fora de `frontend`/`backend`. Observa uma pasta de rede onde
+a exportação FME do Data Lake Oracle deixa um shapefile novo por dia
+(`{Talhoes|limites}_{unidade}_DD_MM_YYYY_fme.{shp,shx,dbf,prj,cpg}`) e
+chama `PUT /admin/camadas/:id/arquivo` sozinho — em **todos** os mapas
+que tiverem aquela camada (Talhões já existe duplicado em 2 mapas hoje).
+Escopo desta leva: só a unidade Pedra (`da_Pedra`) — outras unidades
+(ex: "Ipê", visível na mesma pasta) ficam de fora até serem
+explicitamente adicionadas em `mapeamento-camadas.json` (sem precisar
+mexer em código). Vem com um utilitário (`listar-camadas.mjs`) pra
+descobrir os ids de camada sem precisar de DevTools, e roda com uma
+conta de serviço dedicada (não a conta pessoal de um admin humano).
+Testado de ponta a ponta contra um backend/banco local isolados (nunca
+produção) com um `.shp` sintético: varredura inicial processando só o
+arquivo mais recente por unidade+tipo (sem reprocessar histórico
+acumulado), chegada em tempo real de um arquivo novo atualizando as
+**duas** camadas configuradas pro mesmo tipo, e reprocessamento do mesmo
+dia corretamente ignorado (idempotente). Falta decidir onde essa
+automação roda de verdade (Task Scheduler, PM2, etc — documentado como
+opções no `README.md` do pacote, decisão de infra do Leo/TI, não de
+código) e criar a conta de serviço em produção antes do primeiro uso
+real. Ver `automacao/vigiar-talhoes-limites/README.md` pro passo a
+passo completo de configuração.
+
 ## Fase 4 — Ideias futuras (não compromissadas)
 
 - [ ] Exportar/imprimir área selecionada como PDF
@@ -311,7 +337,7 @@ técnico completo, incluindo um bug de StrictMode encontrado testando.
 - [ ] Migrar filtragem de permissão pra nível de geometria (PostGIS), não só
       por arquivo/mapa inteiro
 - [ ] Exportação de track log em Shapefile (.SHP) — adiado, ver Fase 3.9
-- [ ] Automação de sincronização de Talhões/Limites: script rodando
-      dentro da rede da empresa, de olho numa pasta com exports novos do
-      Data Lake Oracle, publicando via a API (agora assíncrona, ver
-      acima). Falta decidir onde/quando esse script roda.
+- [ ] Estender a automação de Talhões/Limites (ver acima) pra outras
+      unidades além de "da_Pedra"
+- [ ] Notificação de falha da automação de Talhões/Limites (e-mail/Slack)
+      — hoje só um log local

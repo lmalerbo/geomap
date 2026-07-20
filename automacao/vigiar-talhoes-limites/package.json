@@ -1,0 +1,14 @@
+{
+  "name": "vigiar-talhoes-limites",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Observa a pasta de exportacao do Data Lake (FME) e atualiza as camadas Talhoes/Limites da unidade Pedra no GeoMap automaticamente.",
+  "scripts": {
+    "vigiar": "node vigiar.mjs",
+    "listar-camadas": "node listar-camadas.mjs"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0"
+  }
+}
