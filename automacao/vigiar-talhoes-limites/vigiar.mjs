@@ -69,6 +69,22 @@ async function candidatosIniciais(pasta) {
 export function criarVigia({ pasta, mapeamento, cliente, debounceMs = 60_000 }) {
   const timers = new Map();
 
+  // Fila global (não por unidade/tipo) — Talhões e Limites de fazendas
+  // diferentes podiam disparar upload+conversão ao mesmo tempo (visto em
+  // produção real: 2 conversões pesadas simultâneas coincidiram com o
+  // backend do Render devolvendo erro no meio de ambas, provável restart
+  // por sobrecarga). Serializa pra nunca ter mais de 1 conversão pesada
+  // rodando por vez, custe o que custar em velocidade.
+  let filaAtual = Promise.resolve();
+  function enfileirar(tarefa) {
+    const resultado = filaAtual.then(tarefa, tarefa);
+    filaAtual = resultado.then(
+      () => {},
+      () => {} // uma falha na fila nunca trava as próximas tarefas
+    );
+    return resultado;
+  }
+
   function agendar(info) {
     const chave = info.baseSemExtensao;
     if (timers.has(chave)) clearTimeout(timers.get(chave));
@@ -123,10 +139,16 @@ export function criarVigia({ pasta, mapeamento, cliente, debounceMs = 60_000 }) 
 
     await log(`(${info.unidade}/${info.tipo}) processando ${info.data} -> camadas [${camadaIds.join(", ")}]`);
     for (const camadaId of camadaIds) {
-      const jobId = await cliente.enviarArquivoCamada(camadaId, caminhos, info.data);
-      await log(`  camada ${camadaId}: job ${jobId} criado, aguardando conclusão...`);
-      await aguardarJobConcluir(cliente, jobId);
-      await log(`  camada ${camadaId}: concluída`);
+      await enfileirar(async () => {
+        await log(`  camada ${camadaId}: aguardando vez na fila...`);
+        const jobId = await cliente.enviarArquivoCamada(camadaId, caminhos, info.data);
+        await log(`  camada ${camadaId}: job ${jobId} criado, aguardando conclusão...`);
+        await aguardarJobConcluir(cliente, jobId, {
+          aoFalharTemporariamente: (erro, tentativa) =>
+            log(`  camada ${camadaId}: consulta de status falhou (tentativa ${tentativa}), tentando de novo — ${erro.message}`),
+        });
+        await log(`  camada ${camadaId}: concluída`);
+      });
     }
 
     const novoEstado = marcarProcessado(await lerEstado(CAMINHO_ESTADO), info.unidade, info.tipo, info.data);

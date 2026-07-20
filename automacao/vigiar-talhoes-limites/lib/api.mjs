@@ -79,8 +79,19 @@ export function criarClienteApi({ baseUrl, email, senha }) {
 
   async function consultarJob(jobId) {
     const resp = await chamar(`/admin/jobs/${jobId}`);
-    if (!resp.ok) throw new ErroApi(`GET /admin/jobs/${jobId} falhou (HTTP ${resp.status})`, resp.status);
-    return resp.json();
+    const corpo = await resp.text();
+    if (!resp.ok) throw new ErroApi(`GET /admin/jobs/${jobId} falhou (HTTP ${resp.status}): ${corpo.slice(0, 200)}`, resp.status);
+    try {
+      return JSON.parse(corpo);
+    } catch {
+      // HTTP 200 mas corpo não é JSON -- acontece quando um proxy/gateway
+      // na frente do backend (Render, ou o firewall da rede) devolve uma
+      // página de erro HTML própria em vez de deixar passar a resposta
+      // real da API (ex: durante um restart do serviço). Sinaliza como
+      // erro transitório -- aguardarJobConcluir tolera isso e tenta de
+      // novo, em vez de desistir na primeira.
+      throw new ErroApi(`resposta de GET /admin/jobs/${jobId} não é JSON (HTTP ${resp.status}): ${corpo.slice(0, 200)}`, resp.status);
+    }
   }
 
   return { login, listarMapas, listarCamadas, enviarArquivoCamada, consultarJob };
@@ -88,10 +99,38 @@ export function criarClienteApi({ baseUrl, email, senha }) {
 
 // Poll ate o job sair de "processando" -- Talhoes grande já levou 8-12min
 // em producao real (ver CLAUDE.md), por isso o timeout generoso.
-export async function aguardarJobConcluir(cliente, jobId, { intervaloMs = 15_000, timeoutMs = 20 * 60_000 } = {}) {
+//
+// Uma consulta isolada pode falhar por motivo passageiro (rede
+// instável, ou o proxy/gateway na frente do backend devolvendo uma
+// página de erro HTML durante um restart do serviço, visto em produção
+// real -- ver ErroApi em consultarJob) -- nada disso significa que a
+// conversão em si falhou, então não desiste na primeira: só passa a
+// erro de verdade depois de várias falhas SEGUIDAS (o job continua
+// rodando no servidor independente de a consulta de status funcionar).
+export async function aguardarJobConcluir(
+  cliente,
+  jobId,
+  { intervaloMs = 15_000, timeoutMs = 20 * 60_000, maxFalhasSeguidas = 5, aoFalharTemporariamente } = {}
+) {
   const inicio = Date.now();
+  let falhasSeguidas = 0;
   for (;;) {
-    const job = await cliente.consultarJob(jobId);
+    let job;
+    try {
+      job = await cliente.consultarJob(jobId);
+      falhasSeguidas = 0;
+    } catch (erro) {
+      falhasSeguidas++;
+      if (falhasSeguidas >= maxFalhasSeguidas) {
+        throw new ErroApi(
+          `job ${jobId}: ${falhasSeguidas} consultas seguidas falharam, desistindo (última: ${erro.message})`,
+          null
+        );
+      }
+      aoFalharTemporariamente?.(erro, falhasSeguidas);
+      await new Promise((resolver) => setTimeout(resolver, intervaloMs));
+      continue;
+    }
     if (job.status === "concluido") return job;
     if (job.status === "erro") throw new ErroApi(`job ${jobId} terminou com erro: ${job.erro}`, null);
     if (Date.now() - inicio > timeoutMs) {
