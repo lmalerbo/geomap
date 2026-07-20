@@ -1587,6 +1587,7 @@ export default function Mapa() {
                     : "Clique em \"Iniciar gravação\" e mantenha o app aberto durante o percurso."}
               </p>
               {track.erroTrack && <p className="erro">{track.erroTrack}</p>}
+              {track.avisoCompartilhar && <p className="aviso-track">{track.avisoCompartilhar}</p>}
               {!track.gravandoPercurso && track.distanciaPercursoAtual && (
                 <div className="acoes-painel-track acoes-painel-track--grade">
                   <button type="button" className="botao-secundario" onClick={track.exportarPercurso}>

@@ -79,20 +79,38 @@ export function baixarKmlPercurso(segmentos, nomeMapa) {
 // Web Share API (com arquivo anexado) quando o navegador suporta — abre o
 // share sheet nativo do SO (WhatsApp, "abrir com" Google Earth, etc.),
 // cobrindo tanto "compartilhar" quanto "abrir" num passo só. Sem suporte
-// (a maioria dos desktops, navegadores mais antigos), cai pro download de
-// sempre. Cancelamento do usuário no share sheet (AbortError) não é erro —
-// só um `throw` de verdade (outro tipo de falha) deve virar mensagem de
-// erro pro chamador.
+// (a maioria dos desktops, navegadores mais antigos, ou o MIME do arquivo
+// caindo fora da lista "segura" do navegador — ver comentário abaixo),
+// cai pro download de sempre. Devolve o que realmente aconteceu
+// ("compartilhado" | "cancelado" | "baixado") — o chamador precisa saber
+// diferenciar "abriu a folha de compartilhamento" de "só baixou o
+// arquivo", senão parece que o botão não fez nada quando na real ele
+// silenciosamente caiu no fallback. Cancelamento do usuário no share
+// sheet (AbortError) não é erro — só um `throw` de verdade (outro tipo de
+// falha) deve virar mensagem de erro pro chamador.
 export async function compartilharKmlPercurso(segmentos, nomeMapa) {
-  const file = criarArquivoKmlPercurso(segmentos, nomeMapa);
-  if (navigator.canShare?.({ files: [file] })) {
+  const nomeArquivo = nomeArquivoPercurso(nomeMapa);
+  const kml = gerarKmlPercurso(segmentos, `Percurso — ${nomeMapa}`);
+  // Web Share (arquivo) só aceita uma lista restrita de tipos "seguros"
+  // por navegador (basicamente imagem/vídeo/áudio/texto) — o MIME KML de
+  // verdade (application/vnd.google-earth.kml+xml, usado no download via
+  // criarArquivoKmlPercurso) cai fora dessa lista na maioria dos
+  // Android/Chrome, fazendo canShare() devolver false silenciosamente
+  // mesmo o conteúdo sendo texto puro — é a causa mais provável do botão
+  // "Compartilhar" parecer não fazer nada em campo. text/plain entra na
+  // categoria aceita; a extensão .kml do NOME do arquivo continua
+  // preservada, que é o que o app de destino (Google Earth etc.) usa pra
+  // reconhecer o formato, não o MIME declarado aqui.
+  const arquivo = new File([kml], nomeArquivo, { type: "text/plain" });
+  if (navigator.canShare?.({ files: [arquivo] })) {
     try {
-      await navigator.share({ files: [file], title: file.name, text: `Percurso — ${nomeMapa}` });
-      return;
+      await navigator.share({ files: [arquivo], title: nomeArquivo, text: `Percurso — ${nomeMapa}` });
+      return "compartilhado";
     } catch (erro) {
-      if (erro.name === "AbortError") return;
+      if (erro.name === "AbortError") return "cancelado";
       throw erro;
     }
   }
   baixarKmlPercurso(segmentos, nomeMapa);
+  return "baixado";
 }

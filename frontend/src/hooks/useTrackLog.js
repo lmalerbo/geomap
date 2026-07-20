@@ -52,6 +52,11 @@ export function useTrackLog(mapRef, mapaPronto, mapaId) {
   // mesmo comportamento de "recentralizar" do Google Maps.
   const [seguirCamera, setSeguirCamera] = useState(true);
   const [erroTrack, setErroTrack] = useState(null);
+  // Diferente de erroTrack (falha de verdade) — avisa quando
+  // "Compartilhar" caiu no fallback de download (navegador não abriu a
+  // folha de compartilhamento pra esse arquivo), pra não parecer que o
+  // botão não fez nada.
+  const [avisoCompartilhar, setAvisoCompartilhar] = useState(null);
   const watchIdRef = useRef(null);
   const wakeLockRef = useRef(null);
   // O callback de sucesso do watchPosition é registrado uma única vez (em
@@ -182,6 +187,7 @@ export function useTrackLog(mapRef, mapaPronto, mapaId) {
       return;
     }
     setErroTrack(null);
+    setAvisoCompartilhar(null);
     setPontosPercurso([[]]);
     setPausado(false);
     setSeguirCamera(true);
@@ -232,6 +238,7 @@ export function useTrackLog(mapRef, mapaPronto, mapaId) {
   function limparPercurso() {
     setPontosPercurso([]);
     setErroTrack(null);
+    setAvisoCompartilhar(null);
   }
 
   function exportarPercurso() {
@@ -239,8 +246,15 @@ export function useTrackLog(mapRef, mapaPronto, mapaId) {
   }
 
   async function compartilharPercurso() {
+    setErroTrack(null);
+    setAvisoCompartilhar(null);
     try {
-      await compartilharKmlPercurso(pontosPercurso, `mapa-${mapaId}`);
+      const resultado = await compartilharKmlPercurso(pontosPercurso, `mapa-${mapaId}`);
+      if (resultado === "baixado") {
+        setAvisoCompartilhar(
+          "Este navegador não abriu a folha de compartilhamento pra esse arquivo — o KML foi baixado, envie manualmente pelo WhatsApp/e-mail."
+        );
+      }
     } catch {
       setErroTrack("Não foi possível compartilhar o arquivo.");
     }
@@ -261,6 +275,7 @@ export function useTrackLog(mapRef, mapaPronto, mapaId) {
     seguirCamera,
     setSeguirCamera,
     erroTrack,
+    avisoCompartilhar,
     iniciarGravacaoPercurso,
     pararGravacaoPercurso,
     pausarGravacaoPercurso,
