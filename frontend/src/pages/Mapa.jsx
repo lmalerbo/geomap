@@ -29,7 +29,6 @@ import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
-import PainelDebug from "../components/PainelDebug.jsx";
 
 function IconeMenu() {
   return (
@@ -1668,7 +1667,6 @@ export default function Mapa() {
           )}
         </aside>
       </div>
-      <PainelDebug mapRef={mapRef} mapaPronto={mapaPronto} />
     </main>
   );
 }
