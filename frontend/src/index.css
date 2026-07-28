@@ -1095,6 +1095,94 @@ input[type="file"]::file-selector-button:hover {
   cursor: help;
 }
 
+/* Card de camada representando a simbologia de verdade (não só 1 swatch
+   genérico): faixa de cores pra categorizado/graduado/gradiente, forma
+   real pra ponto, e uma legenda completa expansível pra quem quiser ver
+   cor/valor de cada categoria. */
+.linha-camada-bloco {
+  display: flex;
+  flex-direction: column;
+}
+
+.botao-expandir-legenda {
+  flex-shrink: 0;
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+}
+
+.botao-expandir-legenda .seta {
+  display: inline-block;
+  font-size: 16px;
+  transition: transform 200ms ease;
+}
+
+.botao-expandir-legenda .seta--aberta {
+  transform: rotate(90deg);
+}
+
+.faixa-cores-camada {
+  display: flex;
+  width: 22px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.faixa-cores-camada span {
+  flex: 1;
+}
+
+.legenda-camada {
+  margin: 0 0 8px 34px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: 6px;
+  font-size: 13px;
+  animation: entrada 150ms ease;
+}
+
+.bloco-legenda-camada + .bloco-legenda-camada {
+  margin-top: 10px;
+}
+
+.bloco-legenda-camada strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bloco-legenda-camada ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bloco-legenda-camada li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legenda-gradiente {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legenda-gradiente .faixa-cores-camada {
+  width: 60px;
+}
+
 /* Camada temporária (importação de KML/Shapefile, item 5) — mesma linha
    de sempre, só com o nome em itálico (sinaliza "isso não é uma camada
    real do mapa") e um botão de remover no lugar do swatch de sempre não

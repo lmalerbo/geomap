@@ -34,6 +34,7 @@ import {
 } from "../lib/compartilharLocalizacao.js";
 import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
+import LegendaCamada, { IconeFormaPonto, FaixaCores, FaixaGradiente, temLegendaDetalhada } from "../components/LegendaCamada.jsx";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 
 function IconeMenu() {
@@ -674,6 +675,14 @@ async function adicionarCamada(map, protocol, mapa) {
     // o efeito de liga/desliga (item 5 de Mapa()) precisa saber qual pra
     // chamar o nome de paint property certo.
     tipoPonto,
+    // Config normalizada completa (não só a cor de fallback acima) — usada
+    // pelo painel de camadas pra mostrar a simbologia de verdade (forma
+    // real do ponto, faixa de cores categorizada/graduada/gradiente,
+    // legenda expansível), não só um swatch de 1 cor genérico.
+    preenchimento,
+    contorno,
+    simbolo,
+    ehPonto,
     sourceId,
     fillLayerId,
     lineLayerId,
@@ -751,6 +760,10 @@ export default function Mapa() {
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
   // entre plataformas.
   const [painelCamadasAberto, setPainelCamadasAberto] = useState(false);
+  // Quais camadas têm a legenda completa expandida (categorizado/graduado/
+  // gradiente/forma por atributo) — só existe a setinha de expandir pra
+  // camada que tem algo além do swatch simples (ver temLegendaDetalhada).
+  const [legendasExpandidas, setLegendasExpandidas] = useState(() => new Set());
   const [indiceBusca, setIndiceBusca] = useState([]);
   const [buscaTexto, setBuscaTexto] = useState("");
   // Item destacado na lista de resultados — navegável por ↑/↓ no desktop;
@@ -1425,29 +1438,87 @@ export default function Mapa() {
                   // simbologia estilo QGIS, e o preenchimento nem chega a
                   // aparecer no mapa quando a camada é só-contorno.
                   const corSwatch = preenchido ? cor : info?.corContorno || cor;
-                  return (
-                    <label key={m.id} className="linha-camada">
-                      <input
-                        type="checkbox"
-                        checked={camadasVisiveis.has(m.id)}
-                        onChange={() => alternarCamada(m.id)}
-                      />
+                  const preenchimento = info?.preenchimento;
+                  const simbolo = info?.simbolo;
+                  const ehPonto = info?.ehPonto;
+                  const temLegenda = info ? temLegendaDetalhada({ preenchimento, contorno: info.contorno, simbolo, ehPonto }) : false;
+                  const expandida = legendasExpandidas.has(m.id);
+
+                  let swatch;
+                  if (preenchimento?.modo === "gradiente" && preenchimento.corInicial && preenchimento.corFinal) {
+                    swatch = <FaixaGradiente corInicial={preenchimento.corInicial} corFinal={preenchimento.corFinal} />;
+                  } else if (preenchimento?.modo === "categorizado" && preenchimento.categorias.length > 0) {
+                    swatch = <FaixaCores cores={preenchimento.categorias.slice(0, 4).map((c) => c.cor)} />;
+                  } else if (preenchimento?.modo === "graduado" && preenchimento.classes.length > 0) {
+                    swatch = <FaixaCores cores={preenchimento.classes.slice(0, 4).map((c) => c.cor)} />;
+                  } else if (ehPonto && preenchido && simbolo?.modo === "fixo" && simbolo.forma !== "circulo") {
+                    // Forma real (quadrado/triângulo/estrela) só faz sentido
+                    // mostrar no modo fixo — categorizado já cai na faixa de
+                    // cores acima (formas diferentes por categoria ficam só
+                    // na legenda expandida, o swatch compacto não tem espaço
+                    // pra várias formas ao mesmo tempo).
+                    swatch = <IconeFormaPonto forma={simbolo.forma} cor={corSwatch} corBorda="rgba(0,0,0,0.2)" />;
+                  } else {
+                    swatch = (
                       <span
                         className={`swatch-camada${preenchido ? "" : " swatch-camada--contorno"}`}
                         style={preenchido ? { backgroundColor: corSwatch } : { borderColor: corSwatch }}
                       />
-                      <span className="nome-camada">{m.nome}</span>
-                      {errosCamada[m.id] && (
-                        <span
-                          className="aviso-camada"
-                          role="img"
-                          aria-label={errosCamada[m.id]}
-                          title={errosCamada[m.id]}
-                        >
-                          ⚠
-                        </span>
+                    );
+                  }
+
+                  return (
+                    <div key={m.id} className="linha-camada-bloco">
+                      <label className="linha-camada">
+                        <input
+                          type="checkbox"
+                          checked={camadasVisiveis.has(m.id)}
+                          onChange={() => alternarCamada(m.id)}
+                        />
+                        {swatch}
+                        <span className="nome-camada">{m.nome}</span>
+                        {errosCamada[m.id] && (
+                          <span
+                            className="aviso-camada"
+                            role="img"
+                            aria-label={errosCamada[m.id]}
+                            title={errosCamada[m.id]}
+                          >
+                            ⚠
+                          </span>
+                        )}
+                        {temLegenda && (
+                          <button
+                            type="button"
+                            className="botao-expandir-legenda"
+                            aria-label={expandida ? "Recolher legenda" : "Ver legenda completa"}
+                            aria-expanded={expandida}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setLegendasExpandidas((atual) => {
+                                const novo = new Set(atual);
+                                if (novo.has(m.id)) novo.delete(m.id);
+                                else novo.add(m.id);
+                                return novo;
+                              });
+                            }}
+                          >
+                            <span className={`seta${expandida ? " seta--aberta" : ""}`} aria-hidden="true">
+                              ›
+                            </span>
+                          </button>
+                        )}
+                      </label>
+                      {temLegenda && expandida && (
+                        <LegendaCamada
+                          preenchimento={preenchimento}
+                          contorno={info.contorno}
+                          simbolo={simbolo}
+                          ehPonto={ehPonto}
+                        />
                       )}
-                    </label>
+                    </div>
                   );
                 })}
 
