@@ -22,12 +22,21 @@ function abrirDb() {
 
 export async function salvarMapaBaixado(camadaId, mapaId, nome, versao, blob, atributosConfig, estiloConfig) {
   const db = await abrirDb();
+  // Convertido pra ArrayBuffer antes de gravar — Blob guardado direto no
+  // IndexedDB sofre de um bug do WebKit/Safari onde o "backing file" se
+  // perde silenciosamente (ex: PWA não aberto por um tempo, pressão de
+  // armazenamento), fazendo Blob.slice()/arrayBuffer() lançar
+  // "NotFoundError: The object can not be found here." em QUALQUER leitura
+  // futura, pra qualquer camada — foi esse erro, batendo em toda camada, que
+  // quebrava a geometria no iOS. ArrayBuffer é dado binário puro e não tem
+  // esse problema (ver BlobSource, que lê esse campo).
+  const dados = await blob.arrayBuffer();
   await db.put(STORE_CAMADAS, {
     id: camadaId,
     mapaId,
     nome,
     versao,
-    blob,
+    blob: dados,
     atributosConfig: atributosConfig || [],
     estiloConfig: estiloConfig || null,
     baixadoEm: new Date().toISOString(),

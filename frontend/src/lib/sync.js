@@ -38,7 +38,14 @@ export async function sincronizarMapas(token) {
   await Promise.allSettled([
     ...camadas.map(async (camada) => {
       const local = porId.get(camada.id);
-      if (local && local.versao === camada.versao) {
+      // local.blob só é ArrayBuffer se foi baixado depois da correção do bug
+      // de Blob-via-IndexedDB no Safari/iOS (ver db.js/pmtilesBlobSource.js)
+      // — um registro salvo antes disso ainda tem um Blob quebrado gravado,
+      // sem chance de se corrigir sozinho (o dado em si é inutilizável, não
+      // dá pra "reler" certo). Ignora o match de versão nesse caso e força
+      // rebaixar, mesmo que a versão continue a mesma — autocorrige no
+      // próximo sync online, sem exigir nenhuma ação do usuário.
+      if (local && local.versao === camada.versao && local.blob instanceof ArrayBuffer) {
         // Geometria/tiles não mudaram, mas nome, atributos ou estilo podem
         // ter mudado (ex: admin reordenou campos ou trocou a cor) — atualiza
         // sem rebaixar.
