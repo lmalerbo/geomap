@@ -6,11 +6,11 @@ import { Component } from "react";
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { comErro: false };
+    this.state = { comErro: false, erro: null };
   }
 
-  static getDerivedStateFromError() {
-    return { comErro: true };
+  static getDerivedStateFromError(erro) {
+    return { comErro: true, erro };
   }
 
   componentDidCatch(erro, info) {
@@ -29,6 +29,14 @@ export class ErrorBoundary extends Component {
           <button type="button" onClick={() => window.location.reload()}>
             Recarregar
           </button>
+          {/* Sem acesso a um Mac, não dá pra abrir o Web Inspector remoto
+              num iPad/iPhone — isso é a única forma de ver o erro real de
+              um dispositivo em campo. Custo de UX baixo (fica escondido
+              atrás de um <details>), valor alto pra suporte. */}
+          <details className="detalhes-erro-tecnico">
+            <summary>Detalhes técnicos</summary>
+            <pre>{this.state.erro?.stack || this.state.erro?.message || String(this.state.erro)}</pre>
+          </details>
         </main>
       );
     }
