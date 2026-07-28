@@ -26,6 +26,12 @@ import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
+import {
+  linkGoogleMaps,
+  linkWaze,
+  linkAppleMaps,
+  compartilharLocalizacao,
+} from "../lib/compartilharLocalizacao.js";
 import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
@@ -740,6 +746,7 @@ export default function Mapa() {
   const [semCamadasLocais, setSemCamadasLocais] = useState(false);
   const [avisoSincronizacaoFechado, setAvisoSincronizacaoFechado] = useState(false);
   const [selecao, setSelecao] = useState(null);
+  const [mostrarMenuCompartilhar, setMostrarMenuCompartilhar] = useState(false);
   // Recolhido por padrão em qualquer tamanho de tela — antes só recolhia
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
   // entre plataformas.
@@ -765,6 +772,13 @@ export default function Mapa() {
   const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null));
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto);
+
+  // Fecha o menu de compartilhar localização sempre que a seleção muda
+  // (trocou de feição, paginou entre feições sobrepostas, ou fechou o
+  // painel) — sem isso o menu ficava aberto apontando pro ponto antigo.
+  useEffect(() => {
+    setMostrarMenuCompartilhar(false);
+  }, [selecao]);
 
   // 1) cria o mapa uma única vez, com controles de navegação e localização
   useEffect(() => {
@@ -1638,6 +1652,63 @@ export default function Mapa() {
               >
                 ×
               </button>
+              <div className="compartilhar-localizacao">
+                <button
+                  type="button"
+                  className="botao-compartilhar-localizacao"
+                  onClick={() => setMostrarMenuCompartilhar((v) => !v)}
+                  aria-label="Compartilhar localização deste ponto"
+                  title="Compartilhar localização deste ponto"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.6" y1="10.6" x2="15.4" y2="6.4" />
+                    <line x1="8.6" y1="13.4" x2="15.4" y2="17.6" />
+                  </svg>
+                </button>
+                {mostrarMenuCompartilhar && (
+                  <div className="menu-compartilhar-localizacao">
+                    <a
+                      href={linkGoogleMaps(selecao.lngLat.lat, selecao.lngLat.lng)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Abrir no Google Maps
+                    </a>
+                    <a href={linkWaze(selecao.lngLat.lat, selecao.lngLat.lng)} target="_blank" rel="noopener noreferrer">
+                      Abrir no Waze
+                    </a>
+                    <a
+                      href={linkAppleMaps(selecao.lngLat.lat, selecao.lngLat.lng)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Abrir no Apple Maps
+                    </a>
+                    {typeof navigator !== "undefined" && navigator.share && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          compartilharLocalizacao(selecao.lngLat.lat, selecao.lngLat.lng, itemSelecionado.camada)
+                        }
+                      >
+                        Compartilhar…
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
               <h2>
                 <span className="swatch-camada" style={{ backgroundColor: itemSelecionado.cor }} />
                 {itemSelecionado.camada}

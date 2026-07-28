@@ -1273,6 +1273,63 @@ input[type="file"]::file-selector-button:hover {
   padding: 4px 8px;
 }
 
+/* Botão + menu suspenso pra abrir o ponto marcado (painel de atributos) em
+   apps de navegação externos — ao lado do "fechar", mesmo tamanho de alvo
+   de toque. Menu simples (sem animação/painel-flutuante próprio): abre e
+   fecha instantâneo, é só uma lista curta de links. */
+.compartilhar-localizacao {
+  position: absolute;
+  top: 8px;
+  right: 44px;
+}
+
+.botao-compartilhar-localizacao {
+  min-height: 36px;
+  min-width: 36px;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+}
+
+.botao-compartilhar-localizacao:hover {
+  color: var(--text);
+}
+
+.menu-compartilhar-localizacao {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+
+.menu-compartilhar-localizacao a,
+.menu-compartilhar-localizacao button {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.menu-compartilhar-localizacao a:hover,
+.menu-compartilhar-localizacao button:hover {
+  background: var(--bg);
+}
+
 /* Avisos globais de job em segundo plano (JobsContext) — fixed, não
    absolute, porque precisam aparecer em cima de QUALQUER tela (o usuário
    pode ter saído de Gerenciar camadas antes do job terminar). Topo-centro
