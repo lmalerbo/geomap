@@ -40,6 +40,16 @@ function IconeGrafico() {
   );
 }
 
+function IconeAjuda() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
 // Movido de Admin.jsx (tela removida — vira só as entradas aqui dentro).
 const SECOES_ADMIN = [
   {
@@ -110,6 +120,18 @@ export default function MenuLateral({ aberto, aoFechar, ehAdmin, aoSair }) {
                 </span>
               </Link>
             ))}
+          {/* Visível pra qualquer usuário logado (não só admin) — antes essa
+              área ficava completamente vazia pra quem não é admin, só com o
+              "Sair" no rodapé. */}
+          <Link to="/ajuda" className="item-menu-lateral" onClick={aoFechar}>
+            <span className="icone-item-menu-lateral" aria-hidden="true">
+              <IconeAjuda />
+            </span>
+            <span className="texto-item-menu-lateral">
+              <strong>Ajuda / Sobre</strong>
+              <small>Como usar o GeoMap, dicas rápidas e informações do app.</small>
+            </span>
+          </Link>
         </nav>
 
         <div className="rodape-menu-lateral">

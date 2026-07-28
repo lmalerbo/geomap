@@ -16,6 +16,7 @@ const AdminCamadas = lazy(() => import("./pages/AdminCamadas.jsx"));
 const AdminMapas = lazy(() => import("./pages/AdminMapas.jsx"));
 const AdminUsuarios = lazy(() => import("./pages/AdminUsuarios.jsx"));
 const AdminEstatisticas = lazy(() => import("./pages/AdminEstatisticas.jsx"));
+const Ajuda = lazy(() => import("./pages/Ajuda.jsx"));
 
 function CarregandoRota() {
   return (
@@ -110,6 +111,14 @@ export default function App() {
                   <RotaAdmin>
                     <AdminEstatisticas />
                   </RotaAdmin>
+                }
+              />
+              <Route
+                path="/ajuda"
+                element={
+                  <RotaProtegida>
+                    <Ajuda />
+                  </RotaProtegida>
                 }
               />
               <Route path="*" element={<Navigate to="/inicio" replace />} />

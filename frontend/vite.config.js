@@ -11,6 +11,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 // mudar nada do fluxo já testado o resto da sessão.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
@@ -70,9 +71,24 @@ function injetarCsp(command) {
   };
 }
 
+// package.json nunca teve a versão bumpada (fica em "0.0.0" desde o
+// create-vite inicial) — o hash curto do commit é o identificador real e
+// automático de "qual build é esse", útil pra tela de Ajuda/Sobre e pra
+// comparar com o que está publicado sem precisar lembrar de bumpar nada.
+function hashCommitAtual() {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'dev';
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
   base,
+  define: {
+    __GIT_HASH__: JSON.stringify(hashCommitAtual()),
+  },
   // Lighthouse apontou "Missing source maps for large first-party
   // JavaScript" — não custam nada em produção (só carregam se o devtools
   // estiver aberto de propósito) e ajudam a debugar um bug real relatado
