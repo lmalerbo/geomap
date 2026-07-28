@@ -484,6 +484,14 @@ async function adicionarCamada(map, protocol, mapa) {
           "fill-color": corPreenchimento,
           "fill-opacity": preenchimento.opacidade,
           "fill-opacity-transition": { duration: 300 },
+          // Sem isso, o Safari/iOS (WebGL via Metal/ANGLE) mostra o
+          // preenchimento fragmentado em triângulos/retângulos soltos —
+          // bug conhecido do passe de anti-aliasing de fill layers do
+          // MapLibre nesse backend específico de WebGL (não acontece no
+          // Chrome/Android, que usa outro backend). Desligar antialiasing
+          // no contorno do preenchimento não é perceptível visualmente
+          // (a borda em si já é desenhada por cima via lineLayerId).
+          "fill-antialias": false,
         },
       },
       beforeId

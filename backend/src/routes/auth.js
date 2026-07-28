@@ -27,10 +27,15 @@ authRouter.post("/login", async (req, res) => {
     return res.status(401).json({ erro: "credenciais inválidas" });
   }
 
+  // 30 dias em vez de 12h — pedido do usuário pra não precisar logar de
+  // novo toda hora em campo (Android e iOS). O frontend já lê o `exp` do
+  // próprio token pra decidir se a sessão salva em localStorage ainda
+  // vale (ver tokenExpirado em AuthContext.jsx) — só mudar o expiresIn
+  // aqui já estende a persistência, sem precisar mexer no frontend.
   const token = jwt.sign(
     { sub: usuario.id, email: usuario.email, papel: usuario.papel },
     process.env.JWT_SECRET,
-    { expiresIn: "12h" }
+    { expiresIn: "30d" }
   );
 
   await pool.query(

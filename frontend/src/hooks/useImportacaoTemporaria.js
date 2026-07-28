@@ -40,7 +40,13 @@ export function useImportacaoTemporaria(mapRef, mapaPronto) {
       type: "fill",
       source: FONTE_TEMPORARIA,
       filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
-      paint: { "fill-color": CORES_FERRAMENTAS.temporaria, "fill-opacity": temporariaVisivel ? 0.25 : 0 },
+      // fill-antialias:false evita o bug de fragmentação do preenchimento
+      // no Safari/iOS (ver mesmo comentário em Mapa.jsx/adicionarCamada).
+      paint: {
+        "fill-color": CORES_FERRAMENTAS.temporaria,
+        "fill-opacity": temporariaVisivel ? 0.25 : 0,
+        "fill-antialias": false,
+      },
     });
     map.addLayer({
       id: CAMADA_TEMPORARIA_LINHA,

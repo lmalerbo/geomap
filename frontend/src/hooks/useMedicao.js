@@ -91,7 +91,9 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar) {
       type: "fill",
       source: FONTE_MEDICAO,
       filter: ["==", ["geometry-type"], "Polygon"],
-      paint: { "fill-color": CORES_FERRAMENTAS.medicao, "fill-opacity": 0.25 },
+      // fill-antialias:false evita o bug de fragmentação do preenchimento
+      // no Safari/iOS (ver mesmo comentário em Mapa.jsx/adicionarCamada).
+      paint: { "fill-color": CORES_FERRAMENTAS.medicao, "fill-opacity": 0.25, "fill-antialias": false },
     });
     map.addLayer({
       id: CAMADA_MEDICAO_LINHA,
