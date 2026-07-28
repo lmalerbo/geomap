@@ -83,8 +83,18 @@ export default function AdminCamadas() {
 
   const [camadas, setCamadas] = useState([]);
   const [mapas, setMapas] = useState([]);
-  const [filtroMapaId, setFiltroMapaId] = useState(searchParams.get("mapaId") || "");
   const [erroLista, setErroLista] = useState(null);
+  // Quais seções (por mapaId) estão abertas — antes a lista era achatada
+  // (todas as camadas de todos os mapas juntas, distinguidas só por um
+  // subtítulo pequeno com o nome do mapa), o que virava uma bagunça com
+  // vários mapas tendo camadas de mesmo nome (ex: "Talhões" repetido 3x).
+  // Agrupado por mapa agora; chegando via "?mapaId=" (botão "Adicionar
+  // camada" em Gerenciar Mapas) só esse mapa abre, os outros começam
+  // recolhidos — senão todos abrem por padrão.
+  const [secoesAbertas, setSecoesAbertas] = useState(() => {
+    const mapaDaUrl = searchParams.get("mapaId");
+    return mapaDaUrl ? new Set([mapaDaUrl]) : null; // null = "todas abertas"
+  });
 
   const [mostrarUpload, setMostrarUpload] = useState(searchParams.get("mapaId") != null);
   const [formUpload, setFormUpload] = useState({
@@ -190,16 +200,35 @@ export default function AdminCamadas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultadosRecentes]);
 
-  const camadasFiltradas = useMemo(
-    () =>
-      filtroMapaId
-        ? camadas.filter((c) => String(c.mapa_id) === String(filtroMapaId))
-        : camadas,
-    [camadas, filtroMapaId]
-  );
+  // Agrupa as camadas por mapa (ordenado pelo nome do mapa) — cada grupo vira
+  // uma seção recolhível na lista, em vez da lista achatada de antes.
+  const gruposPorMapa = useMemo(() => {
+    const porMapa = new Map();
+    for (const c of camadas) {
+      const chave = String(c.mapa_id);
+      if (!porMapa.has(chave)) porMapa.set(chave, []);
+      porMapa.get(chave).push(c);
+    }
+    return mapas
+      .map((m) => ({ mapaId: String(m.id), nomeMapa: m.nome, camadas: porMapa.get(String(m.id)) || [] }))
+      .sort((a, b) => a.nomeMapa.localeCompare(b.nomeMapa, "pt-BR"));
+  }, [camadas, mapas]);
 
-  function nomeDoMapa(mapaId) {
-    return mapas.find((m) => m.id === mapaId)?.nome || "—";
+  function secaoAberta(mapaId) {
+    return secoesAbertas === null || secoesAbertas.has(String(mapaId));
+  }
+
+  function alternarSecao(mapaId) {
+    setSecoesAbertas((atual) => {
+      const base = atual === null ? new Set(mapas.map((m) => String(m.id))) : new Set(atual);
+      const chave = String(mapaId);
+      if (base.has(chave)) {
+        base.delete(chave);
+      } else {
+        base.add(chave);
+      }
+      return base;
+    });
   }
 
   function atualizarFormUpload(campo, valor) {
@@ -674,17 +703,7 @@ export default function AdminCamadas() {
       <div className="workspace-camadas">
         <aside className="lista-camadas-workspace">
           <div className="cabecalho-lista-camadas">
-            <label className="campo-select-mapa campo-select-mapa--inline">
-              Filtrar por mapa
-              <select value={filtroMapaId} onChange={(e) => setFiltroMapaId(e.target.value)}>
-                <option value="">Todos os mapas</option>
-                {mapas.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.nome}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <strong>Camadas</strong>
             <button
               type="button"
               className="botao-secundario"
@@ -779,37 +798,61 @@ export default function AdminCamadas() {
             </form>
           )}
 
-          <ul className="lista-selecionavel-camadas">
-            {camadasFiltradas.map((c) => (
-              <li key={c.id}>
+          <div className="lista-camadas-agrupada">
+            {gruposPorMapa.map((grupo) => (
+              <div key={grupo.mapaId} className="grupo-camadas-mapa">
                 <button
                   type="button"
-                  className={`item-selecionavel-camada${camadaSelecionadaId === c.id ? " item-selecionavel-camada--ativo" : ""}`}
-                  onClick={() => selecionarCamada(c.id)}
+                  className="cabecalho-grupo-camadas"
+                  onClick={() => alternarSecao(grupo.mapaId)}
+                  aria-expanded={secaoAberta(grupo.mapaId)}
                 >
-                  <span
-                    className="swatch-camada"
-                    style={{
-                      backgroundColor:
-                        c.estilo_config?.preenchimento?.cor || c.estilo_config?.cor || corDaCamada(c.id),
-                    }}
-                    aria-hidden="true"
-                  />
-                  <span className="info-item-camada">
-                    <strong>{c.nome}</strong>
-                    <span className="detalhe-mapa-admin">
-                      {nomeDoMapa(c.mapa_id)} · v{c.versao}
-                    </span>
+                  <span className={`seta-grupo-camadas${secaoAberta(grupo.mapaId) ? " aberta" : ""}`} aria-hidden="true">
+                    ▸
                   </span>
+                  <strong>{grupo.nomeMapa}</strong>
+                  <span className="contagem-grupo-camadas">{grupo.camadas.length}</span>
                 </button>
-              </li>
+
+                {secaoAberta(grupo.mapaId) && (
+                  <ul className="lista-selecionavel-camadas">
+                    {grupo.camadas.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className={`item-selecionavel-camada${camadaSelecionadaId === c.id ? " item-selecionavel-camada--ativo" : ""}`}
+                          onClick={() => selecionarCamada(c.id)}
+                        >
+                          <span
+                            className="swatch-camada"
+                            style={{
+                              backgroundColor:
+                                c.estilo_config?.preenchimento?.cor || c.estilo_config?.cor || corDaCamada(c.id),
+                            }}
+                            aria-hidden="true"
+                          />
+                          <span className="info-item-camada">
+                            <strong>{c.nome}</strong>
+                            <span className="detalhe-mapa-admin">v{c.versao}</span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                    {grupo.camadas.length === 0 && (
+                      <p className="sem-dados-estatistica sem-dados-estatistica--compacto">
+                        Nenhuma camada neste mapa ainda.
+                      </p>
+                    )}
+                  </ul>
+                )}
+              </div>
             ))}
-            {camadasFiltradas.length === 0 && (
+            {gruposPorMapa.length === 0 && (
               <p className="sem-dados-estatistica">
-                <IconeEstadoVazio /> Nenhuma camada aqui ainda.
+                <IconeEstadoVazio /> Nenhum mapa cadastrado ainda.
               </p>
             )}
-          </ul>
+          </div>
         </aside>
 
         <section className="detalhe-camada-workspace">

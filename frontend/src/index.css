@@ -1712,7 +1712,8 @@ input[type="file"]::file-selector-button:hover {
 
 .cabecalho-lista-camadas {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
@@ -1724,9 +1725,66 @@ input[type="file"]::file-selector-button:hover {
   margin-bottom: 0;
 }
 
+/* Lista de camadas agrupada por mapa — antes era uma lista achatada com
+   TODAS as camadas de TODOS os mapas juntas, distinguidas só por um
+   subtítulo pequeno com o nome do mapa (repetia nomes como "Talhões" uma
+   vez por mapa). Cada mapa agora é uma seção recolhível. */
+.lista-camadas-agrupada {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.grupo-camadas-mapa + .grupo-camadas-mapa {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.cabecalho-grupo-camadas {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 4px;
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.cabecalho-grupo-camadas:hover {
+  background: var(--bg);
+}
+
+.seta-grupo-camadas {
+  display: inline-block;
+  transition: transform var(--dur-hover) var(--ease-padrao);
+  color: var(--text-muted);
+}
+
+.seta-grupo-camadas.aberta {
+  transform: rotate(90deg);
+}
+
+.contagem-grupo-camadas {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.sem-dados-estatistica--compacto {
+  padding: 4px 4px 8px;
+  font-size: 13px;
+}
+
 .lista-selecionavel-camadas {
   list-style: none;
-  margin: 0;
+  margin: 0 0 4px;
   padding: 0;
   display: flex;
   flex-direction: column;
