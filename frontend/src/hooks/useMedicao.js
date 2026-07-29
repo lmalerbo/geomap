@@ -314,15 +314,54 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
 
   // Snapshot do canvas do mapa no momento da exportação (preserveDrawingBuffer
   // precisa estar ligado na criação do mapa — ver Mapa.jsx — senão volta
-  // uma imagem em branco). Falha silenciosa (undefined) não impede o
-  // resto do PDF de sair, só sem a imagem. Devolve largura/altura reais do
+  // uma imagem em branco). Antes da foto: (1) enquadra a área/trajeto
+  // medido — sem isso a imagem saía com o que estava na tela no momento
+  // (posição/zoom arbitrários de quem tava editando, não necessariamente
+  // a medição inteira visível); (2) troca o visual da ferramenta (laranja,
+  // tracejado, pontos de edição visíveis) por um estilo "acabado" — como o
+  // KML exportado ficaria de verdade, verde sólido, sem os pontos —, mais
+  // condizente com um relatório do que com uma tela de edição. Os dois
+  // (câmera e estilo) são restaurados no finally, então isso não deixa
+  // rastro na tela viva — o usuário pode seguir editando a medição normal
+  // depois de exportar. Falha silenciosa (undefined) não impede o resto
+  // do PDF de sair, só sem a imagem. Devolve largura/altura reais do
   // canvas junto — sem isso o PDF encaixava a imagem numa caixa de
   // proporção fixa, esticando/achatando ela quando a proporção real da
   // tela do usuário era diferente (ex: celular em retrato).
-  function capturarImagemMapa() {
+  async function capturarImagemMapa() {
+    const map = mapRef.current;
+    if (!map || pontosMedicao.length === 0) return undefined;
+
+    const cameraAntes = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+    const propriedadesOriginais = {};
+    function trocarPintura(layerId, propriedade, valor) {
+      if (!map.getLayer(layerId)) return;
+      propriedadesOriginais[`${layerId}.${propriedade}`] = map.getPaintProperty(layerId, propriedade);
+      map.setPaintProperty(layerId, propriedade, valor);
+    }
+
     try {
-      const canvas = mapRef.current?.getCanvas();
-      if (!canvas) return undefined;
+      if (map.getLayer(CAMADA_MEDICAO_PONTOS)) map.setLayoutProperty(CAMADA_MEDICAO_PONTOS, "visibility", "none");
+      trocarPintura(CAMADA_MEDICAO_LINHA, "line-color", CORES_FERRAMENTAS.medicaoRelatorio);
+      trocarPintura(CAMADA_MEDICAO_LINHA, "line-dasharray", []);
+      trocarPintura(CAMADA_MEDICAO_LINHA, "line-width", 3);
+      trocarPintura(CAMADA_MEDICAO_AREA, "fill-color", CORES_FERRAMENTAS.medicaoRelatorio);
+      trocarPintura(CAMADA_MEDICAO_AREA, "fill-opacity", 0.35);
+
+      const lngs = pontosMedicao.map((p) => p[0]);
+      const lats = pontosMedicao.map((p) => p[1]);
+      const bounds = [
+        [Math.min(...lngs), Math.min(...lats)],
+        [Math.max(...lngs), Math.max(...lats)],
+      ];
+      map.fitBounds(bounds, { padding: 60, duration: 0, maxZoom: 18 });
+
+      // fitBounds com duration:0 aplica a câmera na hora, mas o WebGL só
+      // desenha o frame novo no próximo ciclo de render — sem esperar
+      // "idle", a captura pegaria o frame antigo (câmera/estilo de antes).
+      await new Promise((resolve) => map.once("idle", resolve));
+
+      const canvas = map.getCanvas();
       // JPEG em vez de PNG — o canvas do mapa é essencialmente uma "foto"
       // (sem transparência relevante pra manter), e PNG sem perdas gerava
       // um PDF de 3+ MB só com a imagem, pesado demais pra compartilhar
@@ -334,6 +373,13 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
       };
     } catch {
       return undefined;
+    } finally {
+      for (const [chave, valor] of Object.entries(propriedadesOriginais)) {
+        const separador = chave.indexOf(".");
+        map.setPaintProperty(chave.slice(0, separador), chave.slice(separador + 1), valor);
+      }
+      if (map.getLayer(CAMADA_MEDICAO_PONTOS)) map.setLayoutProperty(CAMADA_MEDICAO_PONTOS, "visibility", "visible");
+      map.jumpTo(cameraAntes);
     }
   }
 
@@ -345,7 +391,7 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
   // código da fazenda mais próxima) é calculado em Mapa.jsx, que é quem
   // tem acesso ao índice de busca — este hook não precisa conhecer esse
   // formato.
-  function exportarMedicaoZip(referencia) {
+  async function exportarMedicaoZip(referencia) {
     if (!resultadoMedicaoAtual) return;
     baixarZipMedicao({
       pontos: pontosMedicao,
@@ -353,7 +399,7 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
       resultado: resultadoMedicaoAtual,
       nomeMapa,
       referencia,
-      imagemMapa: capturarImagemMapa(),
+      imagemMapa: await capturarImagemMapa(),
     });
   }
 
