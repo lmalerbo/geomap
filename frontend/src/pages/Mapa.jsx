@@ -388,9 +388,9 @@ async function montarIndiceBusca(infos) {
             lat,
             bounds,
             mapaId: info.id,
-            // Guardado (não só usado pra montar `buscavel`) — o campo de
-            // "Referência" do relatório de medição mostra código + nome da
-            // fazenda mais próxima, ver calcularReferenciaProxima.
+            // Guardado (não só usado pra montar `buscavel`) — usado como
+            // fallback por distância em calcularReferenciaPorDistancia
+            // quando nada está renderizado exatamente no ponto medido.
             codigos: codigos ? [...codigos].sort() : [],
           });
         }
@@ -407,12 +407,6 @@ function centroideMedicao(pontos) {
   return [somaLng / n, somaLat / n];
 }
 
-function dentroDosBounds([lng, lat], bounds) {
-  if (!bounds) return false;
-  const [minLng, minLat, maxLng, maxLat] = bounds;
-  return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
-}
-
 // Haversine simples (km) — evita puxar @turf/distance só pra essa conta
 // única, já que o resto do arquivo usa turfLength/turfArea por outro
 // motivo (linha/polígono, não ponto a ponto).
@@ -426,30 +420,55 @@ function distanciaKm([lng1, lat1], [lng2, lat2]) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+function referenciaDeAtributos(props) {
+  if (!props || !("DESC_SECAO" in props)) return null;
+  const codigo = props.SECAO;
+  return codigo ? `${props.DESC_SECAO} (cód. ${codigo})` : props.DESC_SECAO;
+}
+
+// Fallback quando nada está renderizado exatamente no ponto medido (fora
+// de qualquer talhão/limite conhecido, ou tiles daquela área ainda não
+// carregados) — fazenda com o rótulo (ponto) mais próximo por distância.
+function calcularReferenciaPorDistancia(centro, indiceBusca) {
+  if (indiceBusca.length === 0) return null;
+  const escolhida = indiceBusca.reduce((melhor, r) => {
+    const d = distanciaKm(centro, [r.lng, r.lat]);
+    return !melhor || d < melhor.distancia ? { r, distancia: d } : melhor;
+  }, null)?.r;
+  return escolhida ? referenciaDeAtributos({ DESC_SECAO: escolhida.texto, SECAO: escolhida.codigos[0] }) : null;
+}
+
 // "Referência" do relatório de medição: código + nome da fazenda mais
-// próxima do que foi medido. Prioriza o centro da medição CAIR DENTRO dos
-// limites reais de alguma fazenda (mais confiável que só distância —
-// pedido explícito do usuário: "o limite deve se comportar melhor",
-// já que o ponto de rótulo de uma fazenda fica só na maior peça dela,
-// ver polylabel em gerar_rotulos_por_atributo.py, então a fazenda com o
-// PONTO mais próximo nem sempre é a fazenda "certa" quando a medição cai
-// dentro de uma peça menor de outra). Cai pra "mais próxima por
-// distância" só se nenhum bounds contiver o centro.
-function calcularReferenciaProxima(pontosMedicao, indiceBusca) {
-  if (pontosMedicao.length === 0 || indiceBusca.length === 0) return null;
+// próxima do que foi medido. Consulta a GEOMETRIA REAL renderizada no
+// centro da medição (mesma técnica do clique de atributos — map.project +
+// queryRenderedFeatures), não uma aproximação por bounding box: uma
+// primeira versão usava os bounds agregados do índice de busca (união de
+// TODAS as peças de uma fazenda) como teste de "está dentro" — mas uma
+// fazenda com pedaços espalhados (comum, ver histórico) pode ter um bbox
+// enorme que "engole" pontos de fazendas vizinhas completamente diferentes,
+// dando uma referência errada mesmo perto do centro. queryRenderedFeatures
+// usa o polígono de verdade, sem essa armadilha. Só cai pro cálculo por
+// distância (menos preciso, mas nunca "absurdamente errado") quando não
+// há nada renderizado ali.
+function encontrarReferenciaMedicao(map, camadasCarregadasRef, pontosMedicao, indiceBusca) {
+  if (!map || pontosMedicao.length === 0) return null;
   const centro = centroideMedicao(pontosMedicao);
 
-  const dentro = indiceBusca.find((r) => dentroDosBounds(centro, r.bounds));
-  const escolhida =
-    dentro ||
-    indiceBusca.reduce((melhor, r) => {
-      const d = distanciaKm(centro, [r.lng, r.lat]);
-      return !melhor || d < melhor.distancia ? { r, distancia: d } : melhor;
-    }, null)?.r;
+  const layerIds = [...camadasCarregadasRef.current.entries()]
+    .filter(([, info]) => info.consultavel)
+    .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
+    .filter((id) => map.getLayer(id));
 
-  if (!escolhida) return null;
-  const codigo = escolhida.codigos[0];
-  return codigo ? `${escolhida.texto} (cód. ${codigo})` : escolhida.texto;
+  if (layerIds.length > 0) {
+    const pixel = map.project(centro);
+    const features = map.queryRenderedFeatures(pixel, { layers: layerIds });
+    for (const feature of features) {
+      const referencia = referenciaDeAtributos(feature.properties);
+      if (referencia) return referencia;
+    }
+  }
+
+  return calcularReferenciaPorDistancia(centro, indiceBusca);
 }
 
 async function adicionarCamada(map, protocol, mapa) {
@@ -841,7 +860,9 @@ export default function Mapa() {
   // criam/destroem source/layers no mapa. `mapRef`/`mapaPronto` são
   // repassados porque o mapa em si é criado uma vez só, aqui embaixo (efeito
   // 1) — os hooks não criam mapa nenhum, só desenham em cima do existente.
-  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual);
+  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual, (pontos) =>
+    encontrarReferenciaMedicao(mapRef.current, camadasCarregadasRef, pontos, indiceBusca)
+  );
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto);
 
@@ -1752,13 +1773,7 @@ export default function Mapa() {
               </p>
 
               {medicao.resultadoMedicaoAtual && !medicao.capturandoGps && (
-                <button
-                  type="button"
-                  className="botao-secundario"
-                  onClick={() =>
-                    medicao.exportarMedicaoZip(calcularReferenciaProxima(medicao.pontosMedicao, indiceBusca))
-                  }
-                >
+                <button type="button" className="botao-secundario" onClick={() => medicao.exportarMedicaoZip()}>
                   Exportar relatório
                 </button>
               )}

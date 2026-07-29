@@ -70,8 +70,13 @@ function textoResultadoMedicao(pontos, modo) {
 // pai); `aoIniciar` é chamado quando a medição liga de verdade (não só o
 // state mudar) — usado pra fechar o painel de atributos, já que os dois
 // não fazem sentido abertos ao mesmo tempo. `nomeMapa` só é usado pra
-// nomear os arquivos exportados (KML/PDF).
-export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
+// nomear os arquivos exportados (KML/PDF). `encontrarReferencia(pontos)`
+// (opcional) devolve o texto de "fazenda mais próxima" pro relatório —
+// vem de fora porque só Mapa.jsx tem acesso às camadas carregadas/índice
+// de busca; precisa ser chamado só DEPOIS do enquadramento da captura
+// (ver capturarImagemMapa), pra consultar a geometria de verdade já
+// renderizada naquele ponto, não o que estava na tela antes.
+export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa, encontrarReferencia) {
   const [medindo, setMedindo] = useState(false);
   const [modoMedicao, setModoMedicao] = useState("distancia");
   const [pontosMedicao, setPontosMedicao] = useState([]);
@@ -344,7 +349,10 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
       if (map.getLayer(CAMADA_MEDICAO_PONTOS)) map.setLayoutProperty(CAMADA_MEDICAO_PONTOS, "visibility", "none");
       trocarPintura(CAMADA_MEDICAO_LINHA, "line-color", CORES_FERRAMENTAS.medicaoRelatorio);
       trocarPintura(CAMADA_MEDICAO_LINHA, "line-dasharray", []);
-      trocarPintura(CAMADA_MEDICAO_LINHA, "line-width", 3);
+      // 5px em vez de 3 — o preenchimento semi-transparente sozinho não
+      // deixava o polígono claramente visível na foto, precisa de um
+      // contorno bem marcado por cima.
+      trocarPintura(CAMADA_MEDICAO_LINHA, "line-width", 5);
       trocarPintura(CAMADA_MEDICAO_AREA, "fill-color", CORES_FERRAMENTAS.medicaoRelatorio);
       trocarPintura(CAMADA_MEDICAO_AREA, "fill-opacity", 0.35);
 
@@ -361,6 +369,11 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
       // "idle", a captura pegaria o frame antigo (câmera/estilo de antes).
       await new Promise((resolve) => map.once("idle", resolve));
 
+      // Só agora (depois do enquadramento) a geometria da área medida está
+      // de fato renderizada — chamado aqui, não antes, pra encontrarReferencia
+      // poder consultar a geometria de verdade em vez de uma aproximação.
+      const referencia = encontrarReferencia?.(pontosMedicao) ?? null;
+
       const canvas = map.getCanvas();
       // JPEG em vez de PNG — o canvas do mapa é essencialmente uma "foto"
       // (sem transparência relevante pra manter), e PNG sem perdas gerava
@@ -370,6 +383,7 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
         dataUrl: canvas.toDataURL("image/jpeg", 0.85),
         largura: canvas.width,
         altura: canvas.height,
+        referencia,
       };
     } catch {
       return undefined;
@@ -387,19 +401,17 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
   // coordenadas em CSV) — antes eram dois botões separados (KML/PDF); o
   // PDF com a lista de pontos virava um calhamaço de várias páginas com
   // medições de muitos pontos (testado com 131), então a lista bruta
-  // saiu do PDF e virou o CSV, sempre incluído junto. `referencia` (nome/
-  // código da fazenda mais próxima) é calculado em Mapa.jsx, que é quem
-  // tem acesso ao índice de busca — este hook não precisa conhecer esse
-  // formato.
-  async function exportarMedicaoZip(referencia) {
+  // saiu do PDF e virou o CSV, sempre incluído junto.
+  async function exportarMedicaoZip() {
     if (!resultadoMedicaoAtual) return;
+    const imagemMapa = await capturarImagemMapa();
     baixarZipMedicao({
       pontos: pontosMedicao,
       modo: modoMedicao,
       resultado: resultadoMedicaoAtual,
       nomeMapa,
-      referencia,
-      imagemMapa: await capturarImagemMapa(),
+      referencia: imagemMapa?.referencia ?? null,
+      imagemMapa,
     });
   }
 
