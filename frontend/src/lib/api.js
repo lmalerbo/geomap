@@ -44,12 +44,26 @@ export async function buscarCatalogo(token) {
   return resp.json();
 }
 
+// O backend não manda mais os bytes do .pmtiles em si (isso gastava a
+// banda limitada do Render, free tier — 5GB/mês desde 2026-04, estourava
+// rápido com uso normal) — devolve só uma URL assinada do R2 (JSON,
+// pequeno), e o navegador busca o arquivo NUMA SEGUNDA requisição direto
+// pro R2 (fetch CORS de 1 salto só, banda de saída do R2 é grátis).
+async function baixarDeUrlAssinada(resp) {
+  await tratarResposta(resp);
+  const { url } = await resp.json();
+  const respArquivo = await fetch(url);
+  if (!respArquivo.ok) {
+    throw new Error("Não foi possível baixar o arquivo do armazenamento.");
+  }
+  return respArquivo.blob();
+}
+
 export async function baixarCamada(token, camadaId) {
   const resp = await fetch(`${API_URL}/camadas/${camadaId}/download`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  await tratarResposta(resp);
-  return resp.blob();
+  return baixarDeUrlAssinada(resp);
 }
 
 // --- Painel de administração: mapas (projetos) ---
@@ -271,8 +285,7 @@ export async function baixarCamadaAdmin(token, camadaId) {
   const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/arquivo`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  await tratarResposta(resp);
-  return resp.blob();
+  return baixarDeUrlAssinada(resp);
 }
 
 export async function buscarConfigAtributos(token, camadaId) {

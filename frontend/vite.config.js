@@ -37,7 +37,17 @@ const base = process.env.GITHUB_PAGES ? '/geomap/' : '/';
 //    'unsafe-inline' em script-src é liberado só em dev.
 function cspContent(command) {
   const apiUrl = process.env.VITE_API_URL || 'http://localhost:3000';
-  const conectaCom = ["'self'", apiUrl, 'https://server.arcgisonline.com'].join(' ');
+  // *.r2.cloudflarestorage.com — desde que o download de camadas passou a
+  // buscar o .pmtiles direto do R2 (URL assinada, ver lib/api.js), em vez
+  // de streaming pelo backend, sem isso a própria CSP do app bloqueia essa
+  // conexão (confirmado: "Refused to connect because it violates the
+  // document's Content Security Policy", não é CORS do bucket).
+  const conectaCom = [
+    "'self'",
+    apiUrl,
+    'https://server.arcgisonline.com',
+    'https://*.r2.cloudflarestorage.com',
+  ].join(' ');
   const scriptSrc = command === 'serve' ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
   return [
     "default-src 'self'",

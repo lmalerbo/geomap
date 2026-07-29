@@ -17,7 +17,7 @@ import {
   apagarArquivo,
   copiarArquivo,
   duplicarArquivo,
-  streamArquivo,
+  gerarUrlAssinada,
 } from "../lib/storage.js";
 
 export const adminRouter = Router();
@@ -956,18 +956,12 @@ adminRouter.get("/admin/camadas/:id/arquivo", async (req, res) => {
     return res.status(404).json({ erro: "camada não encontrada" });
   }
 
-  let objeto;
-  try {
-    objeto = await streamArquivo(camada.arquivo_path);
-  } catch (err) {
-    if (err.name === "NoSuchKey") {
-      return res.status(404).json({ erro: "arquivo da camada não encontrado no servidor" });
-    }
-    throw err;
-  }
-  res.setHeader("Content-Type", objeto.ContentType || "application/octet-stream");
-  if (objeto.ContentLength) res.setHeader("Content-Length", objeto.ContentLength);
-  objeto.Body.pipe(res);
+  // Mesma mudança de streaming pra URL assinada da rota de download normal
+  // (ver mapas.js/storage.js) — o admin lê o .pmtiles inteiro só pra tirar
+  // metadata (campos disponíveis), e isso também passava pela banda do
+  // Render antes.
+  const url = await gerarUrlAssinada(camada.arquivo_path);
+  res.json({ url });
 });
 
 // Controle de versão: atualiza o .pmtiles de uma camada já existente

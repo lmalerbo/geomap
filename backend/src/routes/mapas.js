@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao } from "../middleware/auth.js";
-import { streamArquivo } from "../lib/storage.js";
+import { gerarUrlAssinada } from "../lib/storage.js";
 
 export const mapasRouter = Router();
 
@@ -68,22 +68,20 @@ mapasRouter.get("/camadas/:id/download", async (req, res) => {
     return res.status(404).json({ erro: "camada não encontrada" });
   }
 
+  // Log gravado ANTES de devolver a URL (mesmo princípio de sempre —
+  // é o núcleo do valor do projeto, nunca pode depender do download em
+  // si ter sucesso pra existir).
   await pool.query(
     "INSERT INTO logs (usuario_id, camada_id, acao, ip) VALUES ($1, $2, 'download', $3)",
     [req.usuarioId, camada.id, req.ip]
   );
 
-  let objeto;
-  try {
-    objeto = await streamArquivo(camada.arquivo_path);
-  } catch (err) {
-    if (err.name === "NoSuchKey") {
-      return res.status(404).json({ erro: "arquivo da camada não encontrado no servidor" });
-    }
-    throw err;
-  }
-  res.setHeader("Content-Type", objeto.ContentType || "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename="${camada.arquivo_path}"`);
-  if (objeto.ContentLength) res.setHeader("Content-Length", objeto.ContentLength);
-  objeto.Body.pipe(res);
+  // URL assinada devolvida como JSON (não streaming, não redirect) — o
+  // navegador busca o arquivo direto do R2 numa segunda requisição, sem
+  // gastar banda do Render (ver storage.js pro porquê). Só existência da
+  // chave: getSignedUrl não verifica o objeto no R2 (é só uma assinatura
+  // offline) — um arquivo genuinamente ausente vira erro no fetch direto
+  // do frontend pro R2, não aqui.
+  const url = await gerarUrlAssinada(camada.arquivo_path);
+  res.json({ url });
 });

@@ -5,6 +5,7 @@ import {
   CopyObjectCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Cloudflare R2 é compatível com a API S3 (mesmo SDK oficial da AWS, só
 // apontando o endpoint pro R2) — arquivos publicados (.pmtiles) vivem
@@ -63,18 +64,25 @@ export async function duplicarArquivo(chaveOrigem, chaveDestino) {
   );
 }
 
-// Streaming direto do R2 pela resposta do próprio backend — tentativa
-// inicial foi um redirect 302 pra uma URL assinada do R2, mas isso faz o
-// navegador falar direto com um domínio diferente (r2.cloudflarestorage.com),
-// que precisa da própria política de CORS do bucket configurada certinho;
-// mesmo configurada corretamente (confirmado via curl com o header
-// Access-Control-Allow-Origin presente), o Chromium seguiu recusando o
-// redirect nessa cadeia de 2 domínios (github.io -> onrender.com -> R2) —
-// sem uma causa raiz 100% isolada (rede/antivírus local mexendo na conexão
-// era a suspeita mais forte), streaming resolve de vez: o navegador só
-// fala com o nosso próprio domínio (onrender.com), que já tem CORS aberto
-// (app.use(cors()) em app.js) — sem depender de política de CORS de
-// terceiro nenhuma.
-export async function streamArquivo(chave) {
-  return r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: chave }));
+// URL assinada (expira em minutos) pro navegador baixar o arquivo DIRETO
+// do R2, sem os bytes passarem pelo Render — a única banda que o Render
+// gasta agora é a resposta JSON minúscula com essa URL, não o .pmtiles
+// inteiro (que pode ter dezenas de MB). Isso importa de verdade: o plano
+// free do Render cortou a banda incluída de 100GB/mês pra 5GB/mês em
+// 2026-04, e servir os arquivos de mapa por ele estourava essa cota
+// rápido com uso normal (workspace inteiro fica suspenso até o mês virar
+// quando estoura, sem opção gratuita de desbloquear na hora).
+//
+// Uma tentativa anterior desse MESMO objetivo (redirect 302 pra uma URL
+// assinada) não funcionou — o Chromium recusava o redirect numa cadeia de
+// 2 domínios (github.io -> onrender.com -> R2) mesmo com CORS do bucket
+// configurado certinho (confirmado via curl). A diferença aqui: em vez de
+// redirect (o navegador segue automaticamente, dentro da MESMA requisição
+// de rede), o backend devolve a URL como JSON e o FRONTEND faz uma
+// segunda requisição própria pra ela — é um fetch CORS normal de 1 salto
+// só (github.io -> R2 direto), não uma cadeia de redirect entre domínios,
+// que é o tipo de CORS que os navegadores lidam bem.
+export async function gerarUrlAssinada(chave, expiraEmSegundos = 300) {
+  const comando = new GetObjectCommand({ Bucket: BUCKET, Key: chave });
+  return getSignedUrl(r2, comando, { expiresIn: expiraEmSegundos });
 }
