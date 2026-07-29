@@ -14,9 +14,12 @@ const CAMADA_MEDICAO_AREA = "camada-medicao-area";
 // só pra dar a pista visual do polígono), preenchimento a partir de 3
 // pontos em modo área.
 function geojsonMedicao(pontos, modo) {
-  const features = pontos.map((p) => ({
+  // `indice` identifica qual ponto foi atingido ao arrastar (ver efeito de
+  // arrastar ponto abaixo) — sem isso não daria pra saber qual posição do
+  // array atualizar a partir de um hit-test no mapa.
+  const features = pontos.map((p, i) => ({
     type: "Feature",
-    properties: {},
+    properties: { indice: i },
     geometry: { type: "Point", coordinates: p },
   }));
 
@@ -149,6 +152,71 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
     if (fonte) fonte.setData(geojsonMedicao(pontosMedicao, modoMedicao));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pontosMedicao, modoMedicao, medindo]);
+
+  // Arrastar um ponto já colocado pra reposicionar — só no modo "clique"
+  // (pontos de GPS já são atualizados pelo watchPosition, arrastar não
+  // faz sentido pra eles). Padrão oficial do MapLibre pra feição
+  // arrastável: mousedown/touchstart na camada com e.preventDefault()
+  // (impede o mapa de começar a arrastar/pan junto e também suprime o
+  // "click" nativo que viria em seguida — sem isso, soltar o ponto
+  // também adicionaria um ponto novo na posição final), depois
+  // mousemove/touchmove no mapa inteiro até soltar.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !medindo || origemPontos !== "clique") return;
+
+    function aoEntrarPonto() {
+      map.getCanvas().style.cursor = "grab";
+    }
+    function aoSairPonto() {
+      map.getCanvas().style.cursor = "";
+    }
+
+    function iniciarArraste(e) {
+      e.preventDefault();
+      const feature = e.features?.[0];
+      if (!feature) return;
+      const indice = feature.properties.indice;
+      map.getCanvas().style.cursor = "grabbing";
+      map.dragPan.disable();
+
+      function aoMover(ev) {
+        const { lng, lat } = ev.lngLat;
+        setPontosMedicao((atual) => {
+          if (indice >= atual.length) return atual;
+          const novo = [...atual];
+          novo[indice] = [lng, lat];
+          return novo;
+        });
+      }
+      function finalizarArraste() {
+        map.off("mousemove", aoMover);
+        map.off("touchmove", aoMover);
+        map.getCanvas().style.cursor = "";
+        map.dragPan.enable();
+      }
+
+      map.on("mousemove", aoMover);
+      map.on("touchmove", aoMover);
+      map.once("mouseup", finalizarArraste);
+      map.once("touchend", finalizarArraste);
+    }
+
+    map.on("mouseenter", CAMADA_MEDICAO_PONTOS, aoEntrarPonto);
+    map.on("mouseleave", CAMADA_MEDICAO_PONTOS, aoSairPonto);
+    map.on("mousedown", CAMADA_MEDICAO_PONTOS, iniciarArraste);
+    map.on("touchstart", CAMADA_MEDICAO_PONTOS, iniciarArraste);
+
+    return () => {
+      map.off("mouseenter", CAMADA_MEDICAO_PONTOS, aoEntrarPonto);
+      map.off("mouseleave", CAMADA_MEDICAO_PONTOS, aoSairPonto);
+      map.off("mousedown", CAMADA_MEDICAO_PONTOS, iniciarArraste);
+      map.off("touchstart", CAMADA_MEDICAO_PONTOS, iniciarArraste);
+      map.dragPan.enable();
+      map.getCanvas().style.cursor = "";
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [medindo, origemPontos, mapaPronto]);
 
   // Desligar a medição (botão fechar) no meio de uma captura por GPS não
   // pode deixar o watchPosition rodando escondido pra sempre.
