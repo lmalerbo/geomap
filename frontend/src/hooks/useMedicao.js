@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import turfLength from "@turf/length";
 import turfArea from "@turf/area";
 import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
-import { baixarKmlMedicao, baixarPdfMedicao } from "../lib/exportarMedicao.js";
+import { baixarZipMedicao } from "../lib/exportarMedicao.js";
 
 const FONTE_MEDICAO = "fonte-medicao";
 const CAMADA_MEDICAO_LINHA = "camada-medicao-linha";
@@ -328,14 +328,14 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
     }
   }
 
-  function exportarMedicaoKml() {
+  // Um zip só com os 3 formatos (relatório em PDF, geometria em KML,
+  // coordenadas em CSV) — antes eram dois botões separados (KML/PDF); o
+  // PDF com a lista de pontos virava um calhamaço de várias páginas com
+  // medições de muitos pontos (testado com 131), então a lista bruta
+  // saiu do PDF e virou o CSV, sempre incluído junto.
+  function exportarMedicaoZip() {
     if (!resultadoMedicaoAtual) return;
-    baixarKmlMedicao(pontosMedicao, modoMedicao, resultadoMedicaoAtual, nomeMapa);
-  }
-
-  function exportarMedicaoPdf() {
-    if (!resultadoMedicaoAtual) return;
-    baixarPdfMedicao({
+    baixarZipMedicao({
       pontos: pontosMedicao,
       modo: modoMedicao,
       resultado: resultadoMedicaoAtual,
@@ -359,7 +359,6 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
     erroGps,
     iniciarCapturaGps,
     pararCapturaGps,
-    exportarMedicaoKml,
-    exportarMedicaoPdf,
+    exportarMedicaoZip,
   };
 }

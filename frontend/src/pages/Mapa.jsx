@@ -1694,14 +1694,9 @@ export default function Mapa() {
               </p>
 
               {medicao.resultadoMedicaoAtual && !medicao.capturandoGps && (
-                <div className="acoes-painel-track acoes-painel-track--grade">
-                  <button type="button" className="botao-secundario" onClick={medicao.exportarMedicaoKml}>
-                    Exportar KML
-                  </button>
-                  <button type="button" className="botao-secundario" onClick={medicao.exportarMedicaoPdf}>
-                    Exportar PDF
-                  </button>
-                </div>
+                <button type="button" className="botao-secundario" onClick={medicao.exportarMedicaoZip}>
+                  Exportar (.zip: PDF + KML + CSV)
+                </button>
               )}
 
               {medicao.pontosMedicao.length > 0 && !medicao.capturandoGps && (
