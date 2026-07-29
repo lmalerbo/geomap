@@ -1284,17 +1284,33 @@ export default function Mapa() {
 
   const itemSelecionado = selecao?.itens[selecao.indice];
 
-  const buscaNormalizada = normalizarTexto(buscaTexto.trim());
-  const resultadosBusca =
-    buscaNormalizada.length >= 2
-      ? indiceBusca
-          .filter((r) => r.buscavel.includes(buscaNormalizada))
-          // Buscar "Santa Lydia" deveria achar a fazenda em si, não só os
-          // 20+ talhões que têm esse nome no texto — texto mais curto
-          // (mais específico) primeiro.
-          .sort((a, b) => a.texto.length - b.texto.length)
-          .slice(0, 8)
-      : [];
+  // Separado por ";" busca várias fazendas de uma vez (ex: "10003;10004" ou
+  // "PEDRA;SANTA MARIANA") — cada termo é resolvido independente (mesmo
+  // critério de sempre: texto mais curto/específico primeiro, até 8 por
+  // termo) e os resultados são concatenados na ordem dos termos digitados,
+  // sem repetir a mesma fazenda duas vezes se ela bater em mais de um termo.
+  const termosBusca = buscaTexto
+    .split(";")
+    .map((t) => normalizarTexto(t.trim()))
+    .filter((t) => t.length >= 2);
+  const resultadosBusca = (() => {
+    if (termosBusca.length === 0) return [];
+    const vistos = new Set();
+    const resultados = [];
+    for (const termo of termosBusca) {
+      const doTermo = indiceBusca
+        .filter((r) => r.buscavel.includes(termo))
+        .sort((a, b) => a.texto.length - b.texto.length)
+        .slice(0, 8);
+      for (const r of doTermo) {
+        const chave = `${r.mapaId}-${r.texto}`;
+        if (vistos.has(chave)) continue;
+        vistos.add(chave);
+        resultados.push(r);
+      }
+    }
+    return resultados;
+  })();
   // A lista é recalculada a cada tecla — se encolher, o índice destacado
   // de uma busca anterior pode ficar fora dos limites.
   const indiceDestacadoValido = Math.min(indiceDestacadoBusca, Math.max(resultadosBusca.length - 1, 0));
@@ -1363,7 +1379,7 @@ export default function Mapa() {
               type="search"
               placeholder={
                 indiceBusca.length > 0
-                  ? "Buscar fazenda (nome ou código)…"
+                  ? "Buscar fazenda (nome ou código; separe com ; pra buscar várias)…"
                   : "Busca não disponível para este mapa"
               }
               value={buscaTexto}
@@ -1397,7 +1413,7 @@ export default function Mapa() {
                     ))}
                   </ul>
                 )}
-                {buscaNormalizada.length >= 2 && resultadosBusca.length === 0 && (
+                {termosBusca.length > 0 && resultadosBusca.length === 0 && (
                   <p className="sem-resultados-busca">
                     <IconeEstadoVazio tamanho={16} /> Nada encontrado.
                   </p>
