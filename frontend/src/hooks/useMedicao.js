@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import turfLength from "@turf/length";
 import turfArea from "@turf/area";
 import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
+import { baixarKmlMedicao, baixarPdfMedicao } from "../lib/exportarMedicao.js";
 
 const FONTE_MEDICAO = "fonte-medicao";
 const CAMADA_MEDICAO_LINHA = "camada-medicao-linha";
@@ -63,11 +64,21 @@ function textoResultadoMedicao(pontos, modo) {
 // `mapaPronto` vêm de fora (o mapa é criado uma vez só, no componente
 // pai); `aoIniciar` é chamado quando a medição liga de verdade (não só o
 // state mudar) — usado pra fechar o painel de atributos, já que os dois
-// não fazem sentido abertos ao mesmo tempo.
-export function useMedicao(mapRef, mapaPronto, aoIniciar) {
+// não fazem sentido abertos ao mesmo tempo. `nomeMapa` só é usado pra
+// nomear os arquivos exportados (KML/PDF).
+export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
   const [medindo, setMedindo] = useState(false);
   const [modoMedicao, setModoMedicao] = useState("distancia");
   const [pontosMedicao, setPontosMedicao] = useState([]);
+  // "clique" (padrão de sempre — toca no mapa) | "gps" (anda com o
+  // aparelho, ver iniciarCapturaGps abaixo — mesma técnica do track log,
+  // mas sem pausar/continuar: aqui o caso de uso é andar o
+  // trajeto/perímetro de uma vez, não gravar uma sessão longa).
+  const [origemPontos, setOrigemPontos] = useState("clique");
+  const [capturandoGps, setCapturandoGps] = useState(false);
+  const [erroGps, setErroGps] = useState(null);
+  const watchIdRef = useRef(null);
+  const wakeLockRef = useRef(null);
 
   // Cria/remove a fonte e as camadas de desenho quando liga/desliga (uma
   // fonte só, 3 camadas filtradas por tipo de geometria).
@@ -137,8 +148,51 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pontosMedicao, modoMedicao, medindo]);
 
+  // Desligar a medição (botão fechar) no meio de uma captura por GPS não
+  // pode deixar o watchPosition rodando escondido pra sempre.
+  useEffect(() => {
+    if (!medindo && watchIdRef.current != null) {
+      pararCapturaGps();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [medindo]);
+
+  // Mesma proteção de desmontagem já usada no track log — troca de mapa/
+  // logout no meio de uma captura não pode deixar o GPS rodando.
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
+      wakeLockRef.current?.release().catch(() => {});
+    };
+  }, []);
+
+  async function solicitarWakeLock() {
+    if (!("wakeLock" in navigator)) return;
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request("screen");
+    } catch {
+      wakeLockRef.current = null;
+    }
+  }
+
+  async function liberarWakeLock() {
+    try {
+      await wakeLockRef.current?.release();
+    } catch {
+      // no-op
+    }
+    wakeLockRef.current = null;
+  }
+
   function trocarModoMedicao(modo) {
     setModoMedicao(modo);
+    setPontosMedicao([]);
+    if (capturandoGps) pararCapturaGps();
+  }
+
+  function trocarOrigemPontos(origem) {
+    if (capturandoGps) pararCapturaGps();
+    setOrigemPontos(origem);
     setPontosMedicao([]);
   }
 
@@ -146,7 +200,79 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar) {
     setPontosMedicao((atual) => [...atual, lngLat]);
   }
 
+  // Só "iniciar/parar" (sem pausar/continuar, diferente do track log) — o
+  // caso de uso aqui é andar o trajeto/perímetro de uma vez só; pausar
+  // fica pro track log, que já cobre gravações mais longas.
+  function iniciarCapturaGps() {
+    if (!("geolocation" in navigator)) {
+      setErroGps("Geolocalização não disponível neste navegador/dispositivo.");
+      return;
+    }
+    setErroGps(null);
+    setPontosMedicao([]);
+    setCapturandoGps(true);
+    solicitarWakeLock();
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (posicao) => {
+        const { longitude, latitude } = posicao.coords;
+        adicionarPonto([longitude, latitude]);
+        setErroGps(null);
+      },
+      (erro) => {
+        setErroGps(erro.message || "Não foi possível obter a localização.");
+        // Mesmo critério do track log: erro passageiro de GPS
+        // (POSITION_UNAVAILABLE/TIMEOUT) não encerra a captura sozinho,
+        // só permissão negada é fatal.
+        if (erro.code === erro.PERMISSION_DENIED) {
+          pararCapturaGps();
+        }
+      },
+      { enableHighAccuracy: true }
+    );
+  }
+
+  function pararCapturaGps() {
+    if (watchIdRef.current != null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    liberarWakeLock();
+    setCapturandoGps(false);
+  }
+
   const resultadoMedicaoAtual = medindo ? textoResultadoMedicao(pontosMedicao, modoMedicao) : null;
+
+  // Snapshot do canvas do mapa no momento da exportação (preserveDrawingBuffer
+  // precisa estar ligado na criação do mapa — ver Mapa.jsx — senão volta
+  // uma imagem em branco). Falha silenciosa (undefined) não impede o
+  // resto do PDF de sair, só sem a imagem.
+  function capturarImagemMapa() {
+    try {
+      // JPEG em vez de PNG — o canvas do mapa é essencialmente uma "foto"
+      // (sem transparência relevante pra manter), e PNG sem perdas gerava
+      // um PDF de 3+ MB só com a imagem, pesado demais pra compartilhar
+      // em campo (WhatsApp, e-mail com anexo limitado).
+      return mapRef.current?.getCanvas().toDataURL("image/jpeg", 0.85);
+    } catch {
+      return undefined;
+    }
+  }
+
+  function exportarMedicaoKml() {
+    if (!resultadoMedicaoAtual) return;
+    baixarKmlMedicao(pontosMedicao, modoMedicao, resultadoMedicaoAtual, nomeMapa);
+  }
+
+  function exportarMedicaoPdf() {
+    if (!resultadoMedicaoAtual) return;
+    baixarPdfMedicao({
+      pontos: pontosMedicao,
+      modo: modoMedicao,
+      resultado: resultadoMedicaoAtual,
+      nomeMapa,
+      imagemMapaDataUrl: capturarImagemMapa(),
+    });
+  }
 
   return {
     medindo,
@@ -157,5 +283,13 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar) {
     trocarModoMedicao,
     adicionarPonto,
     resultadoMedicaoAtual,
+    origemPontos,
+    trocarOrigemPontos,
+    capturandoGps,
+    erroGps,
+    iniciarCapturaGps,
+    pararCapturaGps,
+    exportarMedicaoKml,
+    exportarMedicaoPdf,
   };
 }

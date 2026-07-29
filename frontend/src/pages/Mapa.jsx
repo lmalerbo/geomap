@@ -782,7 +782,7 @@ export default function Mapa() {
   // criam/destroem source/layers no mapa. `mapRef`/`mapaPronto` são
   // repassados porque o mapa em si é criado uma vez só, aqui embaixo (efeito
   // 1) — os hooks não criam mapa nenhum, só desenham em cima do existente.
-  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null));
+  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), `mapa-${mapaId}`);
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto);
 
@@ -821,6 +821,11 @@ export default function Mapa() {
       },
       center: [-47.9, -22.0],
       zoom: 9,
+      // Sem isso, capturar o canvas via toDataURL() (relatório em PDF da
+      // medição, ver useMedicao/exportarMedicao.js) volta imagem em branco —
+      // o WebGL limpa o drawing buffer a cada frame por padrão, e o browser
+      // só consegue ler o que ainda está lá no momento exato da leitura.
+      preserveDrawingBuffer: true,
     });
     mapRef.current = map;
     if (import.meta.env.DEV) window.__map = map;
@@ -1123,7 +1128,12 @@ export default function Mapa() {
 
     function handleClick(e) {
       if (medicao.medindo) {
-        medicao.adicionarPonto([e.lngLat.lng, e.lngLat.lat]);
+        // Em modo GPS os pontos vêm do watchPosition (ver useMedicao) — um
+        // clique no mapa nesse modo não deveria também adicionar um ponto
+        // manual, senão a medição mistura as duas origens sem querer.
+        if (medicao.origemPontos === "clique") {
+          medicao.adicionarPonto([e.lngLat.lng, e.lngLat.lat]);
+        }
         return;
       }
 
@@ -1168,7 +1178,7 @@ export default function Mapa() {
     map.on("click", handleClick);
     return () => map.off("click", handleClick);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapaPronto, camadasVisiveis, medicao.medindo]);
+  }, [mapaPronto, camadasVisiveis, medicao.medindo, medicao.origemPontos]);
 
   // 7) highlight de grupo: destaca todas as partes do talhão/seção
   // selecionado (mesma SECAO+TALHAO ou DESC_SECAO), sem desenhar nada
@@ -1611,13 +1621,67 @@ export default function Mapa() {
                   Área
                 </button>
               </div>
-              <p className="resultado-medicao">
+
+              <div className="opcoes-modo-medicao">
+                <button
+                  type="button"
+                  className={medicao.origemPontos === "clique" ? "ativo" : ""}
+                  onClick={() => medicao.trocarOrigemPontos("clique")}
+                >
+                  Clique no mapa
+                </button>
+                <button
+                  type="button"
+                  className={medicao.origemPontos === "gps" ? "ativo" : ""}
+                  onClick={() => medicao.trocarOrigemPontos("gps")}
+                >
+                  📍 Captura por GPS
+                </button>
+              </div>
+
+              {medicao.origemPontos === "gps" && (
+                <>
+                  {medicao.capturandoGps && (
+                    <p className="aviso-track">
+                      Mantenha o app aberto — trocar de app ou travar a tela manualmente interrompe a captura.
+                    </p>
+                  )}
+                  {!medicao.capturandoGps ? (
+                    <button type="button" onClick={medicao.iniciarCapturaGps}>
+                      {medicao.modoMedicao === "area" ? "Iniciar captura do perímetro" : "Iniciar captura do trajeto"}
+                    </button>
+                  ) : (
+                    <button type="button" className="botao-track-gravando" onClick={medicao.pararCapturaGps}>
+                      ● Parar captura
+                    </button>
+                  )}
+                  {medicao.erroGps && <p className="erro">{medicao.erroGps}</p>}
+                </>
+              )}
+
+              <p className={`resultado-medicao${medicao.capturandoGps ? " resultado-track-ativo" : ""}`}>
                 {medicao.resultadoMedicaoAtual ??
-                  (medicao.modoMedicao === "area"
-                    ? "Clique pra marcar o polígono (mín. 3 pontos)"
-                    : "Clique pra marcar os pontos")}
+                  (medicao.origemPontos === "gps"
+                    ? medicao.capturandoGps
+                      ? "Capturando pontos, ande normalmente…"
+                      : "Inicie a captura pra andar o trajeto/perímetro"
+                    : medicao.modoMedicao === "area"
+                      ? "Clique pra marcar o polígono (mín. 3 pontos)"
+                      : "Clique pra marcar os pontos")}
               </p>
-              {medicao.pontosMedicao.length > 0 && (
+
+              {medicao.resultadoMedicaoAtual && !medicao.capturandoGps && (
+                <div className="acoes-painel-track acoes-painel-track--grade">
+                  <button type="button" className="botao-secundario" onClick={medicao.exportarMedicaoKml}>
+                    Exportar KML
+                  </button>
+                  <button type="button" className="botao-secundario" onClick={medicao.exportarMedicaoPdf}>
+                    Exportar PDF
+                  </button>
+                </div>
+              )}
+
+              {medicao.pontosMedicao.length > 0 && !medicao.capturandoGps && (
                 <button
                   type="button"
                   className="botao-limpar-medicao"
