@@ -1779,6 +1779,13 @@ input[type="file"]::file-selector-button:hover {
   background: #f7f9fa;
 }
 
+.badge--aviso {
+  background: #fff4e5;
+  color: #8a5a00;
+  border-color: #f0c36d;
+  text-transform: none;
+}
+
 /* Workspace de Gerenciar camadas — lista à esquerda, detalhe à direita */
 .workspace-camadas {
   flex: 1;

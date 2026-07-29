@@ -17,6 +17,7 @@ const AdminMapas = lazy(() => import("./pages/AdminMapas.jsx"));
 const AdminUsuarios = lazy(() => import("./pages/AdminUsuarios.jsx"));
 const AdminEstatisticas = lazy(() => import("./pages/AdminEstatisticas.jsx"));
 const Ajuda = lazy(() => import("./pages/Ajuda.jsx"));
+const DefinirSenha = lazy(() => import("./pages/DefinirSenha.jsx"));
 
 function CarregandoRota() {
   return (
@@ -26,15 +27,28 @@ function CarregandoRota() {
   );
 }
 
+// Enquanto precisaTrocarSenha for true (1º login com a senha temporária de
+// criação, ou depois de um reset feito pelo admin), nenhuma rota protegida
+// deixa passar — só a própria tela de definir senha.
 function RotaProtegida({ children }) {
   const { sessao } = useAuth();
-  return sessao ? children : <Navigate to="/login" replace />;
+  if (!sessao) return <Navigate to="/login" replace />;
+  if (sessao.precisaTrocarSenha) return <Navigate to="/definir-senha" replace />;
+  return children;
 }
 
 function RotaAdmin({ children }) {
   const { sessao } = useAuth();
   if (!sessao) return <Navigate to="/login" replace />;
+  if (sessao.precisaTrocarSenha) return <Navigate to="/definir-senha" replace />;
   return sessao.usuario.papel === "admin" ? children : <Navigate to="/inicio" replace />;
+}
+
+// A própria tela de definir senha também exige sessão (o token da senha
+// temporária), mas não pode reentrar em si mesma pelo gate acima.
+function RotaDefinirSenha({ children }) {
+  const { sessao } = useAuth();
+  return sessao ? children : <Navigate to="/login" replace />;
 }
 
 // key={mapaId}: força o componente a remontar do zero ao trocar de mapa
@@ -61,6 +75,14 @@ export default function App() {
           <Suspense fallback={<CarregandoRota />}>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route
+                path="/definir-senha"
+                element={
+                  <RotaDefinirSenha>
+                    <DefinirSenha />
+                  </RotaDefinirSenha>
+                }
+              />
               <Route
                 path="/inicio"
                 element={

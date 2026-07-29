@@ -16,9 +16,9 @@ export default function Login() {
     setErro(null);
     setCarregando(true);
     try {
-      const { token, usuario } = await login(email, senha);
-      entrar(token, usuario);
-      navigate("/inicio");
+      const { token, usuario, precisaTrocarSenha } = await login(email, senha);
+      entrar(token, usuario, precisaTrocarSenha);
+      navigate(precisaTrocarSenha ? "/definir-senha" : "/inicio");
     } catch (err) {
       // fetch() falha com TypeError quando nem chega a completar a
       // requisição (sem internet, servidor fora do ar) — diferente de um

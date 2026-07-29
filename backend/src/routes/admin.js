@@ -11,6 +11,7 @@ import bcrypt from "bcrypt";
 import AdmZip from "adm-zip";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
+import { SENHA_TEMPORARIA_PADRAO } from "../lib/senhaTemporaria.js";
 import {
   salvarArquivo,
   apagarArquivo,
@@ -428,7 +429,8 @@ adminRouter.delete("/admin/grupos/:id", async (req, res) => {
 
 adminRouter.get("/admin/usuarios", async (req, res) => {
   const { rows: usuarios } = await pool.query(
-    `SELECT id, nome, email, departamento, status, papel, criado_em FROM usuarios ORDER BY nome`
+    `SELECT id, nome, email, departamento, status, papel, criado_em, precisa_trocar_senha
+     FROM usuarios ORDER BY nome`
   );
   const { rows: membros } = await pool.query(`SELECT usuario_id, grupo_id FROM usuarios_grupos`);
 
@@ -444,13 +446,12 @@ adminRouter.get("/admin/usuarios", async (req, res) => {
 adminRouter.post("/admin/usuarios", async (req, res) => {
   const nome = (req.body.nome || "").trim();
   const email = (req.body.email || "").trim().toLowerCase();
-  const senha = req.body.senha || "";
   const departamento = (req.body.departamento || "").trim() || null;
   const papel = req.body.papel === "admin" ? "admin" : "usuario";
   const grupoIds = Array.isArray(req.body.grupoIds) ? req.body.grupoIds : [];
 
-  if (!nome || !email || !senha) {
-    return res.status(400).json({ erro: "nome, email e senha são obrigatórios" });
+  if (!nome || !email) {
+    return res.status(400).json({ erro: "nome e email são obrigatórios" });
   }
 
   const { rows: existentes } = await pool.query("SELECT id FROM usuarios WHERE email = $1", [email]);
@@ -458,10 +459,13 @@ adminRouter.post("/admin/usuarios", async (req, res) => {
     return res.status(409).json({ erro: "já existe um usuário com esse email" });
   }
 
-  const senhaHash = await bcrypt.hash(senha, 10);
+  // Senha sempre a temporária fixa — nunca escolhida pelo admin — o
+  // usuário troca por uma própria antes de entrar de verdade (ver
+  // precisa_trocar_senha, checado em POST /login).
+  const senhaHash = await bcrypt.hash(SENHA_TEMPORARIA_PADRAO, 10);
   const { rows } = await pool.query(
-    `INSERT INTO usuarios (nome, email, senha_hash, departamento, papel)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO usuarios (nome, email, senha_hash, departamento, papel, precisa_trocar_senha)
+     VALUES ($1, $2, $3, $4, $5, true)
      RETURNING id, nome, email, departamento, status, papel, criado_em`,
     [nome, email, senhaHash, departamento, papel]
   );
@@ -553,19 +557,18 @@ adminRouter.put("/admin/usuarios/:id", async (req, res) => {
   res.json({ ...rows[0], grupoIds });
 });
 
+// Redefine pra senha temporária fixa (nunca uma escolhida pelo admin) e
+// marca precisa_trocar_senha — o usuário só troca de novo por uma senha
+// própria ao logar, na mesma tela usada no 1º login.
 adminRouter.put("/admin/usuarios/:id/senha", async (req, res) => {
   const usuarioId = Number(req.params.id);
   if (!Number.isInteger(usuarioId)) {
     return res.status(400).json({ erro: "id de usuário inválido" });
   }
-  const senha = req.body.senha || "";
-  if (senha.length < 6) {
-    return res.status(400).json({ erro: "senha precisa ter ao menos 6 caracteres" });
-  }
 
-  const senhaHash = await bcrypt.hash(senha, 10);
+  const senhaHash = await bcrypt.hash(SENHA_TEMPORARIA_PADRAO, 10);
   const { rows } = await pool.query(
-    "UPDATE usuarios SET senha_hash = $1 WHERE id = $2 RETURNING id",
+    "UPDATE usuarios SET senha_hash = $1, precisa_trocar_senha = true WHERE id = $2 RETURNING id",
     [senhaHash, usuarioId]
   );
   if (!rows[0]) {

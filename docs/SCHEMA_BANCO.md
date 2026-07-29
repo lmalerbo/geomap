@@ -19,6 +19,7 @@ cada execução, em vez de rodar tudo de novo sempre.
 | status | text | 'ativo' / 'inativo' — inativo = login bloqueado |
 | papel | text | 'admin' / 'usuario' (default) — 'admin' vê o painel de administração (migration 002) |
 | criado_em | timestamp | |
+| precisa_trocar_senha | boolean | default false — true logo após criar o usuário ou o admin redefinir a senha (sempre pra uma constante fixa, `SENHA_TEMPORARIA_PADRAO`, nunca escolhida pelo admin); `POST /login` devolve isso pro frontend forçar a tela de definir senha antes de liberar o app; `PUT /senha` (auto-atendido) zera de volta (migration 009) |
 
 ## grupos
 

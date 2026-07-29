@@ -18,6 +18,18 @@ export async function login(email, senha) {
   return resp.json();
 }
 
+// Auto-atendido — mesma rota serve tanto o 1º login (senha temporária de
+// criação) quanto depois de um reset feito pelo admin.
+export async function definirSenha(token, novaSenha) {
+  const resp = await fetch(`${API_URL}/senha`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ novaSenha }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 // Retorna os mapas (projetos) permitidos, cada um já com o array de
 // camadas aninhado — ver GET /mapas no backend.
 export async function buscarCatalogo(token) {
@@ -135,11 +147,14 @@ export async function listarUsuariosAdmin(token) {
   return resp.json();
 }
 
-export async function criarUsuarioAdmin(token, { nome, email, senha, departamento, papel, grupoIds }) {
+// Sem campo de senha — a senha temporária de criação é sempre a mesma
+// constante fixa no backend (ver SENHA_TEMPORARIA_PADRAO), nunca escolhida
+// pelo admin. O usuário define a senha própria dele no 1º login.
+export async function criarUsuarioAdmin(token, { nome, email, departamento, papel, grupoIds }) {
   const resp = await fetch(`${API_URL}/admin/usuarios`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ nome, email, senha, departamento, papel, grupoIds }),
+    body: JSON.stringify({ nome, email, departamento, papel, grupoIds }),
   });
   await tratarResposta(resp);
   return resp.json();
@@ -155,11 +170,13 @@ export async function atualizarUsuarioAdmin(token, usuarioId, { nome, departamen
   return resp.json();
 }
 
-export async function redefinirSenhaUsuarioAdmin(token, usuarioId, senha) {
+// Sem campo de senha — sempre reseta pra senha temporária fixa e marca
+// precisa_trocar_senha, forçando o usuário a definir uma nova no próximo
+// login (mesma tela do 1º login).
+export async function redefinirSenhaUsuarioAdmin(token, usuarioId) {
   const resp = await fetch(`${API_URL}/admin/usuarios/${usuarioId}/senha`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ senha }),
+    headers: { Authorization: `Bearer ${token}` },
   });
   await tratarResposta(resp);
   return resp.json();

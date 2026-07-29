@@ -32,8 +32,8 @@ function carregarSessaoSalva() {
 export function AuthProvider({ children }) {
   const [sessao, setSessao] = useState(() => carregarSessaoSalva());
 
-  const entrar = useCallback((token, usuario) => {
-    const nova = { token, usuario };
+  const entrar = useCallback((token, usuario, precisaTrocarSenha = false) => {
+    const nova = { token, usuario, precisaTrocarSenha };
     localStorage.setItem("geoportal_sessao", JSON.stringify(nova));
     setSessao(nova);
   }, []);
@@ -43,8 +43,20 @@ export function AuthProvider({ children }) {
     setSessao(null);
   }, []);
 
+  // Chamado depois que PUT /senha confirma a troca — libera o resto do
+  // app sem precisar logar de novo (o token já é válido, só o gate de
+  // "precisa trocar senha" muda).
+  const confirmarSenhaDefinida = useCallback(() => {
+    setSessao((atual) => {
+      if (!atual) return atual;
+      const nova = { ...atual, precisaTrocarSenha: false };
+      localStorage.setItem("geoportal_sessao", JSON.stringify(nova));
+      return nova;
+    });
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ sessao, entrar, sair }}>
+    <AuthContext.Provider value={{ sessao, entrar, sair, confirmarSenhaDefinida }}>
       {children}
     </AuthContext.Provider>
   );

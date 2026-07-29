@@ -15,11 +15,14 @@ import { useAuth } from "../context/AuthContext.jsx";
 const FORM_USUARIO_VAZIO = {
   nome: "",
   email: "",
-  senha: "",
   departamento: "",
   papel: "usuario",
   grupoIds: [],
 };
+
+// Só pra exibir na tela (nunca enviada pra API) — precisa bater com
+// SENHA_TEMPORARIA_PADRAO em backend/src/lib/senhaTemporaria.js.
+const SENHA_TEMPORARIA_EXIBIDA = "usina123";
 
 export default function AdminUsuarios() {
   const { sessao } = useAuth();
@@ -36,8 +39,6 @@ export default function AdminUsuarios() {
   const [salvandoEdicaoId, setSalvandoEdicaoId] = useState(null);
 
   const [redefinindoId, setRedefinindoId] = useState(null);
-  const [novaSenha, setNovaSenha] = useState("");
-  const [enviandoSenha, setEnviandoSenha] = useState(false);
 
   const [novoGrupoNome, setNovoGrupoNome] = useState("");
   const [criandoGrupo, setCriandoGrupo] = useState(false);
@@ -137,24 +138,26 @@ export default function AdminUsuarios() {
     }
   }
 
-  function abrirRedefinicao(usuarioId) {
-    setRedefinindoId(usuarioId);
-    setNovaSenha("");
-    setErro(null);
-  }
-
-  async function redefinirSenha(e, usuarioId) {
-    e.preventDefault();
-    setEnviandoSenha(true);
+  // Não pede mais uma senha nova escolhida pelo admin — reseta direto pra
+  // senha temporária fixa (o backend cuida disso); o usuário define a senha
+  // própria dele no próximo login, na mesma tela do 1º acesso.
+  async function redefinirSenha(usuario) {
+    if (
+      !window.confirm(
+        `Redefinir a senha de "${usuario.nome}" pra senha temporária? Ele(a) vai precisar definir uma nova senha no próximo login.`
+      )
+    ) {
+      return;
+    }
+    setRedefinindoId(usuario.id);
     setErro(null);
     try {
-      await redefinirSenhaUsuarioAdmin(sessao.token, usuarioId, novaSenha);
-      setRedefinindoId(null);
-      setNovaSenha("");
+      await redefinirSenhaUsuarioAdmin(sessao.token, usuario.id);
+      await carregarUsuarios();
     } catch (err) {
       setErro(err.message);
     } finally {
-      setEnviandoSenha(false);
+      setRedefinindoId(null);
     }
   }
 
@@ -251,16 +254,10 @@ export default function AdminUsuarios() {
             />
           </label>
 
-          <label className="campo-form-admin">
-            Senha temporária
-            <input
-              type="text"
-              required
-              minLength={6}
-              value={form.senha}
-              onChange={(e) => atualizarCampo("senha", e.target.value)}
-            />
-          </label>
+          <p className="ajuda-campo-form-admin">
+            A senha temporária de acesso já é fixa ("{SENHA_TEMPORARIA_EXIBIDA}") — o usuário
+            define a senha própria dele no primeiro login.
+          </p>
 
           <label className="campo-form-admin">
             Departamento
@@ -318,6 +315,11 @@ export default function AdminUsuarios() {
                     <span className="linha-badges">
                       <span className={`badge badge--papel-${u.papel}`}>{u.papel}</span>
                       <span className={`badge badge--status-${u.status}`}>{u.status}</span>
+                      {u.precisa_trocar_senha && (
+                        <span className="badge badge--aviso" title="Ainda não trocou a senha temporária">
+                          aguardando 1º login
+                        </span>
+                      )}
                       {(u.grupoIds || []).map((id) => (
                         <span key={id} className="badge badge--grupo">
                           {nomeDoGrupo(id)}
@@ -328,9 +330,11 @@ export default function AdminUsuarios() {
                   <button
                     type="button"
                     className="botao-secundario"
-                    onClick={() => (redefinindoId === u.id ? setRedefinindoId(null) : abrirRedefinicao(u.id))}
+                    onClick={() => redefinirSenha(u)}
+                    disabled={redefinindoId === u.id}
                   >
-                    {redefinindoId === u.id ? "Cancelar" : "Redefinir senha"}
+                    {redefinindoId === u.id && <span className="spinner" aria-hidden="true" />}
+                    {redefinindoId === u.id ? "Redefinindo…" : "Redefinir senha"}
                   </button>
                   <button
                     type="button"
@@ -340,24 +344,6 @@ export default function AdminUsuarios() {
                     {editandoId === u.id ? "Cancelar" : "Editar"}
                   </button>
                 </div>
-
-                {redefinindoId === u.id && (
-                  <form className="form-atualizar-arquivo" onSubmit={(e) => redefinirSenha(e, u.id)}>
-                    <input
-                      type="text"
-                      value={novaSenha}
-                      onChange={(e) => setNovaSenha(e.target.value)}
-                      aria-label="Nova senha"
-                      placeholder="Nova senha (mín. 6 caracteres)"
-                      minLength={6}
-                      required
-                    />
-                    <button type="submit" disabled={enviandoSenha}>
-                      {enviandoSenha && <span className="spinner" aria-hidden="true" />}
-                      {enviandoSenha ? "Salvando…" : "Salvar senha"}
-                    </button>
-                  </form>
-                )}
 
                 {editandoId === u.id && formEdicao && (
                   <form className="form-atualizar-arquivo form-atualizar-arquivo--workspace" onSubmit={(e) => salvarEdicao(e, u.id)}>
