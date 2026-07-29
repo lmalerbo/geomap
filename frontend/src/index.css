@@ -1554,7 +1554,33 @@ input[type="file"]::file-selector-button:hover {
 .painel-medicao {
   bottom: 16px;
   right: 16px;
-  width: 260px;
+  width: 280px;
+}
+
+.cabecalho-painel-medicao {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.cabecalho-painel-medicao h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.painel-medicao .cabecalho-painel-medicao .fechar {
+  position: static;
+  flex-shrink: 0;
+}
+
+/* Botões soltos (Iniciar captura, Exportar, Limpar) sempre largura cheia
+   e com o mesmo respiro entre si — antes só "Limpar" era full-width, o
+   resto ficava do tamanho do texto, apertado e inconsistente. */
+.painel-medicao > button {
+  width: 100%;
+  margin-bottom: 10px;
 }
 
 /* Canto inferior-esquerdo — medição/atributos já ocupam o direito, evita

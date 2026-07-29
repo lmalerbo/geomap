@@ -315,14 +315,23 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
   // Snapshot do canvas do mapa no momento da exportação (preserveDrawingBuffer
   // precisa estar ligado na criação do mapa — ver Mapa.jsx — senão volta
   // uma imagem em branco). Falha silenciosa (undefined) não impede o
-  // resto do PDF de sair, só sem a imagem.
+  // resto do PDF de sair, só sem a imagem. Devolve largura/altura reais do
+  // canvas junto — sem isso o PDF encaixava a imagem numa caixa de
+  // proporção fixa, esticando/achatando ela quando a proporção real da
+  // tela do usuário era diferente (ex: celular em retrato).
   function capturarImagemMapa() {
     try {
+      const canvas = mapRef.current?.getCanvas();
+      if (!canvas) return undefined;
       // JPEG em vez de PNG — o canvas do mapa é essencialmente uma "foto"
       // (sem transparência relevante pra manter), e PNG sem perdas gerava
       // um PDF de 3+ MB só com a imagem, pesado demais pra compartilhar
       // em campo (WhatsApp, e-mail com anexo limitado).
-      return mapRef.current?.getCanvas().toDataURL("image/jpeg", 0.85);
+      return {
+        dataUrl: canvas.toDataURL("image/jpeg", 0.85),
+        largura: canvas.width,
+        altura: canvas.height,
+      };
     } catch {
       return undefined;
     }
@@ -332,15 +341,19 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
   // coordenadas em CSV) — antes eram dois botões separados (KML/PDF); o
   // PDF com a lista de pontos virava um calhamaço de várias páginas com
   // medições de muitos pontos (testado com 131), então a lista bruta
-  // saiu do PDF e virou o CSV, sempre incluído junto.
-  function exportarMedicaoZip() {
+  // saiu do PDF e virou o CSV, sempre incluído junto. `referencia` (nome/
+  // código da fazenda mais próxima) é calculado em Mapa.jsx, que é quem
+  // tem acesso ao índice de busca — este hook não precisa conhecer esse
+  // formato.
+  function exportarMedicaoZip(referencia) {
     if (!resultadoMedicaoAtual) return;
     baixarZipMedicao({
       pontos: pontosMedicao,
       modo: modoMedicao,
       resultado: resultadoMedicaoAtual,
       nomeMapa,
-      imagemMapaDataUrl: capturarImagemMapa(),
+      referencia,
+      imagemMapa: capturarImagemMapa(),
     });
   }
 

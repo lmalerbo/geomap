@@ -388,6 +388,10 @@ async function montarIndiceBusca(infos) {
             lat,
             bounds,
             mapaId: info.id,
+            // Guardado (não só usado pra montar `buscavel`) — o campo de
+            // "Referência" do relatório de medição mostra código + nome da
+            // fazenda mais próxima, ver calcularReferenciaProxima.
+            codigos: codigos ? [...codigos].sort() : [],
           });
         }
       }
@@ -395,6 +399,57 @@ async function montarIndiceBusca(infos) {
   }
 
   return indice;
+}
+
+function centroideMedicao(pontos) {
+  const n = pontos.length;
+  const [somaLng, somaLat] = pontos.reduce(([sl, sla], [lng, lat]) => [sl + lng, sla + lat], [0, 0]);
+  return [somaLng / n, somaLat / n];
+}
+
+function dentroDosBounds([lng, lat], bounds) {
+  if (!bounds) return false;
+  const [minLng, minLat, maxLng, maxLat] = bounds;
+  return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
+}
+
+// Haversine simples (km) — evita puxar @turf/distance só pra essa conta
+// única, já que o resto do arquivo usa turfLength/turfArea por outro
+// motivo (linha/polígono, não ponto a ponto).
+function distanciaKm([lng1, lat1], [lng2, lat2]) {
+  const R = 6371;
+  const toRad = (g) => (g * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// "Referência" do relatório de medição: código + nome da fazenda mais
+// próxima do que foi medido. Prioriza o centro da medição CAIR DENTRO dos
+// limites reais de alguma fazenda (mais confiável que só distância —
+// pedido explícito do usuário: "o limite deve se comportar melhor",
+// já que o ponto de rótulo de uma fazenda fica só na maior peça dela,
+// ver polylabel em gerar_rotulos_por_atributo.py, então a fazenda com o
+// PONTO mais próximo nem sempre é a fazenda "certa" quando a medição cai
+// dentro de uma peça menor de outra). Cai pra "mais próxima por
+// distância" só se nenhum bounds contiver o centro.
+function calcularReferenciaProxima(pontosMedicao, indiceBusca) {
+  if (pontosMedicao.length === 0 || indiceBusca.length === 0) return null;
+  const centro = centroideMedicao(pontosMedicao);
+
+  const dentro = indiceBusca.find((r) => dentroDosBounds(centro, r.bounds));
+  const escolhida =
+    dentro ||
+    indiceBusca.reduce((melhor, r) => {
+      const d = distanciaKm(centro, [r.lng, r.lat]);
+      return !melhor || d < melhor.distancia ? { r, distancia: d } : melhor;
+    }, null)?.r;
+
+  if (!escolhida) return null;
+  const codigo = escolhida.codigos[0];
+  return codigo ? `${escolhida.texto} (cód. ${codigo})` : escolhida.texto;
 }
 
 async function adicionarCamada(map, protocol, mapa) {
@@ -1619,15 +1674,18 @@ export default function Mapa() {
         <aside className={`painel-flutuante painel-medicao${medicao.medindo ? " aberto" : ""}`}>
           {medicao.medindo && (
             <>
-              <button
-                type="button"
-                className="fechar"
-                onClick={() => medicao.setMedindo(false)}
-                aria-label="Fechar medição"
-                title="Fechar medição"
-              >
-                ×
-              </button>
+              <div className="cabecalho-painel-medicao">
+                <h3>Medição</h3>
+                <button
+                  type="button"
+                  className="fechar"
+                  onClick={() => medicao.setMedindo(false)}
+                  aria-label="Fechar medição"
+                  title="Fechar medição"
+                >
+                  ×
+                </button>
+              </div>
               <div className="opcoes-modo-medicao">
                 <button
                   type="button"
@@ -1694,8 +1752,14 @@ export default function Mapa() {
               </p>
 
               {medicao.resultadoMedicaoAtual && !medicao.capturandoGps && (
-                <button type="button" className="botao-secundario" onClick={medicao.exportarMedicaoZip}>
-                  Exportar (.zip: PDF + KML + CSV)
+                <button
+                  type="button"
+                  className="botao-secundario"
+                  onClick={() =>
+                    medicao.exportarMedicaoZip(calcularReferenciaProxima(medicao.pontosMedicao, indiceBusca))
+                  }
+                >
+                  Exportar relatório
                 </button>
               )}
 
