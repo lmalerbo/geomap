@@ -41,7 +41,9 @@ function geojsonMedicao(pontos, modo) {
 }
 
 // Texto pronto pra exibir — km/m pra distância (troca a unidade conforme
-// o tamanho, igual a barra de escala do MapLibre já faz), m²/ha pra área.
+// o tamanho, igual a barra de escala do MapLibre já faz); área sempre em
+// hectares (unidade padrão de agricultura — pedido explícito, mesmo pra
+// áreas pequenas que antes caíam em m²).
 function textoResultadoMedicao(pontos, modo) {
   if (modo === "distancia") {
     if (pontos.length < 2) return null;
@@ -56,7 +58,7 @@ function textoResultadoMedicao(pontos, modo) {
     geometry: { type: "Polygon", coordinates: [[...pontos, pontos[0]]] },
   };
   const m2 = turfArea(poligono);
-  return m2 < 10000 ? `${m2.toFixed(0)} m²` : `${(m2 / 10000).toFixed(2)} ha`;
+  return `${(m2 / 10000).toFixed(2)} ha`;
 }
 
 // Ferramenta de medição de distância/área — extraída de Mapa.jsx (era os

@@ -776,15 +776,34 @@ export default function Mapa() {
     () => typeof window !== "undefined" && window.localStorage.getItem("geomap_fundo_satelite") === "1"
   );
   const [menuAberto, setMenuAberto] = useState(false);
+  // Nome de verdade do mapa (ex: "Geral", "Temático"), lido do IndexedDB
+  // (mesma fonte da tela inicial) — usado só pra identificar o mapa nos
+  // arquivos exportados pela medição (KML/PDF), em vez de "mapa-<id>".
+  const [nomeMapaAtual, setNomeMapaAtual] = useState(`mapa-${mapaId}`);
 
   // Medição, track log e importação temporária viraram hooks próprios
   // (frontend/src/hooks/) — cada um cuida do próprio state + efeitos que
   // criam/destroem source/layers no mapa. `mapRef`/`mapaPronto` são
   // repassados porque o mapa em si é criado uma vez só, aqui embaixo (efeito
   // 1) — os hooks não criam mapa nenhum, só desenham em cima do existente.
-  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), `mapa-${mapaId}`);
+  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual);
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto);
+
+  // Nome de exibição real do mapa (ex: "Geral") pros arquivos exportados
+  // pela medição — lido do IndexedDB (mesma fonte da tela inicial),
+  // funciona offline já que só depende do que a sincronização já baixou.
+  useEffect(() => {
+    let cancelado = false;
+    listarMapasDisponiveis().then((disponiveis) => {
+      if (cancelado) return;
+      const atual = disponiveis.find((m) => m.id === mapaId);
+      if (atual?.nome) setNomeMapaAtual(atual.nome);
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [mapaId]);
 
   // Fecha o menu de compartilhar localização sempre que a seleção muda
   // (trocou de feição, paginou entre feições sobrepostas, ou fechou o
@@ -822,10 +841,14 @@ export default function Mapa() {
       center: [-47.9, -22.0],
       zoom: 9,
       // Sem isso, capturar o canvas via toDataURL() (relatório em PDF da
-      // medição, ver useMedicao/exportarMedicao.js) volta imagem em branco —
-      // o WebGL limpa o drawing buffer a cada frame por padrão, e o browser
-      // só consegue ler o que ainda está lá no momento exato da leitura.
-      preserveDrawingBuffer: true,
+      // medição, ver useMedicao/exportarMedicao.js) volta uma imagem preta
+      // sólida — o WebGL limpa o drawing buffer a cada frame por padrão, e
+      // o browser lê de volta um buffer zerado (RGBA 0,0,0,0), que o
+      // encoder JPEG converte pra preto ao descartar o alfa. Precisa ficar
+      // aninhado em canvasContextAttributes (não é uma opção de nível
+      // raiz do Map nesta versão do MapLibre — colocar direto em
+      // options.preserveDrawingBuffer é silenciosamente ignorado).
+      canvasContextAttributes: { preserveDrawingBuffer: true },
     });
     mapRef.current = map;
     if (import.meta.env.DEV) window.__map = map;
