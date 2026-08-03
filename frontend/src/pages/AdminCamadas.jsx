@@ -885,7 +885,7 @@ export default function AdminCamadas() {
                   </button>
                   {salvoArquivoEm && (
                     <span className="confirmacao-salvo">
-                      ✓ Salvo às{" "}
+                      <span className="marca-check-salvo" aria-hidden="true">✓</span> Salvo às{" "}
                       {salvoArquivoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   )}
@@ -1550,7 +1550,7 @@ export default function AdminCamadas() {
                   </button>
                   {salvoEstiloEm && (
                     <span className="confirmacao-salvo">
-                      ✓ Salvo às{" "}
+                      <span className="marca-check-salvo" aria-hidden="true">✓</span> Salvo às{" "}
                       {salvoEstiloEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   )}
@@ -1621,7 +1621,7 @@ export default function AdminCamadas() {
                   </button>
                   {salvoAtributosEm && (
                     <span className="confirmacao-salvo">
-                      ✓ Salvo às{" "}
+                      <span className="marca-check-salvo" aria-hidden="true">✓</span> Salvo às{" "}
                       {salvoAtributosEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   )}

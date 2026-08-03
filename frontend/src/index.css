@@ -849,6 +849,28 @@ input[type="file"]::file-selector-button:hover {
   animation: entrada 200ms ease;
 }
 
+/* "Pop" só no ✓ (scale+fade, toca uma vez) — sem ícone Lordicon aqui
+   porque o catálogo indexado não tem nenhum de check/sucesso; CSS
+   sozinho já dá o efeito de "confirmação animada" pedido. */
+.marca-check-salvo {
+  display: inline-block;
+  animation: pop-check 280ms var(--ease-saida);
+}
+
+@keyframes pop-check {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 .painel-admin-conteudo--largo {
   max-width: 640px;
 }
