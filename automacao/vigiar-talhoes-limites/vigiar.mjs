@@ -193,9 +193,22 @@ async function main() {
   for (const info of candidatos) vigia.agendar(info);
   await log(`varredura inicial: ${candidatos.length} arquivo(s) candidato(s) agendado(s)`);
 
+  // usePolling:true é obrigatório aqui — a pasta é um compartilhamento de
+  // rede (SMB, \\lnxfs3\...), e o watch nativo do SO (o padrão do
+  // chokidar) não propaga eventos de forma confiável nesse tipo de
+  // sistema de arquivos. Sem isso, testado em produção real: a chamada
+  // interna do chokidar pra armar o watch nativo falhava imediatamente
+  // com uma enxurrada de "ECONNRESET: connection reset by peer, watch"
+  // (centenas de eventos em segundos, nunca chegava a vigiar nada de
+  // verdade). interval alto (10s) porque essa pasta recebe no máximo
+  // ~1 conjunto de arquivos por dia — não precisa (e não vale o custo
+  // de rede) de um polling agressivo.
   const watcher = chokidar.watch(pasta, {
     depth: 0,
     ignoreInitial: true,
+    usePolling: true,
+    interval: 10_000,
+    binaryInterval: 10_000,
     awaitWriteFinish: { stabilityThreshold: 5000, pollInterval: 1000 },
   });
   watcher.on("add", (caminho) => vigia.tratarEvento(caminho));
