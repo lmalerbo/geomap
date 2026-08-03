@@ -5,7 +5,6 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { PMTiles, Protocol } from "pmtiles";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
-import pointOnFeature from "@turf/point-on-feature";
 import { listarMapasBaixados, listarMapasDisponiveis } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
@@ -389,10 +388,6 @@ async function montarIndiceBusca(infos) {
             lat,
             bounds,
             mapaId: info.id,
-            // Guardado (não só usado pra montar `buscavel`) — usado como
-            // fallback por distância em calcularReferenciaPorDistancia
-            // quando nada está renderizado exatamente no ponto medido.
-            codigos: codigos ? [...codigos].sort() : [],
           });
         }
       }
@@ -400,146 +395,6 @@ async function montarIndiceBusca(infos) {
   }
 
   return indice;
-}
-
-// Feição real (Polygon fechado em modo área, LineString em modo distância)
-// a partir dos pontos medidos — usada só pra achar um ponto de referência
-// geometricamente válido (ver pointOnFeature abaixo), não pra desenhar
-// nada (isso já é geojsonMedicao dentro de useMedicao.js).
-function geometriaMedicao(pontos, modo) {
-  const geometry =
-    modo === "area" && pontos.length >= 3
-      ? { type: "Polygon", coordinates: [[...pontos, pontos[0]]] }
-      : { type: "LineString", coordinates: pontos };
-  return { type: "Feature", properties: {}, geometry };
-}
-
-// Haversine simples (km) — evita puxar @turf/distance só pra essa conta
-// única, já que o resto do arquivo usa turfLength/turfArea por outro
-// motivo (linha/polígono, não ponto a ponto).
-function distanciaKm([lng1, lat1], [lng2, lat2]) {
-  const R = 6371;
-  const toRad = (g) => (g * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-function referenciaDeAtributos(props) {
-  if (!props || !("DESC_SECAO" in props)) return null;
-  const codigo = props.SECAO;
-  return codigo ? `${props.DESC_SECAO} (cód. ${codigo})` : props.DESC_SECAO;
-}
-
-// Fallback quando nada está renderizado exatamente no ponto medido (fora
-// de qualquer talhão/limite conhecido, ou tiles daquela área ainda não
-// carregados) — fazenda com o rótulo (ponto) mais próximo por distância.
-function calcularReferenciaPorDistancia(centro, indiceBusca) {
-  if (indiceBusca.length === 0) return null;
-  const escolhida = indiceBusca.reduce((melhor, r) => {
-    const d = distanciaKm(centro, [r.lng, r.lat]);
-    return !melhor || d < melhor.distancia ? { r, distancia: d } : melhor;
-  }, null)?.r;
-  return escolhida ? referenciaDeAtributos({ DESC_SECAO: escolhida.texto, SECAO: escolhida.codigos[0] }) : null;
-}
-
-// "Referência" do relatório de medição: código + nome da fazenda mais
-// próxima do que foi medido. Consulta a GEOMETRIA REAL renderizada no
-// ponto medido (mesma técnica do clique de atributos — map.project +
-// queryRenderedFeatures), não uma aproximação por bounding box: uma
-// primeira versão usava os bounds agregados do índice de busca (união de
-// TODAS as peças de uma fazenda) como teste de "está dentro" — mas uma
-// fazenda com pedaços espalhados (comum, ver histórico) pode ter um bbox
-// enorme que "engole" pontos de fazendas vizinhas completamente diferentes,
-// dando uma referência errada mesmo perto do centro. queryRenderedFeatures
-// usa o polígono de verdade, sem essa armadilha.
-//
-// O PONTO em si também precisou de correção: a primeira versão usava a
-// média simples das coordenadas dos vértices como "centro" — pra uma área
-// sinuosa/côncava (comum em talhão acompanhando margem de rio, exatamente
-// o caso relatado), essa média cai FORA do polígono (na água, no meio do
-// "vão" entre as duas pontas da curva), fazendo o queryRenderedFeatures
-// não achar nada ali (ou achar outra coisa) e a referência sair
-// completamente errada (~7,5km de distância num caso real). pointOnFeature
-// (@turf/point-on-feature) devolve um ponto geometricamente garantido
-// sobre a própria feição (dentro do polígono em modo área, sobre a linha
-// em modo distância) — mesma técnica que resolve esse problema pra
-// posicionar rótulo (polylabel), só que via lib JS em vez do pipeline
-// Python.
-//
-// Só cai pro cálculo por distância (menos preciso, mas nunca "absurdamente
-// errado") quando não há nada renderizado no ponto.
-// Menor distância (km) entre um ponto e qualquer vértice de uma feição —
-// mesma técnica de walker recursivo já usada em expandirBoundsComCoords
-// (desce por Point/LineString/Polygon/MultiPolygon sem se importar com o
-// nível de aninhamento). Serve só pra RANQUEAR candidatos que já estão
-// perto (poucos, vindos de uma busca por raio pequeno em tela) — não
-// precisa ser a distância exata até a borda, só precisa acertar "qual
-// dessas poucas feições vizinhas é a mais próxima de verdade".
-function distanciaPontoAFeature(ponto, feature) {
-  let menor = Infinity;
-  function walk(coords) {
-    if (typeof coords[0] === "number") {
-      const d = distanciaKm(ponto, coords);
-      if (d < menor) menor = d;
-      return;
-    }
-    for (const c of coords) walk(c);
-  }
-  walk(feature.geometry.coordinates);
-  return menor;
-}
-
-function encontrarReferenciaMedicao(map, camadasCarregadasRef, pontosMedicao, modoMedicao, indiceBusca) {
-  if (!map || pontosMedicao.length === 0) return null;
-  const ponto = pointOnFeature(geometriaMedicao(pontosMedicao, modoMedicao)).geometry.coordinates;
-
-  const layerIds = [...camadasCarregadasRef.current.entries()]
-    .filter(([, info]) => info.consultavel)
-    .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
-    .filter((id) => map.getLayer(id));
-
-  if (layerIds.length > 0) {
-    const pixel = map.project(ponto);
-
-    // 1) Tenta o pixel exato primeiro (caso comum — ponto claramente
-    // dentro de um talhão).
-    const features = map.queryRenderedFeatures(pixel, { layers: layerIds });
-    for (const feature of features) {
-      const referencia = referenciaDeAtributos(feature.properties);
-      if (referencia) return referencia;
-    }
-
-    // 2) Nada exatamente ali — comum perto de água/margem de rio, onde a
-    // área medida pode ter uma ponta caindo num vão sem geometria de
-    // talhão (o polígono do talhão não cobre a lâmina d'água). Em vez de
-    // já desistir pro cálculo global por distância (que compara com o
-    // RÓTULO de cada fazenda inteira, podendo escolher uma fazenda bem
-    // distante — foi o bug relatado), busca num raio pequeno em tela
-    // (~80px) e ranqueia os candidatos encontrados pela distância real
-    // até a própria geometria — sempre prefere um talhão vizinho de
-    // verdade a um label distante.
-    const raioPx = 80;
-    const vizinhas = map.queryRenderedFeatures(
-      [
-        [pixel.x - raioPx, pixel.y - raioPx],
-        [pixel.x + raioPx, pixel.y + raioPx],
-      ],
-      { layers: layerIds }
-    );
-    let melhor = null;
-    for (const feature of vizinhas) {
-      const referencia = referenciaDeAtributos(feature.properties);
-      if (!referencia) continue;
-      const distancia = distanciaPontoAFeature(ponto, feature);
-      if (!melhor || distancia < melhor.distancia) melhor = { referencia, distancia };
-    }
-    if (melhor) return melhor.referencia;
-  }
-
-  return calcularReferenciaPorDistancia(ponto, indiceBusca);
 }
 
 async function adicionarCamada(map, protocol, mapa) {
@@ -931,9 +786,7 @@ export default function Mapa() {
   // criam/destroem source/layers no mapa. `mapRef`/`mapaPronto` são
   // repassados porque o mapa em si é criado uma vez só, aqui embaixo (efeito
   // 1) — os hooks não criam mapa nenhum, só desenham em cima do existente.
-  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual, (pontos, modo) =>
-    encontrarReferenciaMedicao(mapRef.current, camadasCarregadasRef, pontos, modo, indiceBusca)
-  );
+  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual);
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto);
 

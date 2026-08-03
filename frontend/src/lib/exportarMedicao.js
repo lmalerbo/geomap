@@ -27,10 +27,8 @@ function coordenadasKml(pontos) {
 
 // `modo`: "distancia" (LineString) | "area" (Polygon fechado — o próprio
 // KML exige o primeiro/último ponto iguais, diferente do preview no mapa
-// que só fecha visualmente via geojsonMedicao). `referencia` (fazenda mais
-// próxima) entra na descrição só quando existe — nem toda medição
-// consegue calcular uma (ex: mapa sem nenhuma fazenda no índice de busca).
-export function gerarKmlMedicao(pontos, modo, resultado, nome, referencia) {
+// que só fecha visualmente via geojsonMedicao).
+export function gerarKmlMedicao(pontos, modo, resultado, nome) {
   const geometria =
     modo === "area"
       ? `<Polygon>
@@ -46,15 +44,13 @@ export function gerarKmlMedicao(pontos, modo, resultado, nome, referencia) {
         <coordinates>${coordenadasKml(pontos)}</coordinates>
       </LineString>`;
 
-  const descricao = referencia ? `${resultado} — referência: ${referencia}` : resultado;
-
   return `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>${escaparXml(nome)}</name>
     <Placemark>
       <name>${escaparXml(nome)}</name>
-      <description>${escaparXml(descricao)}</description>
+      <description>${escaparXml(resultado)}</description>
       ${geometria}
     </Placemark>
   </Document>
@@ -111,14 +107,13 @@ function linhaInfo(doc, label, valor, x, y) {
 }
 
 // Relatório de campo em PDF — cabeçalho colorido (identidade visual do
-// app), cartão com os dados da medição (incluindo a referência de
-// fazenda mais próxima, quando existe), valor medido em destaque e o
+// app), cartão com os dados da medição, valor medido em destaque e o
 // snapshot do mapa (ver preserveDrawingBuffer em Mapa.jsx, sem isso
 // toDataURL() do canvas WebGL volta em preto sólido) contido sem esticar.
 // Sem a lista de pontos (ver gerarCsvMedicao) — o PDF é pra ler/imprimir,
 // não pra carregar dado bruto. `imagemMapa` é opcional — PDF sem ela (ex:
 // toDataURL falhou por algum motivo) ainda sai completo, só sem essa seção.
-export function gerarPdfMedicao({ pontos, modo, resultado, nomeMapa, referencia, imagemMapa }) {
+export function gerarPdfMedicao({ pontos, modo, resultado, nomeMapa, imagemMapa }) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const largura = doc.internal.pageSize.getWidth();
   const altura = doc.internal.pageSize.getHeight();
@@ -144,7 +139,6 @@ export function gerarPdfMedicao({ pontos, modo, resultado, nomeMapa, referencia,
     ["Mapa:", nomeMapa],
     ["Data:", `${agora.toLocaleDateString("pt-BR")} às ${agora.toLocaleTimeString("pt-BR")}`],
     ["Tipo de medição:", modo === "area" ? "Área" : "Distância percorrida"],
-    ...(referencia ? [["Referência:", referencia]] : []),
     ["Pontos capturados:", `${pontos.length} (lista completa em coordenadas.csv, dentro do zip)`],
   ];
   const alturaCard = linhasInfo.length * 6.5 + 10;
@@ -206,11 +200,11 @@ export function gerarPdfMedicao({ pontos, modo, resultado, nomeMapa, referencia,
 // em vez do usuário ter que exportar cada formato separado. zipSync do
 // `fflate` (já era dependência transitiva do jsPDF/pmtiles, sem lib nova
 // de verdade adicionada só pra isso).
-export function gerarZipMedicao({ pontos, modo, resultado, nomeMapa, referencia, imagemMapa }) {
+export function gerarZipMedicao({ pontos, modo, resultado, nomeMapa, imagemMapa }) {
   const nomeCompleto = `${nomeMedicao(modo)} — ${nomeMapa}`;
-  const doc = gerarPdfMedicao({ pontos, modo, resultado, nomeMapa, referencia, imagemMapa });
+  const doc = gerarPdfMedicao({ pontos, modo, resultado, nomeMapa, imagemMapa });
   const pdfBytes = new Uint8Array(doc.output("arraybuffer"));
-  const kml = gerarKmlMedicao(pontos, modo, resultado, nomeCompleto, referencia);
+  const kml = gerarKmlMedicao(pontos, modo, resultado, nomeCompleto);
   const csv = gerarCsvMedicao(pontos);
 
   return zipSync({

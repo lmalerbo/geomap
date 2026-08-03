@@ -70,13 +70,8 @@ function textoResultadoMedicao(pontos, modo) {
 // pai); `aoIniciar` é chamado quando a medição liga de verdade (não só o
 // state mudar) — usado pra fechar o painel de atributos, já que os dois
 // não fazem sentido abertos ao mesmo tempo. `nomeMapa` só é usado pra
-// nomear os arquivos exportados (KML/PDF). `encontrarReferencia(pontos, modo)`
-// (opcional) devolve o texto de "fazenda mais próxima" pro relatório —
-// vem de fora porque só Mapa.jsx tem acesso às camadas carregadas/índice
-// de busca; precisa ser chamado só DEPOIS do enquadramento da captura
-// (ver capturarImagemMapa), pra consultar a geometria de verdade já
-// renderizada naquele ponto, não o que estava na tela antes.
-export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa, encontrarReferencia) {
+// nomear os arquivos exportados (KML/PDF).
+export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa) {
   const [medindo, setMedindo] = useState(false);
   const [modoMedicao, setModoMedicao] = useState("distancia");
   const [pontosMedicao, setPontosMedicao] = useState([]);
@@ -369,11 +364,6 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa, encontrarRef
       // "idle", a captura pegaria o frame antigo (câmera/estilo de antes).
       await new Promise((resolve) => map.once("idle", resolve));
 
-      // Só agora (depois do enquadramento) a geometria da área medida está
-      // de fato renderizada — chamado aqui, não antes, pra encontrarReferencia
-      // poder consultar a geometria de verdade em vez de uma aproximação.
-      const referencia = encontrarReferencia?.(pontosMedicao, modoMedicao) ?? null;
-
       const canvas = map.getCanvas();
       // JPEG em vez de PNG — o canvas do mapa é essencialmente uma "foto"
       // (sem transparência relevante pra manter), e PNG sem perdas gerava
@@ -383,7 +373,6 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa, encontrarRef
         dataUrl: canvas.toDataURL("image/jpeg", 0.85),
         largura: canvas.width,
         altura: canvas.height,
-        referencia,
       };
     } catch {
       return undefined;
@@ -410,7 +399,6 @@ export function useMedicao(mapRef, mapaPronto, aoIniciar, nomeMapa, encontrarRef
       modo: modoMedicao,
       resultado: resultadoMedicaoAtual,
       nomeMapa,
-      referencia: imagemMapa?.referencia ?? null,
       imagemMapa,
     });
   }
