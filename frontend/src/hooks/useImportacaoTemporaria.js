@@ -7,6 +7,17 @@ const CAMADA_TEMPORARIA_PREENCHIMENTO = "camada-temporaria-preenchimento";
 const CAMADA_TEMPORARIA_LINHA = "camada-temporaria-linha";
 const CAMADA_TEMPORARIA_PONTOS = "camada-temporaria-pontos";
 
+// Usa a cor/opacidade/espessura de cada feição quando existir — @tmcw/togeojson
+// já extrai isso do <Style> do KML pra propriedades no padrão "simplestyle"
+// (fill/fill-opacity/stroke/stroke-opacity/stroke-width), uma por feição (dá
+// pra ter placemarks de cores diferentes no mesmo arquivo). Sem essa
+// propriedade (shapefile importado, que nunca tem simbologia — ou um KML
+// sem <Style> customizado), cai no valor padrão de sempre — mantém a cor
+// magenta fixa como sinalização de "isso é temporário" nesses casos.
+function expressaoOuPadrao(propriedade, padrao) {
+  return ["coalesce", ["get", propriedade], padrao];
+}
+
 // Importação temporária de KML/Shapefile pra visualização — extraída de
 // Mapa.jsx (era o efeito 11 + os states/funções relacionados). Nunca toca
 // IndexedDB/backend, vive só em memória — some ao recarregar a página ou
@@ -43,8 +54,8 @@ export function useImportacaoTemporaria(mapRef, mapaPronto) {
       // fill-antialias:false evita o bug de fragmentação do preenchimento
       // no Safari/iOS (ver mesmo comentário em Mapa.jsx/adicionarCamada).
       paint: {
-        "fill-color": CORES_FERRAMENTAS.temporaria,
-        "fill-opacity": temporariaVisivel ? 0.25 : 0,
+        "fill-color": expressaoOuPadrao("fill", CORES_FERRAMENTAS.temporaria),
+        "fill-opacity": temporariaVisivel ? expressaoOuPadrao("fill-opacity", 0.25) : 0,
         "fill-antialias": false,
       },
     });
@@ -59,7 +70,11 @@ export function useImportacaoTemporaria(mapRef, mapaPronto) {
         true,
         false,
       ],
-      paint: { "line-color": CORES_FERRAMENTAS.temporaria, "line-width": 2, "line-opacity": opacidade },
+      paint: {
+        "line-color": expressaoOuPadrao("stroke", CORES_FERRAMENTAS.temporaria),
+        "line-width": expressaoOuPadrao("stroke-width", 2),
+        "line-opacity": temporariaVisivel ? expressaoOuPadrao("stroke-opacity", 1) : 0,
+      },
     });
     map.addLayer({
       id: CAMADA_TEMPORARIA_PONTOS,
@@ -68,7 +83,7 @@ export function useImportacaoTemporaria(mapRef, mapaPronto) {
       filter: ["match", ["geometry-type"], ["Point", "MultiPoint"], true, false],
       paint: {
         "circle-radius": 5,
-        "circle-color": CORES_FERRAMENTAS.temporaria,
+        "circle-color": expressaoOuPadrao("icon-color", CORES_FERRAMENTAS.temporaria),
         "circle-stroke-width": 1.5,
         "circle-stroke-color": "#fff",
         "circle-opacity": opacidade,
