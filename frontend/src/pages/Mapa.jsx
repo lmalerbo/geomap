@@ -471,6 +471,27 @@ function calcularReferenciaPorDistancia(centro, indiceBusca) {
 //
 // Só cai pro cálculo por distância (menos preciso, mas nunca "absurdamente
 // errado") quando não há nada renderizado no ponto.
+// Menor distância (km) entre um ponto e qualquer vértice de uma feição —
+// mesma técnica de walker recursivo já usada em expandirBoundsComCoords
+// (desce por Point/LineString/Polygon/MultiPolygon sem se importar com o
+// nível de aninhamento). Serve só pra RANQUEAR candidatos que já estão
+// perto (poucos, vindos de uma busca por raio pequeno em tela) — não
+// precisa ser a distância exata até a borda, só precisa acertar "qual
+// dessas poucas feições vizinhas é a mais próxima de verdade".
+function distanciaPontoAFeature(ponto, feature) {
+  let menor = Infinity;
+  function walk(coords) {
+    if (typeof coords[0] === "number") {
+      const d = distanciaKm(ponto, coords);
+      if (d < menor) menor = d;
+      return;
+    }
+    for (const c of coords) walk(c);
+  }
+  walk(feature.geometry.coordinates);
+  return menor;
+}
+
 function encontrarReferenciaMedicao(map, camadasCarregadasRef, pontosMedicao, modoMedicao, indiceBusca) {
   if (!map || pontosMedicao.length === 0) return null;
   const ponto = pointOnFeature(geometriaMedicao(pontosMedicao, modoMedicao)).geometry.coordinates;
@@ -482,11 +503,40 @@ function encontrarReferenciaMedicao(map, camadasCarregadasRef, pontosMedicao, mo
 
   if (layerIds.length > 0) {
     const pixel = map.project(ponto);
+
+    // 1) Tenta o pixel exato primeiro (caso comum — ponto claramente
+    // dentro de um talhão).
     const features = map.queryRenderedFeatures(pixel, { layers: layerIds });
     for (const feature of features) {
       const referencia = referenciaDeAtributos(feature.properties);
       if (referencia) return referencia;
     }
+
+    // 2) Nada exatamente ali — comum perto de água/margem de rio, onde a
+    // área medida pode ter uma ponta caindo num vão sem geometria de
+    // talhão (o polígono do talhão não cobre a lâmina d'água). Em vez de
+    // já desistir pro cálculo global por distância (que compara com o
+    // RÓTULO de cada fazenda inteira, podendo escolher uma fazenda bem
+    // distante — foi o bug relatado), busca num raio pequeno em tela
+    // (~80px) e ranqueia os candidatos encontrados pela distância real
+    // até a própria geometria — sempre prefere um talhão vizinho de
+    // verdade a um label distante.
+    const raioPx = 80;
+    const vizinhas = map.queryRenderedFeatures(
+      [
+        [pixel.x - raioPx, pixel.y - raioPx],
+        [pixel.x + raioPx, pixel.y + raioPx],
+      ],
+      { layers: layerIds }
+    );
+    let melhor = null;
+    for (const feature of vizinhas) {
+      const referencia = referenciaDeAtributos(feature.properties);
+      if (!referencia) continue;
+      const distancia = distanciaPontoAFeature(ponto, feature);
+      if (!melhor || distancia < melhor.distancia) melhor = { referencia, distancia };
+    }
+    if (melhor) return melhor.referencia;
   }
 
   return calcularReferenciaPorDistancia(ponto, indiceBusca);
