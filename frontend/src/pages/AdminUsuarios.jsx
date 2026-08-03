@@ -11,6 +11,7 @@ import {
   removerGrupoAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import IconeLordicon from "../components/IconeLordicon.jsx";
 
 const FORM_USUARIO_VAZIO = {
   nome: "",
@@ -445,7 +446,11 @@ export default function AdminUsuarios() {
                       onClick={() => removerGrupo(g)}
                       disabled={removendoGrupoId === g.id}
                     >
-                      {removendoGrupoId === g.id && <span className="spinner" aria-hidden="true" />}
+                      {removendoGrupoId === g.id ? (
+                        <span className="spinner" aria-hidden="true" />
+                      ) : (
+                        <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
+                      )}
                       {removendoGrupoId === g.id ? "Removendo…" : "Remover"}
                     </button>
                   </>
