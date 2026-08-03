@@ -1,10 +1,18 @@
-// Observa a pasta de exportacao FME e mantem as camadas Talhoes/Limites
-// da unidade Pedra atualizadas no GeoMap, sem depender de alguem lembrar
-// de fazer upload manual. Ver README.md pra configurar/rodar.
+// Roda UMA VEZ (agendado via Windows Task Scheduler todo dia às 8:05,
+// ver README.md) e mantem as camadas Talhoes/Limites da unidade Pedra
+// atualizadas no GeoMap, sem depender de alguem lembrar de fazer upload
+// manual. Ver README.md pra configurar/agendar.
+//
+// Já foi um processo de "vigiar a pasta em tempo real" (chokidar) — trocado
+// por execução diária agendada por pedido explícito: mais simples (não
+// precisa de nenhum processo rodando 24h, nem lidar com a instabilidade do
+// watch nativo em compartilhamento de rede SMB, que chegou a quebrar esse
+// modelo em produção real) e a exportação (FME) só solta um conjunto novo
+// por dia mesmo, então "vigiar em tempo real" nunca foi necessário de
+// verdade.
 import path from "path";
 import fs from "fs/promises";
 import { fileURLToPath, pathToFileURL } from "url";
-import chokidar from "chokidar";
 import { criarClienteApi, aguardarJobConcluir } from "./lib/api.mjs";
 import {
   interpretarNomeArquivo,
@@ -30,7 +38,7 @@ async function carregarEnv(caminhoEnv) {
       const chave = linha.slice(0, posIgual).trim();
       const valor = linha.slice(posIgual + 1).trim();
       // Nunca sobrescreve uma env var já setada de verdade (ex: definida
-      // pelo Task Scheduler/serviço) — o .env é só o valor padrão local.
+      // pelo Task Scheduler) — o .env é só o valor padrão local.
       if (!(chave in process.env)) process.env[chave] = valor;
     }
   } catch (erro) {
@@ -49,11 +57,10 @@ async function carregarMapeamento() {
   return JSON.parse(conteudo);
 }
 
-// Varre a pasta uma vez no start (não via evento do chokidar) e devolve
-// só o arquivo .shp MAIS RECENTE por (unidade, tipo) — evita reprocessar
-// dias antigos acumulados na pasta um por um (o export nunca apaga nada,
-// então uma pasta já em uso pode ter semanas de histórico).
-async function candidatosIniciais(pasta) {
+// Varre a pasta e devolve só o arquivo .shp MAIS RECENTE por (unidade,
+// tipo) — evita reprocessar dias antigos acumulados na pasta um por um
+// (o export nunca apaga nada, então a pasta acumula histórico).
+async function candidatosAtuais(pasta) {
   const arquivos = await fs.readdir(pasta);
   const porGrupo = new Map();
   for (const nomeArquivo of arquivos) {
@@ -66,104 +73,91 @@ async function candidatosIniciais(pasta) {
   return [...porGrupo.values()];
 }
 
-export function criarVigia({ pasta, mapeamento, cliente, debounceMs = 60_000 }) {
-  const timers = new Map();
-
-  // Fila global (não por unidade/tipo) — Talhões e Limites de fazendas
-  // diferentes podiam disparar upload+conversão ao mesmo tempo (visto em
-  // produção real: 2 conversões pesadas simultâneas coincidiram com o
-  // backend do Render devolvendo erro no meio de ambas, provável restart
-  // por sobrecarga). Serializa pra nunca ter mais de 1 conversão pesada
-  // rodando por vez, custe o que custar em velocidade.
-  let filaAtual = Promise.resolve();
-  function enfileirar(tarefa) {
-    const resultado = filaAtual.then(tarefa, tarefa);
-    filaAtual = resultado.then(
-      () => {},
-      () => {} // uma falha na fila nunca trava as próximas tarefas
-    );
-    return resultado;
-  }
-
-  function agendar(info) {
-    const chave = info.baseSemExtensao;
-    if (timers.has(chave)) clearTimeout(timers.get(chave));
-    timers.set(
-      chave,
-      setTimeout(() => {
-        timers.delete(chave);
-        processar(info).catch((erro) => log(`ERRO (${chave}): ${erro.message}`));
-      }, debounceMs)
-    );
-  }
-
-  async function processar(info) {
-    const estadoAtual = await lerEstado(CAMINHO_ESTADO);
-    if (jaProcessado(estadoAtual, info.unidade, info.tipo, info.data)) {
-      await log(`(${info.unidade}/${info.tipo}) ${info.data} já processado, ignorando`);
-      return;
-    }
-
+// A exportação (FME) normalmente já terminou de escrever todos os
+// arquivos do dia bem antes do horário agendado (ver README) — mas, pra
+// não depender 100% disso, tenta um punhado de vezes com espera entre
+// tentativas antes de desistir do dia. Sem chokidar/watcher nenhum
+// backup aqui: se esgotar as tentativas, esse conjunto fica pra ser
+// pego no dia seguinte (quando ele deixar de ser "o mais recente" e um
+// novo válido assumir o lugar) ou numa reexecução manual.
+async function aguardarArquivosCompletos(pasta, info, { tentativas = 5, esperaMs = 120_000 } = {}) {
+  for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
     const caminhos = [];
+    let completo = true;
     for (const ext of EXTENSOES_OBRIGATORIAS) {
       const caminho = path.join(pasta, `${info.baseSemExtensao}.${ext}`);
       try {
         await fs.access(caminho);
         caminhos.push(caminho);
       } catch {
-        await log(`(${info.unidade}/${info.tipo}) ${info.data}: falta .${ext}, tentando de novo em breve`);
-        agendar(info);
-        return;
+        completo = false;
+        break;
       }
     }
-    for (const ext of EXTENSOES_OPCIONAIS) {
-      const caminho = path.join(pasta, `${info.baseSemExtensao}.${ext}`);
-      try {
-        await fs.access(caminho);
-        caminhos.push(caminho);
-      } catch {
-        // opcional — tudo bem não existir.
+    if (completo) {
+      for (const ext of EXTENSOES_OPCIONAIS) {
+        const caminho = path.join(pasta, `${info.baseSemExtensao}.${ext}`);
+        try {
+          await fs.access(caminho);
+          caminhos.push(caminho);
+        } catch {
+          // opcional — tudo bem não existir.
+        }
       }
+      return caminhos;
     }
+    if (tentativa < tentativas) {
+      await log(`(${info.unidade}/${info.tipo}) ${info.data}: conjunto de arquivos incompleto, tentativa ${tentativa}/${tentativas}, aguardando ${esperaMs / 1000}s...`);
+      await new Promise((resolver) => setTimeout(resolver, esperaMs));
+    }
+  }
+  return null;
+}
 
-    const config = mapeamento[info.unidade];
-    if (!config) {
-      await log(`(${info.unidade}) sem entrada em mapeamento-camadas.json, ignorando`);
-      return;
-    }
-    const camadaIds = info.tipo === "talhoes" ? config.talhoesCamadaIds : config.limitesCamadaIds;
-    if (!camadaIds || camadaIds.length === 0) {
-      await log(`(${info.unidade}/${info.tipo}) sem camadaIds configurados, ignorando`);
-      return;
-    }
-
-    await log(`(${info.unidade}/${info.tipo}) processando ${info.data} -> camadas [${camadaIds.join(", ")}]`);
-    for (const camadaId of camadaIds) {
-      await enfileirar(async () => {
-        await log(`  camada ${camadaId}: aguardando vez na fila...`);
-        const jobId = await cliente.enviarArquivoCamada(camadaId, caminhos, info.data);
-        await log(`  camada ${camadaId}: job ${jobId} criado, aguardando conclusão...`);
-        await aguardarJobConcluir(cliente, jobId, {
-          aoFalharTemporariamente: (erro, tentativa) =>
-            log(`  camada ${camadaId}: consulta de status falhou (tentativa ${tentativa}), tentando de novo — ${erro.message}`),
-        });
-        await log(`  camada ${camadaId}: concluída`);
-      });
-    }
-
-    const novoEstado = marcarProcessado(await lerEstado(CAMINHO_ESTADO), info.unidade, info.tipo, info.data);
-    await salvarEstado(CAMINHO_ESTADO, novoEstado);
-    await log(`(${info.unidade}/${info.tipo}) ${info.data}: todas as camadas atualizadas`);
+// Processa um candidato (Talhões OU Limites de uma unidade, na data mais
+// recente encontrada) — envia a camada correspondente em CADA mapa que a
+// tem (ver mapeamento-camadas.json), uma de cada vez (sequencial, nunca
+// duas conversões pesadas ao mesmo tempo no Render — já visto causar
+// erro em produção real).
+async function processarCandidato({ pasta, mapeamento, cliente }, info) {
+  const estadoAtual = await lerEstado(CAMINHO_ESTADO);
+  if (jaProcessado(estadoAtual, info.unidade, info.tipo, info.data)) {
+    await log(`(${info.unidade}/${info.tipo}) ${info.data} já processado, ignorando`);
+    return;
   }
 
-  function tratarEvento(caminhoCompleto) {
-    const info = interpretarNomeArquivo(path.basename(caminhoCompleto));
-    if (!info) return;
-    if (!unidadeSuportada(info.unidade)) return;
-    agendar(info);
+  const config = mapeamento[info.unidade];
+  if (!config) {
+    await log(`(${info.unidade}) sem entrada em mapeamento-camadas.json, ignorando`);
+    return;
+  }
+  const camadaIds = info.tipo === "talhoes" ? config.talhoesCamadaIds : config.limitesCamadaIds;
+  if (!camadaIds || camadaIds.length === 0) {
+    await log(`(${info.unidade}/${info.tipo}) sem camadaIds configurados, ignorando`);
+    return;
   }
 
-  return { agendar, tratarEvento };
+  const caminhos = await aguardarArquivosCompletos(pasta, info);
+  if (!caminhos) {
+    await log(`(${info.unidade}/${info.tipo}) ${info.data}: conjunto de arquivos nunca completou, desistindo por hoje`);
+    return;
+  }
+
+  await log(`(${info.unidade}/${info.tipo}) processando ${info.data} -> camadas [${camadaIds.join(", ")}]`);
+  for (const camadaId of camadaIds) {
+    await log(`  camada ${camadaId}: enviando...`);
+    const jobId = await cliente.enviarArquivoCamada(camadaId, caminhos, info.data);
+    await log(`  camada ${camadaId}: job ${jobId} criado, aguardando conclusão...`);
+    await aguardarJobConcluir(cliente, jobId, {
+      aoFalharTemporariamente: (erro, tentativa) =>
+        log(`  camada ${camadaId}: consulta de status falhou (tentativa ${tentativa}), tentando de novo — ${erro.message}`),
+    });
+    await log(`  camada ${camadaId}: concluída`);
+  }
+
+  const novoEstado = marcarProcessado(await lerEstado(CAMINHO_ESTADO), info.unidade, info.tipo, info.data);
+  await salvarEstado(CAMINHO_ESTADO, novoEstado);
+  await log(`(${info.unidade}/${info.tipo}) ${info.data}: todas as camadas atualizadas`);
 }
 
 async function main() {
@@ -173,7 +167,6 @@ async function main() {
   const baseUrl = process.env.GEOMAP_API_URL;
   const email = process.env.GEOMAP_EMAIL;
   const senha = process.env.GEOMAP_SENHA;
-  const debounceMs = Number(process.env.DEBOUNCE_MS || 60_000);
 
   const faltando = ["PASTA_MONITORADA", "GEOMAP_API_URL", "GEOMAP_EMAIL", "GEOMAP_SENHA"].filter(
     (chave) => !process.env[chave]
@@ -185,52 +178,29 @@ async function main() {
 
   const mapeamento = await carregarMapeamento();
   const cliente = criarClienteApi({ baseUrl, email, senha });
-  const vigia = criarVigia({ pasta, mapeamento, cliente, debounceMs });
 
-  await log(`iniciando — pasta="${pasta}" api="${baseUrl}" debounce=${debounceMs}ms`);
+  await log(`iniciando execução diária — pasta="${pasta}" api="${baseUrl}"`);
+  const candidatos = await candidatosAtuais(pasta);
+  await log(`varredura: ${candidatos.length} arquivo(s) candidato(s) encontrado(s)`);
 
-  const candidatos = await candidatosIniciais(pasta);
-  for (const info of candidatos) vigia.agendar(info);
-  await log(`varredura inicial: ${candidatos.length} arquivo(s) candidato(s) agendado(s)`);
-
-  // usePolling:true é obrigatório aqui — a pasta é um compartilhamento de
-  // rede (SMB, \\lnxfs3\...), e o watch nativo do SO (o padrão do
-  // chokidar) não propaga eventos de forma confiável nesse tipo de
-  // sistema de arquivos. Sem isso, testado em produção real: a chamada
-  // interna do chokidar pra armar o watch nativo falhava imediatamente
-  // com uma enxurrada de "ECONNRESET: connection reset by peer, watch"
-  // (centenas de eventos em segundos, nunca chegava a vigiar nada de
-  // verdade). interval alto (10s) porque essa pasta recebe no máximo
-  // ~1 conjunto de arquivos por dia — não precisa (e não vale o custo
-  // de rede) de um polling agressivo.
-  const watcher = chokidar.watch(pasta, {
-    depth: 0,
-    ignoreInitial: true,
-    usePolling: true,
-    interval: 10_000,
-    binaryInterval: 10_000,
-    awaitWriteFinish: { stabilityThreshold: 5000, pollInterval: 1000 },
-  });
-  watcher.on("add", (caminho) => vigia.tratarEvento(caminho));
-  watcher.on("change", (caminho) => vigia.tratarEvento(caminho));
-  watcher.on("error", (erro) => log(`ERRO no watcher: ${erro.message}`));
-
-  await log("vigiando pasta em tempo real...");
-
-  for (const sinal of ["SIGINT", "SIGTERM"]) {
-    process.on(sinal, async () => {
-      await log(`recebido ${sinal}, encerrando...`);
-      await watcher.close();
-      process.exit(0);
-    });
+  for (const info of candidatos) {
+    try {
+      await processarCandidato({ pasta, mapeamento, cliente }, info);
+    } catch (erro) {
+      await log(`ERRO (${info.unidade}/${info.tipo}): ${erro.message}`);
+    }
   }
+
+  await log("execução diária concluída");
 }
 
 // Só roda main() quando executado diretamente (`node vigiar.mjs`) — não
-// quando importado por um teste, que só quer reusar `criarVigia`.
+// quando importado por um teste, que só quer reusar as funções.
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((erro) => {
     console.error("Falha fatal:", erro);
     process.exit(1);
   });
 }
+
+export { candidatosAtuais, processarCandidato, aguardarArquivosCompletos };

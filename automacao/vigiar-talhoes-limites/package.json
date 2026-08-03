@@ -3,12 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Observa a pasta de exportacao do Data Lake (FME) e atualiza as camadas Talhoes/Limites da unidade Pedra no GeoMap automaticamente.",
+  "description": "Roda diariamente (agendado) e atualiza as camadas Talhoes/Limites da unidade Pedra no GeoMap a partir da exportacao do Data Lake (FME).",
   "scripts": {
     "vigiar": "iniciar.cmd",
     "listar-camadas": "listar-camadas.cmd"
-  },
-  "dependencies": {
-    "chokidar": "^3.6.0"
   }
 }
