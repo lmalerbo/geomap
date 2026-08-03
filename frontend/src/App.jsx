@@ -10,6 +10,7 @@ import { JobsProvider } from "./context/JobsContext.jsx";
 // só baixa quando a rota é acessada de verdade, em vez de tudo junto no
 // bundle principal.
 const Login = lazy(() => import("./pages/Login.jsx"));
+const PrimeiroAcesso = lazy(() => import("./pages/PrimeiroAcesso.jsx"));
 const Inicio = lazy(() => import("./pages/Inicio.jsx"));
 const Mapa = lazy(() => import("./pages/Mapa.jsx"));
 const AdminCamadas = lazy(() => import("./pages/AdminCamadas.jsx"));
@@ -75,6 +76,7 @@ export default function App() {
           <Suspense fallback={<CarregandoRota />}>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/primeiro-acesso" element={<PrimeiroAcesso />} />
               <Route
                 path="/definir-senha"
                 element={

@@ -1,18 +1,22 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useFormularioLogin } from "../hooks/useFormularioLogin.js";
 
-export default function Login() {
+// Porta de entrada dedicada pra quem nunca logou — por baixo é o MESMO
+// POST /login de sempre (useFormularioLogin), só com moldura/copy
+// pensada pra um novato que já recebeu e-mail + senha temporária do
+// administrador (nunca auto-cadastro: sem a senha temporária certa,
+// ninguém entra — ver decisão registrada no histórico do projeto).
+export default function PrimeiroAcesso() {
   const { email, setEmail, senha, setSenha, erro, carregando, handleSubmit } = useFormularioLogin();
-  // Não existe reset de senha por e-mail hoje (auth 100% própria, sem
-  // provedor de e-mail configurado) — "Esqueci minha senha" só orienta a
-  // falar com o admin, que redefine pela tela de Gerenciar Usuários.
-  const [mostrarAjudaSenha, setMostrarAjudaSenha] = useState(false);
 
   return (
     <main className="tela-login">
       <form onSubmit={handleSubmit} className="form-login">
-        <h1>GeoMap</h1>
+        <h1>Primeiro acesso</h1>
+        <p>
+          Digite seu e-mail e a senha temporária que seu administrador te passou. Na sequência
+          você escolhe sua própria senha.
+        </p>
         <label>
           E-mail
           <input
@@ -24,7 +28,7 @@ export default function Login() {
           />
         </label>
         <label>
-          Senha
+          Senha temporária
           <input
             type="password"
             value={senha}
@@ -43,22 +47,13 @@ export default function Login() {
           </p>
         )}
         <button type="submit" disabled={carregando}>
-          {carregando ? "Entrando..." : "Entrar"}
+          {carregando ? "Entrando..." : "Continuar"}
         </button>
         <div className="links-login">
-          <button type="button" className="link-botao" onClick={() => setMostrarAjudaSenha((v) => !v)}>
-            Esqueci minha senha
-          </button>
-          <Link to="/primeiro-acesso" className="link-botao">
-            1º acesso
+          <Link to="/login" className="link-botao">
+            ← Voltar pro login
           </Link>
         </div>
-        {mostrarAjudaSenha && (
-          <p className="aviso-login">
-            Fale com o administrador do sistema — ele pode redefinir sua senha pela tela de
-            Gerenciar Usuários.
-          </p>
-        )}
       </form>
     </main>
   );
