@@ -1594,9 +1594,17 @@ export default function Mapa() {
 
                 <label className="botao importar-arquivo-temporario">
                   {temporaria.importandoArquivo ? "Importando…" : "+ Importar arquivo (KML/SHP)"}
+                  {/* Sem `accept` restrito a extensão (".kml,.zip") de propósito —
+                      no Safari/iOS isso quebra a seleção: o picker "Procurar"
+                      resolve `accept` pra um UTI do sistema, e ".kml" não tem um
+                      UTI reconhecido de forma confiável no iOS (só se algum app
+                      que "dono" desse tipo estiver instalado), deixando todo
+                      arquivo acinzentado/não-selecionável. A validação real de
+                      extensão já acontece em importarArquivoTemporario() com
+                      mensagem de erro clara — o accept aqui era só um filtro
+                      cosmético do picker do SO, não uma barreira de segurança. */}
                   <input
                     type="file"
-                    accept=".kml,.zip"
                     onChange={temporaria.aoImportarArquivo}
                     disabled={temporaria.importandoArquivo}
                   />
