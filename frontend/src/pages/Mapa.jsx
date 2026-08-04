@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -34,7 +34,14 @@ import {
 } from "../lib/compartilharLocalizacao.js";
 import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
-import LegendaCamada, { IconeFormaPonto, FaixaCores, FaixaGradiente, temLegendaDetalhada } from "../components/LegendaCamada.jsx";
+import LegendaCamada, {
+  IconeFormaPonto,
+  FaixaCores,
+  FaixaGradiente,
+  temLegendaDetalhada,
+  BlocoLegendaCores,
+} from "../components/LegendaCamada.jsx";
+import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 
 function IconeMenu() {
@@ -764,6 +771,10 @@ export default function Mapa() {
   // gradiente/forma por atributo) — só existe a setinha de expandir pra
   // camada que tem algo além do swatch simples (ver temLegendaDetalhada).
   const [legendasExpandidas, setLegendasExpandidas] = useState(() => new Set());
+  // Legenda da camada temporária (KML/Shapefile importado) — separada de
+  // legendasExpandidas porque só existe uma por vez (não é indexada por id
+  // de mapa real).
+  const [legendaTemporariaExpandida, setLegendaTemporariaExpandida] = useState(false);
   const [indiceBusca, setIndiceBusca] = useState([]);
   const [buscaTexto, setBuscaTexto] = useState("");
   // Item destacado na lista de resultados — navegável por ↑/↓ no desktop;
@@ -789,6 +800,20 @@ export default function Mapa() {
   const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual);
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto);
+  // Nome + cor real de cada feição do arquivo importado (ver
+  // resumoFeicoesTemporaria) — alimenta o swatch (cor única, faixa de cores,
+  // ou o magenta padrão quando o arquivo não tem simbologia nenhuma) e a
+  // legenda expansível "ver cada item que compõe" pedida pelo usuário.
+  const resumoTemporaria = useMemo(
+    () => (temporaria.arquivoTemporario ? resumoFeicoesTemporaria(temporaria.arquivoTemporario.geojson) : null),
+    [temporaria.arquivoTemporario]
+  );
+  // Fecha a legenda expandida ao trocar/remover o arquivo — senão um
+  // arquivo novo importado logo em seguida herdaria o estado "expandida"
+  // do anterior.
+  useEffect(() => {
+    setLegendaTemporariaExpandida(false);
+  }, [temporaria.arquivoTemporario]);
 
   // Nome de exibição real do mapa (ex: "Geral") pros arquivos exportados
   // pela medição — lido do IndexedDB (mesma fonte da tela inicial),
@@ -1572,24 +1597,59 @@ export default function Mapa() {
                 })}
 
                 {temporaria.arquivoTemporario && (
-                  <label className="linha-camada linha-camada--temporaria">
-                    <input
-                      type="checkbox"
-                      checked={temporaria.temporariaVisivel}
-                      onChange={() => temporaria.setTemporariaVisivel((v) => !v)}
-                    />
-                    <span className="swatch-camada" style={{ backgroundColor: CORES_FERRAMENTAS.temporaria }} />
-                    <span className="nome-camada">Temporária: {temporaria.arquivoTemporario.nome}</span>
-                    <button
-                      type="button"
-                      className="fechar"
-                      onClick={temporaria.removerArquivoTemporario}
-                      aria-label="Remover camada temporária"
-                      title="Remover camada temporária"
-                    >
-                      ×
-                    </button>
-                  </label>
+                  <div className="linha-camada-bloco">
+                    <label className="linha-camada linha-camada--temporaria">
+                      <input
+                        type="checkbox"
+                        checked={temporaria.temporariaVisivel}
+                        onChange={() => temporaria.setTemporariaVisivel((v) => !v)}
+                      />
+                      {resumoTemporaria.coresDistintas.length > 1 ? (
+                        <FaixaCores cores={resumoTemporaria.coresDistintas.slice(0, 4)} />
+                      ) : (
+                        <span
+                          className="swatch-camada"
+                          style={{ backgroundColor: resumoTemporaria.coresDistintas[0] || CORES_FERRAMENTAS.temporaria }}
+                        />
+                      )}
+                      <span className="nome-camada">Temporária: {temporaria.arquivoTemporario.nome}</span>
+                      {resumoTemporaria.itens.length > 1 && (
+                        <button
+                          type="button"
+                          className="botao-expandir-legenda"
+                          aria-label={legendaTemporariaExpandida ? "Recolher legenda" : "Ver itens do arquivo"}
+                          aria-expanded={legendaTemporariaExpandida}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setLegendaTemporariaExpandida((v) => !v);
+                          }}
+                        >
+                          <span className={`seta${legendaTemporariaExpandida ? " seta--aberta" : ""}`} aria-hidden="true">
+                            ›
+                          </span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="fechar"
+                        onClick={temporaria.removerArquivoTemporario}
+                        aria-label="Remover camada temporária"
+                        title="Remover camada temporária"
+                      >
+                        ×
+                      </button>
+                    </label>
+                    {legendaTemporariaExpandida && resumoTemporaria.itens.length > 1 && (
+                      <BlocoLegendaCores
+                        titulo="Itens do arquivo"
+                        itens={resumoTemporaria.itens.map((item) => ({
+                          cor: item.cor || CORES_FERRAMENTAS.temporaria,
+                          texto: item.quantidade > 1 ? `${item.nome} (×${item.quantidade})` : item.nome,
+                        }))}
+                      />
+                    )}
+                  </div>
                 )}
 
                 <label className="botao importar-arquivo-temporario">

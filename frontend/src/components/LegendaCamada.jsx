@@ -67,7 +67,7 @@ export function temLegendaDetalhada({ preenchimento, contorno, simbolo, ehPonto 
   return false;
 }
 
-function BlocoLegendaCores({ titulo, itens }) {
+export function BlocoLegendaCores({ titulo, itens }) {
   return (
     <div className="bloco-legenda-camada">
       <strong>{titulo}</strong>
