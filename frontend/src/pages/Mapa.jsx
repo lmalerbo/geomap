@@ -1314,7 +1314,12 @@ export default function Mapa() {
     // rótulo — esse ponto fica só na maior peça de uma fazenda com
     // peças espalhadas (polylabel em gerar_rotulos_por_atributo.py), e
     // um zoom fixo nele deixava de fora o resto da fazenda, parecendo
-    // "aproximar de lugar aleatório".
+    // "aproximar de lugar aleatório". Fazenda com formato bem alongado
+    // (ex: 13km x 5km) sempre fica "mais de longe" que uma compacta de
+    // área parecida — é inerente a mostrar a extensão inteira, não dá
+    // pra evitar sem voltar a esconder pedaço da fazenda. padding menor
+    // (30, era 60) aproveita melhor a tela — ajuda um pouco, mas quem
+    // realmente limita é o formato da fazenda em si.
     const [minLng, minLat, maxLng, maxLat] = resultado.bounds || [];
     if (resultado.bounds && Number.isFinite(minLng) && Number.isFinite(maxLng)) {
       map.fitBounds(
@@ -1322,7 +1327,7 @@ export default function Mapa() {
           [minLng, minLat],
           [maxLng, maxLat],
         ],
-        { padding: 60, duration: 1200, maxZoom: 16 },
+        { padding: 30, duration: 1200, maxZoom: 16 },
       );
     } else {
       map.flyTo({ center: [resultado.lng, resultado.lat], zoom: 16, duration: 1200 });
