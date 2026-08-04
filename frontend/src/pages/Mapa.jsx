@@ -807,7 +807,7 @@ export default function Mapa() {
   // 1) — os hooks não criam mapa nenhum, só desenham em cima do existente.
   const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual);
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
-  const temporaria = useImportacaoTemporaria(mapRef, mapaPronto);
+  const temporaria = useImportacaoTemporaria(mapRef, mapaPronto, mapaId);
   // Nome + cor real de cada feição do arquivo importado (ver
   // resumoFeicoesTemporaria) — alimenta o swatch (cor única, faixa de cores,
   // ou o magenta padrão quando o arquivo não tem simbologia nenhuma) e a
@@ -1625,7 +1625,7 @@ export default function Mapa() {
                           style={{ backgroundColor: resumoTemporaria.coresDistintas[0] || CORES_FERRAMENTAS.temporaria }}
                         />
                       )}
-                      <span className="nome-camada">Temporária: {temporaria.arquivoTemporario.nome}</span>
+                      <span className="nome-camada">Importado: {temporaria.arquivoTemporario.nome}</span>
                       {resumoTemporaria.itens.length > 1 && (
                         <button
                           type="button"
@@ -1647,8 +1647,8 @@ export default function Mapa() {
                         type="button"
                         className="fechar"
                         onClick={temporaria.removerArquivoTemporario}
-                        aria-label="Remover camada temporária"
-                        title="Remover camada temporária"
+                        aria-label="Remover arquivo importado"
+                        title="Remover arquivo importado"
                       >
                         ×
                       </button>
@@ -1882,13 +1882,12 @@ export default function Mapa() {
                   <button
                     type="button"
                     className="botao-secundario"
-                    onClick={() => {
-                      temporaria.setArquivoTemporario({
-                        nome: `Percurso — ${new Date().toLocaleString("pt-BR")}`,
-                        geojson: track.geojsonPercursoAtual,
-                      });
-                      temporaria.setTemporariaVisivel(true);
-                    }}
+                    onClick={() =>
+                      temporaria.definirArquivoTemporario(
+                        `Percurso — ${new Date().toLocaleString("pt-BR")}`,
+                        track.geojsonPercursoAtual
+                      )
+                    }
                   >
                     Ver no mapa
                   </button>

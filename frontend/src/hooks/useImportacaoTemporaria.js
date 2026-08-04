@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import { importarArquivoTemporario } from "../lib/importadorTemporario.js";
+import { salvarArquivoImportado, buscarArquivoImportado, removerArquivoImportado } from "../lib/db.js";
 
 const FONTE_TEMPORARIA = "fonte-temporaria";
 const CAMADA_TEMPORARIA_PREENCHIMENTO = "camada-temporaria-preenchimento";
@@ -18,16 +19,47 @@ function expressaoOuPadrao(propriedade, padrao) {
   return ["coalesce", ["get", propriedade], padrao];
 }
 
-// Importação temporária de KML/Shapefile pra visualização — extraída de
-// Mapa.jsx (era o efeito 11 + os states/funções relacionados). Nunca toca
-// IndexedDB/backend, vive só em memória — some ao recarregar a página ou
-// remover manualmente. `mapRef`/`mapaPronto` vêm de fora (mesmo mapa único
-// do componente pai).
-export function useImportacaoTemporaria(mapRef, mapaPronto) {
+// Importação de KML/Shapefile pra visualização — extraída de Mapa.jsx (era
+// o efeito 11 + os states/funções relacionados). Persiste no IndexedDB por
+// mapa (só neste aparelho, sem sincronizar entre dispositivos nem passar
+// pelo backend — pedido explícito: "cada pessoa personaliza seus mapas"
+// sem exigir conta/servidor pra isso) — sobrevive a fechar/reabrir o
+// navegador, some só se removida manualmente. Nome do hook/arquivo e a
+// palavra "temporária" nos comentários/CSS ficaram como estavam antes
+// dessa mudança (evita uma renomeação grande só por causa da palavra) —
+// só o comportamento real mudou. `mapRef`/`mapaPronto` vêm de fora (mesmo
+// mapa único do componente pai); `mapaId` decide de qual mapa é o arquivo
+// salvo (cada mapa/fazenda guarda o próprio, no máximo 1 por vez).
+export function useImportacaoTemporaria(mapRef, mapaPronto, mapaId) {
   const [arquivoTemporario, setArquivoTemporario] = useState(null); // {nome, geojson} | null
   const [temporariaVisivel, setTemporariaVisivel] = useState(true);
   const [importandoArquivo, setImportandoArquivo] = useState(false);
   const [erroImportacao, setErroImportacao] = useState(null);
+  const [carregandoPersistido, setCarregandoPersistido] = useState(true);
+
+  // Carrega o que já tinha sido importado nesse mapa (se algum) assim que
+  // o componente monta — Mapa.jsx remonta inteiro a cada troca de mapa
+  // (key={mapaId} em App.jsx), então isso roda uma vez por mapa aberto,
+  // não precisa reagir a mapaId mudando dentro do mesmo componente.
+  useEffect(() => {
+    if (!Number.isFinite(mapaId)) {
+      setCarregandoPersistido(false);
+      return;
+    }
+    let cancelado = false;
+    buscarArquivoImportado(mapaId).then((salvo) => {
+      if (cancelado) return;
+      if (salvo) {
+        setArquivoTemporario({ nome: salvo.nome, geojson: salvo.geojson });
+        setTemporariaVisivel(salvo.visivel ?? true);
+      }
+      setCarregandoPersistido(false);
+    });
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapaId]);
 
   // Cria/remove fonte+camadas quando o arquivo muda — 3 layers (uma por
   // família de geometria, já que o arquivo importado pode ter qualquer
@@ -91,6 +123,18 @@ export function useImportacaoTemporaria(mapRef, mapaPronto) {
     });
   }, [arquivoTemporario, temporariaVisivel, mapaPronto]);
 
+  // Mantém o IndexedDB em dia quando o usuário liga/desliga a visibilidade
+  // (não só na importação/remoção) — sem isso, reabrir o app restauraria
+  // sempre visível, mesmo que a pessoa tivesse desligado antes de fechar.
+  // Ignorado enquanto ainda está carregando o registro salvo (senão o
+  // valor padrão do state re-salvaria por cima antes da leitura real
+  // terminar) e sem arquivo nenhum (nada pra atualizar).
+  useEffect(() => {
+    if (carregandoPersistido || !arquivoTemporario || !Number.isFinite(mapaId)) return;
+    salvarArquivoImportado(mapaId, arquivoTemporario.nome, arquivoTemporario.geojson, temporariaVisivel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [temporariaVisivel]);
+
   async function aoImportarArquivo(e) {
     const file = e.target.files?.[0];
     e.target.value = ""; // permite reimportar o mesmo arquivo depois de remover
@@ -101,6 +145,9 @@ export function useImportacaoTemporaria(mapRef, mapaPronto) {
       const resultado = await importarArquivoTemporario(file);
       setArquivoTemporario(resultado);
       setTemporariaVisivel(true);
+      if (Number.isFinite(mapaId)) {
+        await salvarArquivoImportado(mapaId, resultado.nome, resultado.geojson, true);
+      }
     } catch (err) {
       setErroImportacao(err.message);
     } finally {
@@ -112,16 +159,28 @@ export function useImportacaoTemporaria(mapRef, mapaPronto) {
     e.preventDefault();
     setArquivoTemporario(null);
     setErroImportacao(null);
+    if (Number.isFinite(mapaId)) removerArquivoImportado(mapaId);
+  }
+
+  // Pro caso de "Ver percurso no mapa" (track log) usar o mesmo slot em
+  // vez de um arquivo importado de verdade — persiste igual, pra não
+  // sumir num reload igual um KML importado não sumiria mais.
+  async function definirArquivoTemporario(nome, geojson) {
+    setArquivoTemporario({ nome, geojson });
+    setTemporariaVisivel(true);
+    if (Number.isFinite(mapaId)) {
+      await salvarArquivoImportado(mapaId, nome, geojson, true);
+    }
   }
 
   return {
     arquivoTemporario,
-    setArquivoTemporario,
     temporariaVisivel,
     setTemporariaVisivel,
     importandoArquivo,
     erroImportacao,
     aoImportarArquivo,
     removerArquivoTemporario,
+    definirArquivoTemporario,
   };
 }

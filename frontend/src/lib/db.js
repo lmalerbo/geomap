@@ -3,9 +3,10 @@ import { openDB } from "idb";
 const DB_NAME = "geoportal";
 const STORE_CAMADAS = "mapas_baixados";
 const STORE_MAPAS = "mapas_disponiveis";
+const STORE_ARQUIVO_IMPORTADO = "arquivo_importado_por_mapa";
 
 function abrirDb() {
-  return openDB(DB_NAME, 2, {
+  return openDB(DB_NAME, 3, {
     upgrade(db, versaoAnterior) {
       if (versaoAnterior < 1) {
         db.createObjectStore(STORE_CAMADAS, { keyPath: "id" });
@@ -15,6 +16,13 @@ function abrirDb() {
         // mapas (projetos) permitidos mesmo offline, antes de qualquer um
         // ser aberto.
         db.createObjectStore(STORE_MAPAS, { keyPath: "id" });
+      }
+      if (versaoAnterior < 3) {
+        // KML/Shapefile importado pelo usuário (ver useImportacaoTemporaria)
+        // — passou a persistir por mapa, em vez de sumir ao recarregar a
+        // página. 1 registro por mapaId (o app só suporta 1 arquivo
+        // importado por vez, sempre substituído por uma nova importação).
+        db.createObjectStore(STORE_ARQUIVO_IMPORTADO, { keyPath: "mapaId" });
       }
     },
   });
@@ -87,4 +95,25 @@ export async function salvarMapasDisponiveis(mapas) {
 export async function listarMapasDisponiveis() {
   const db = await abrirDb();
   return db.getAll(STORE_MAPAS);
+}
+
+export async function salvarArquivoImportado(mapaId, nome, geojson, visivel) {
+  const db = await abrirDb();
+  await db.put(STORE_ARQUIVO_IMPORTADO, {
+    mapaId,
+    nome,
+    geojson,
+    visivel,
+    importadoEm: new Date().toISOString(),
+  });
+}
+
+export async function buscarArquivoImportado(mapaId) {
+  const db = await abrirDb();
+  return db.get(STORE_ARQUIVO_IMPORTADO, mapaId);
+}
+
+export async function removerArquivoImportado(mapaId) {
+  const db = await abrirDb();
+  await db.delete(STORE_ARQUIVO_IMPORTADO, mapaId);
 }
