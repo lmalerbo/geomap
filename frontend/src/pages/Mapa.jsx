@@ -174,6 +174,14 @@ class TrackControl {
 // simplesmente não ganha rótulo.
 const CAMADA_ROTULOS = "rotulos";
 
+// KML de campo real pode ter centenas de Placemarks (visto: 320) — sem
+// limite, a legenda expandida vira um bloco de milhares de pixels de
+// altura empurrando o painel inteiro, parecendo "quebrado" em vez de
+// "expandiu". Corta em 40 (a imensa maioria dos casos reais de uso cabe
+// nisso — categorias de estilo real raramente passam de uma dúzia) e
+// avisa quantos ficaram de fora.
+const LIMITE_ITENS_LEGENDA_TEMPORARIA = 40;
+
 // Fundo satélite (Esri World Imagery) — só existem quando o toggle está
 // ativo, ver efeito "1c" em Mapa().
 const FUNDO_SATELITE_SOURCE_ID = "fundo-satelite-fonte";
@@ -1641,13 +1649,21 @@ export default function Mapa() {
                       </button>
                     </label>
                     {legendaTemporariaExpandida && resumoTemporaria.itens.length > 1 && (
-                      <BlocoLegendaCores
-                        titulo="Itens do arquivo"
-                        itens={resumoTemporaria.itens.map((item) => ({
-                          cor: item.cor || CORES_FERRAMENTAS.temporaria,
-                          texto: item.quantidade > 1 ? `${item.nome} (×${item.quantidade})` : item.nome,
-                        }))}
-                      />
+                      <>
+                        <BlocoLegendaCores
+                          titulo={`Itens do arquivo (${resumoTemporaria.itens.length})`}
+                          itens={resumoTemporaria.itens.slice(0, LIMITE_ITENS_LEGENDA_TEMPORARIA).map((item) => ({
+                            cor: item.cor || CORES_FERRAMENTAS.temporaria,
+                            texto: item.quantidade > 1 ? `${item.nome} (×${item.quantidade})` : item.nome,
+                          }))}
+                        />
+                        {resumoTemporaria.itens.length > LIMITE_ITENS_LEGENDA_TEMPORARIA && (
+                          <p className="aviso-legenda-truncada">
+                            +{resumoTemporaria.itens.length - LIMITE_ITENS_LEGENDA_TEMPORARIA} itens não mostrados
+                            (lista muito longa)
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
