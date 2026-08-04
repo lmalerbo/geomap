@@ -5,6 +5,7 @@ import {
   criarUsuarioAdmin,
   atualizarUsuarioAdmin,
   redefinirSenhaUsuarioAdmin,
+  removerUsuarioAdmin,
   listarGruposAdmin,
   criarGrupoAdmin,
   renomearGrupoAdmin,
@@ -40,6 +41,7 @@ export default function AdminUsuarios() {
   const [salvandoEdicaoId, setSalvandoEdicaoId] = useState(null);
 
   const [redefinindoId, setRedefinindoId] = useState(null);
+  const [excluindoId, setExcluindoId] = useState(null);
 
   const [novoGrupoNome, setNovoGrupoNome] = useState("");
   const [criandoGrupo, setCriandoGrupo] = useState(false);
@@ -159,6 +161,30 @@ export default function AdminUsuarios() {
       setErro(err.message);
     } finally {
       setRedefinindoId(null);
+    }
+  }
+
+  // Exclusão de verdade (não só desativar) — o backend já recusa se for a
+  // própria conta ou o último admin ativo, mas confirma explicitamente
+  // aqui porque, diferente de desativar, não tem volta (logs de quem já
+  // baixou/logou ficam mantidos, só perdem a referência ao usuário).
+  async function excluirUsuario(usuario) {
+    if (
+      !window.confirm(
+        `Excluir "${usuario.nome}" (${usuario.email})? Isso não pode ser desfeito — diferente de "Inativo", a conta deixa de existir.`
+      )
+    ) {
+      return;
+    }
+    setExcluindoId(usuario.id);
+    setErro(null);
+    try {
+      await removerUsuarioAdmin(sessao.token, usuario.id);
+      await carregarUsuarios();
+    } catch (err) {
+      setErro(err.message);
+    } finally {
+      setExcluindoId(null);
     }
   }
 
@@ -343,6 +369,20 @@ export default function AdminUsuarios() {
                     onClick={() => (editandoId === u.id ? fecharEdicao() : abrirEdicao(u))}
                   >
                     {editandoId === u.id ? "Cancelar" : "Editar"}
+                  </button>
+                  <button
+                    type="button"
+                    className="botao-remover-mapa"
+                    onClick={() => excluirUsuario(u)}
+                    disabled={ehVoce || excluindoId === u.id}
+                    title={ehVoce ? "Você não pode excluir a própria conta" : undefined}
+                  >
+                    {excluindoId === u.id ? (
+                      <span className="spinner" aria-hidden="true" />
+                    ) : (
+                      <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
+                    )}
+                    {excluindoId === u.id ? "Excluindo…" : "Excluir"}
                   </button>
                 </div>
 

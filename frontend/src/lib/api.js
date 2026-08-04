@@ -196,6 +196,15 @@ export async function redefinirSenhaUsuarioAdmin(token, usuarioId) {
   return resp.json();
 }
 
+export async function removerUsuarioAdmin(token, usuarioId) {
+  const resp = await fetch(`${API_URL}/admin/usuarios/${usuarioId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 // --- Painel de administração: camadas (arquivos .pmtiles dentro de um mapa) ---
 
 export async function listarCamadasAdmin(token) {

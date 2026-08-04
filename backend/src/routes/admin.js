@@ -579,6 +579,46 @@ adminRouter.put("/admin/usuarios/:id/senha", async (req, res) => {
   res.json({ ok: true });
 });
 
+// Exclusão de verdade (antes só existia "status = inativo") — mesmas duas
+// travas do PUT acima (não apagar a si mesmo, não zerar o último admin
+// ativo). logs.usuario_id vira NULL pro histórico de quem já baixou/logou
+// (migration 010) — nunca perde o registro de auditoria em si, só a
+// referência ao usuário apagado. usuarios_grupos já tinha ON DELETE
+// CASCADE desde o schema original, limpa sozinho.
+adminRouter.delete("/admin/usuarios/:id", async (req, res) => {
+  const usuarioId = Number(req.params.id);
+  if (!Number.isInteger(usuarioId)) {
+    return res.status(400).json({ erro: "id de usuário inválido" });
+  }
+
+  if (usuarioId === req.usuarioId) {
+    return res.status(400).json({ erro: "não é possível excluir a própria conta" });
+  }
+
+  const { rows: atualRows } = await pool.query("SELECT papel, status, email FROM usuarios WHERE id = $1", [
+    usuarioId,
+  ]);
+  const atual = atualRows[0];
+  if (!atual) {
+    return res.status(404).json({ erro: "usuário não encontrado" });
+  }
+
+  if (atual.papel === "admin" && atual.status === "ativo") {
+    const { rows: contagem } = await pool.query(
+      `SELECT count(*)::int AS total FROM usuarios
+       WHERE papel = 'admin' AND status = 'ativo' AND id != $1`,
+      [usuarioId]
+    );
+    if (contagem[0].total === 0) {
+      return res.status(400).json({ erro: "não é possível excluir o último admin ativo" });
+    }
+  }
+
+  await pool.query("DELETE FROM usuarios WHERE id = $1", [usuarioId]);
+  await registrarAuditoria(req.usuarioId, "excluir_usuario", `usuário ${usuarioId} (${atual.email})`, req.ip);
+  res.json({ ok: true });
+});
+
 // --- Mapas (projetos: "Usina da Pedra", etc — o que aparece na tela
 // inicial). Permissão vive aqui, não mais por camada individual. ---
 
