@@ -1,6 +1,6 @@
 {
   "da_pedra": {
-    "talhoesCamadaIds": [5, 25, 48],
-    "limitesCamadaIds": [1, 21, 43]
+    "talhoesCamadaIds": [5, 25, 48, 103],
+    "limitesCamadaIds": [1, 21, 43, 99]
   }
 }
