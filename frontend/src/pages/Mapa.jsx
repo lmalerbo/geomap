@@ -32,7 +32,7 @@ import {
   linkAppleMaps,
   compartilharLocalizacao,
 } from "../lib/compartilharLocalizacao.js";
-import MenuLateral, { IconeMapas } from "../components/MenuLateral.jsx";
+import MenuLateral, { IconeMapas, IconeCamadas } from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import LegendaCamada, {
   IconeFormaPonto,
@@ -303,6 +303,19 @@ function expandirBoundsComCoords(bounds, coords) {
   }
 }
 
+// Desce recursivamente pela mesma estrutura de coordenadas GeoJSON até
+// achar o primeiro par [lng,lat] (uma folha) — usado só pra ter um ponto
+// aproximado de cada talhão (ver talhoesPorDesc), suficiente pra centralizar
+// o mapa ao clicar um item da lista, sem precisar calcular centroide.
+function primeiroPontoComCoords(coords) {
+  if (typeof coords[0] === "number") return coords;
+  for (const c of coords) {
+    const ponto = primeiroPontoComCoords(c);
+    if (ponto) return ponto;
+  }
+  return null;
+}
+
 async function montarIndiceBusca(infos) {
   // Passagem 1: agrega os códigos SECAO de QUALQUER camada (Talhões,
   // Limites, etc.) por nome de fazenda/seção (DESC_SECAO) — cada camada só
@@ -322,6 +335,12 @@ async function montarIndiceBusca(infos) {
   // parecia "aproximar de lugar aleatório" porque só a maior peça ficava
   // visível no zoom fixo de antes).
   const boundsPorDesc = new Map(); // DESC_SECAO -> [minLng, minLat, maxLng, maxLat]
+  // Lista de talhões (número + atributos + ponto aproximado) de cada
+  // fazenda/seção, só a partir de camadas com campo TALHAO — alimenta o
+  // card "Talhões da fazenda" que aparece ao selecionar um resultado de
+  // busca. Chave interna por SECAO+TALHAO evita duplicar o mesmo talhão
+  // quando ele aparece em mais de 1 tile do scan (feição multi-parte).
+  const talhoesPorDesc = new Map(); // DESC_SECAO -> Map("SECAO-TALHAO" -> item)
   for (const info of infos) {
     const { pmtiles, header } = info;
     // A camada principal (polígono/ponto) é gerada SEM a flag -r1 do
@@ -355,10 +374,21 @@ async function montarIndiceBusca(infos) {
           if (!boundsPorDesc.has(props.DESC_SECAO)) {
             boundsPorDesc.set(props.DESC_SECAO, [Infinity, Infinity, -Infinity, -Infinity]);
           }
-          expandirBoundsComCoords(
-            boundsPorDesc.get(props.DESC_SECAO),
-            feature.toGeoJSON(x, y, z).geometry.coordinates,
-          );
+          const coordsGeoJson = feature.toGeoJSON(x, y, z).geometry.coordinates;
+          expandirBoundsComCoords(boundsPorDesc.get(props.DESC_SECAO), coordsGeoJson);
+
+          if (info.ehTalhao && "TALHAO" in props) {
+            if (!talhoesPorDesc.has(props.DESC_SECAO)) talhoesPorDesc.set(props.DESC_SECAO, new Map());
+            const ponto = primeiroPontoComCoords(coordsGeoJson);
+            talhoesPorDesc.get(props.DESC_SECAO).set(`${props.SECAO}-${props.TALHAO}`, {
+              talhao: props.TALHAO,
+              secao: props.SECAO,
+              mapaId: info.id,
+              lng: ponto?.[0],
+              lat: ponto?.[1],
+              propriedades: aplicarConfigAtributos(props, info.atributosConfig),
+            });
+          }
         }
       }
     }
@@ -409,7 +439,20 @@ async function montarIndiceBusca(infos) {
     }
   }
 
-  return indice;
+  // Converte pra array ordenado por número do talhão (numérico quando dá,
+  // senão por texto) — a UI só precisa iterar, não mais mexer no Map.
+  const talhoesPorDescOrdenados = new Map();
+  for (const [desc, porChave] of talhoesPorDesc) {
+    const lista = [...porChave.values()].sort((a, b) => {
+      const na = Number(a.talhao);
+      const nb = Number(b.talhao);
+      if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+      return String(a.talhao).localeCompare(String(b.talhao));
+    });
+    talhoesPorDescOrdenados.set(desc, lista);
+  }
+
+  return { indice, talhoesPorDesc: talhoesPorDescOrdenados };
 }
 
 async function adicionarCamada(map, protocol, mapa) {
@@ -698,6 +741,10 @@ async function adicionarCamada(map, protocol, mapa) {
     contorno,
     simbolo,
     ehPonto,
+    // Decide se essa camada contribui pra lista de talhões da fazenda
+    // buscada (ver montarIndiceBusca/talhoesPorDesc) — só camadas com o
+    // campo TALHAO fazem sentido aparecer nesse card.
+    ehTalhao,
     sourceId,
     fillLayerId,
     lineLayerId,
@@ -749,6 +796,11 @@ export default function Mapa() {
   // antes de terminar) nunca fica "esquecida": a assinatura continua
   // diferente da atual, e a próxima rodada do efeito tenta de novo.
   const indiceBuscaAssinaturaRef = useRef(null);
+  // DESC_SECAO (fazenda/seção) -> lista de talhões (ver montarIndiceBusca),
+  // montado junto com o índice de busca — não precisa ser state porque só é
+  // lido no instante em que um resultado de busca é selecionado
+  // (selecionarResultadoBusca), nunca durante o render em si.
+  const talhoesPorDescRef = useRef(new Map());
   const jaEnquadrouRef = useRef(false);
   const extensaoAtualRef = useRef(null);
   const marcadorRef = useRef(null);
@@ -785,6 +837,12 @@ export default function Mapa() {
   const [legendaTemporariaExpandida, setLegendaTemporariaExpandida] = useState(false);
   const [indiceBusca, setIndiceBusca] = useState([]);
   const [buscaTexto, setBuscaTexto] = useState("");
+  // Fazenda selecionada pela busca (resultado inteiro, ver
+  // selecionarResultadoBusca) — dirige tanto o destaque visual do limite no
+  // mapa (efeitos 7/7b) quanto o card "Talhões da fazenda". null quando
+  // nenhuma busca foi selecionada ainda ou o card foi fechado manualmente.
+  const [buscaSelecionada, setBuscaSelecionada] = useState(null);
+  const [talhoesFazenda, setTalhoesFazenda] = useState([]);
   // Item destacado na lista de resultados — navegável por ↑/↓ no desktop;
   // Enter sem nunca ter mexido nas setas seleciona o primeiro (índice 0).
   const [indiceDestacadoBusca, setIndiceDestacadoBusca] = useState(0);
@@ -1128,7 +1186,8 @@ export default function Mapa() {
         montarIndiceBusca([...carregadas.values()]).then((novo) => {
           if (cancelado) return;
           indiceBuscaAssinaturaRef.current = assinaturaCombinada;
-          setIndiceBusca(novo);
+          setIndiceBusca(novo.indice);
+          talhoesPorDescRef.current = novo.talhoesPorDesc;
         });
       }
     }
@@ -1238,7 +1297,12 @@ export default function Mapa() {
 
   // 7) highlight de grupo: destaca todas as partes do talhão/seção
   // selecionado (mesma SECAO+TALHAO ou DESC_SECAO), sem desenhar nada
-  // extra além da borda amarela nas partes irmãs já carregadas.
+  // extra além da borda amarela nas partes irmãs já carregadas. Clicar um
+  // talhão (selecao) tem prioridade — só na ausência de seleção por
+  // clique é que a fazenda buscada (buscaSelecionada) assume o destaque;
+  // diferente do clique (que destaca só dentro da camada clicada),
+  // a busca destaca em TODAS as camadas carregadas que tiverem essa
+  // DESC_SECAO (Talhões e Limites costumam ter as duas).
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapaPronto) return;
@@ -1263,8 +1327,64 @@ export default function Mapa() {
           map.setFilter(info.highlightCircleLayerId, atual.grupoFiltro);
         }
       }
+    } else if (buscaSelecionada) {
+      const filtro = construirFiltroGrupo({ DESC_SECAO: buscaSelecionada.texto });
+      for (const info of camadasCarregadasRef.current.values()) {
+        if (map.getLayer(info.highlightLayerId)) {
+          map.setFilter(info.highlightLayerId, filtro);
+        }
+        if (map.getLayer(info.highlightCircleLayerId)) {
+          map.setFilter(info.highlightCircleLayerId, filtro);
+        }
+      }
     }
-  }, [selecao, mapaPronto]);
+  }, [selecao, buscaSelecionada, mapaPronto]);
+
+  // 7b) "pulso" no destaque ao selecionar uma fazenda pela busca — chama
+  // atenção pro contorno recém-destacado (largura oscila 3x antes de se
+  // firmar um pouco mais grossa que o destaque normal de clique). Roda de
+  // novo a cada nova seleção de busca (dependência buscaSelecionada), não
+  // a cada re-render. O cleanup sempre devolve a largura padrão (3) —
+  // essencial, senão um clique de talhão avulso logo depois herdaria a
+  // largura "presa" no valor do pulso, já que é a mesma paint property da
+  // mesma camada compartilhada com o highlight de clique (efeito 7).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto || !buscaSelecionada) return;
+
+    const LARGURA_BASE = 3;
+    const LARGURA_PULSO = 6.5;
+    const LARGURA_FIRME = 4.5;
+    const infos = [...camadasCarregadasRef.current.values()];
+
+    let passo = 0;
+    const intervalo = setInterval(() => {
+      const aceso = passo % 2 === 0;
+      for (const info of infos) {
+        if (map.getLayer(info.highlightLayerId)) {
+          map.setPaintProperty(info.highlightLayerId, "line-width", aceso ? LARGURA_PULSO : LARGURA_BASE);
+        }
+      }
+      passo++;
+      if (passo >= 6) {
+        clearInterval(intervalo);
+        for (const info of infos) {
+          if (map.getLayer(info.highlightLayerId)) {
+            map.setPaintProperty(info.highlightLayerId, "line-width", LARGURA_FIRME);
+          }
+        }
+      }
+    }, 280);
+
+    return () => {
+      clearInterval(intervalo);
+      for (const info of infos) {
+        if (map.getLayer(info.highlightLayerId)) {
+          map.setPaintProperty(info.highlightLayerId, "line-width", LARGURA_BASE);
+        }
+      }
+    };
+  }, [buscaSelecionada, mapaPronto]);
 
   // 8) marcador no ponto exato clicado
   useEffect(() => {
@@ -1333,6 +1453,41 @@ export default function Mapa() {
       map.flyTo({ center: [resultado.lng, resultado.lat], zoom: 16, duration: 1200 });
     }
     setBuscaTexto("");
+    // Destaca o limite da fazenda (efeitos 7/7b) e abre o card de talhões
+    // — reseta pra [] quando a fazenda buscada não tem talhão nenhum
+    // (ex: um Limites sem Talhões correspondente carregado ainda).
+    setSelecao(null);
+    setBuscaSelecionada(resultado);
+    setTalhoesFazenda(talhoesPorDescRef.current.get(resultado.texto) || []);
+  }
+
+  function fecharTalhoesFazenda() {
+    setBuscaSelecionada(null);
+    setTalhoesFazenda([]);
+  }
+
+  // Clique num talhão da lista do card "Talhões da fazenda" — abre o mesmo
+  // painel de atributos de sempre (efeito 6, clique no mapa), sem precisar
+  // ter a feição renderizada no viewport atual.
+  function selecionarTalhaoDaLista(item) {
+    const map = mapRef.current;
+    if (map && Number.isFinite(item.lng) && Number.isFinite(item.lat)) {
+      map.flyTo({ center: [item.lng, item.lat], zoom: Math.max(map.getZoom(), 15), duration: 600 });
+    }
+    const info = camadasCarregadasRef.current.get(item.mapaId);
+    setSelecao({
+      lngLat: { lng: item.lng, lat: item.lat },
+      itens: [
+        {
+          mapaId: item.mapaId,
+          camada: info?.nome,
+          cor: info?.cor,
+          propriedades: item.propriedades,
+          grupoFiltro: construirFiltroGrupo({ TALHAO: item.talhao, SECAO: item.secao }),
+        },
+      ],
+      indice: 0,
+    });
   }
 
   // ↑/↓ navegam a lista (desktop); Enter confirma o destacado — sem
@@ -1494,12 +1649,23 @@ export default function Mapa() {
           </div>
         )}
 
-        {mapasLocais.length > 0 && (
+        <div className="pilha-topo-esquerda">
+        {mapasLocais.length > 0 && (!painelCamadasAberto ? (
+          <button
+            type="button"
+            className="botao-circular botao-camadas-recolhido"
+            onClick={() => setPainelCamadasAberto(true)}
+            aria-label="Abrir painel de camadas"
+            title="Camadas"
+          >
+            <IconeCamadas />
+          </button>
+        ) : (
           <aside className="painel-camadas">
             <button
               type="button"
               className="cabecalho-painel-camadas"
-              onClick={() => setPainelCamadasAberto((a) => !a)}
+              onClick={() => setPainelCamadasAberto(false)}
               aria-expanded={painelCamadasAberto}
             >
               <span>Camadas</span>
@@ -1694,7 +1860,37 @@ export default function Mapa() {
               </div>
             </div>
           </aside>
+        ))}
+
+        {buscaSelecionada && talhoesFazenda.length > 0 && (
+          <div className="painel-talhoes-fazenda">
+            <div className="cabecalho-painel-talhoes-fazenda">
+              <span>
+                {buscaSelecionada.texto}
+                <small> · {talhoesFazenda.length} talhões</small>
+              </span>
+              <button
+                type="button"
+                className="fechar"
+                onClick={fecharTalhoesFazenda}
+                aria-label="Fechar lista de talhões"
+                title="Fechar lista de talhões"
+              >
+                ×
+              </button>
+            </div>
+            <ul className="lista-talhoes-fazenda">
+              {talhoesFazenda.map((item) => (
+                <li key={`${item.secao}-${item.talhao}`}>
+                  <button type="button" onClick={() => selecionarTalhaoDaLista(item)}>
+                    Talhão {item.talhao}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
+        </div>
 
         {mapasLocais.length === 0 && !sincronizando && (
           <p className="aviso-sem-mapas">

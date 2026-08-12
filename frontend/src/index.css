@@ -1030,16 +1030,126 @@ input[type="file"]::file-selector-button:hover {
   flex: 1;
 }
 
-.painel-camadas {
+/* Empilha Camadas (botão circular ou painel aberto) + o card de talhões
+   da fazenda buscada, um embaixo do outro, sem precisar calcular o "top"
+   de cada um na mão — os dois têm altura variável (lista de camadas
+   encolhe/cresce, lista de talhões também), então um offset fixo entre
+   eles quebraria assim que qualquer um mudasse de tamanho (mesmo motivo
+   já documentado pra .painel-busca vs .painel-camadas, só que ali os dois
+   lados são conhecidos o bastante pra um valor fixo funcionar; aqui não). */
+.pilha-topo-esquerda {
   position: absolute;
   top: 16px;
   left: 16px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  /* Teto de altura relativo ao container do mapa (mesmo truque de
+     .painel-atributos, calc(100% - Npx)) + scroll próprio — Camadas
+     expandido (muitas camadas) somado ao card de talhões de uma fazenda
+     grande pode passar da altura da tela em celulares baixos; sem isso a
+     parte de baixo simplesmente ficava fora da tela, sem nenhum jeito de
+     rolar até ela (a pilha é position:absolute, não empurra a altura da
+     página). */
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
   max-width: min(280px, calc(100vw - 32px));
+}
+
+.painel-camadas {
+  width: 100%;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   overflow: hidden;
+  animation: entrada var(--dur-painel) var(--ease-saida);
+}
+
+/* Estado recolhido do painel de camadas — antes era a mesma barra
+   "CAMADAS ›" só com o conteúdo espremido a 0px; virou um botão circular
+   próprio (menos poluição visual sobre o mapa, mesmo padrão dos botões
+   circulares do cabeçalho). Precisa de sombra própria (.botao-circular
+   sozinho não tem) pra manter a mesma presença visual que o painel tinha. */
+.botao-camadas-recolhido {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  animation: entrada var(--dur-painel) var(--ease-saida);
+}
+
+/* Card "Talhões da fazenda" — aparece ao selecionar um resultado de busca
+   (ver selecionarResultadoBusca/talhoesPorDesc em Mapa.jsx), empilhado
+   dentro de .pilha-topo-esquerda logo abaixo de Camadas. */
+.painel-talhoes-fazenda {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  animation: entrada var(--dur-painel) var(--ease-saida);
+}
+
+.cabecalho-painel-talhoes-fazenda {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cabecalho-painel-talhoes-fazenda span {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.cabecalho-painel-talhoes-fazenda small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--text-muted);
+}
+
+.cabecalho-painel-talhoes-fazenda .fechar {
+  position: static;
+  flex-shrink: 0;
+  min-height: 28px;
+  min-width: 28px;
+  font-size: 16px;
+}
+
+.lista-talhoes-fazenda {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: min(260px, 36vh);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lista-talhoes-fazenda button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  min-height: 36px;
+  background: none;
+  color: var(--text);
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: background-color var(--dur-hover) var(--ease-padrao);
+}
+
+.lista-talhoes-fazenda button:hover {
+  background: var(--bg);
 }
 
 .cabecalho-painel-camadas {
@@ -1276,7 +1386,13 @@ input[type="file"]::file-selector-button:hover {
   left: 50%;
   transform: translateX(-50%);
   width: min(360px, calc(100vw - 32px));
-  z-index: 1;
+  /* Acima de .pilha-topo-esquerda (Camadas + talhões da fazenda, z-index 1)
+     — no mobile as duas ficam próximas o bastante (busca em cima, pilha
+     logo abaixo) pra um painel de Camadas alto (muitas camadas) encostar
+     na lista de resultados da busca; sem isso os cliques nos resultados
+     eram capturados pelo painel de baixo (achado testando 390px de
+     largura), mesmo com os resultados visualmente por cima. */
+  z-index: 2;
 }
 
 .painel-busca input[type="search"] {
@@ -2201,10 +2317,11 @@ input[type="file"]::file-selector-button:hover {
     width: auto;
   }
 
-  .painel-camadas {
+  .pilha-topo-esquerda {
     left: 8px;
     top: 64px;
     max-width: calc(100vw - 16px);
+    max-height: calc(100% - 80px);
   }
 
   /* Painel de atributos ocupa menos tela no celular (era 45vh) — a
