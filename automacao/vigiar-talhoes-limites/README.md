@@ -79,7 +79,7 @@ usam o certificado do Windows).
 Exportar o certificado uma vez (PowerShell, no Windows desta rede):
 
 ```powershell
-$destino = "fortinet-ca.pem"
+$destino = Join-Path (Get-Location) "fortinet-ca.pem"
 $certs = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -match "uspedra.com.br" }
 $conteudo = ""
 foreach ($cert in $certs) {
@@ -89,12 +89,34 @@ foreach ($cert in $certs) {
 [System.IO.File]::WriteAllText($destino, $conteudo)
 ```
 
+`$destino` precisa ser um caminho **absoluto** (`Join-Path (Get-Location)
+...`, não só `"fortinet-ca.pem"`) — `[System.IO.File]::WriteAllText`
+resolve caminho relativo pelo diretório atual do **processo .NET**, que
+pode divergir do `$PWD` do PowerShell (já aconteceu: o arquivo foi parar
+em `C:\Users\<usuario>\` em vez da pasta da automação, mesmo com
+`cd` já feito certinho antes — confirmado configurando isto numa máquina
+nova em 2026-08-18, ver entrada "Segundo PC" no `CLAUDE.md` da raiz do
+projeto).
+
 Isso cria `fortinet-ca.pem` nesta pasta (gitignored — é específico desta
 rede, não faz sentido versionar). `iniciar.cmd`/`listar-camadas.cmd` já
 apontam pra ele via `NODE_EXTRA_CA_CERTS` sozinhos — só rodar direto
 `node vigiar.mjs` sem passar por esses `.cmd` que o erro volta. Se um
 dia isso rodar fora dessa rede (sem o FortiGate no meio), esse passo
 simplesmente não é necessário.
+
+### Rede exige autenticação por portal antes de liberar internet externa
+
+Além do FortiGate inspecionando HTTPS (passo acima), a rede da Pedra
+também pode exigir uma autenticação **por portal cativo** antes de
+liberar tráfego pra domínios externos — sintoma: qualquer chamada HTTP
+(`curl`, `Invoke-RestMethod`, instalador de pacote) volta um HTML
+redirecionando pra `https://fwpedra.uspedra.com.br:1003/fgtauth?...`
+em vez do conteúdo esperado, mesmo com DNS/rede interna funcionando
+normalmente. Isso não passa por script/linha de comando — abrir um
+navegador de verdade nessa máquina e completar a autenticação que
+aparecer (uma vez) libera a rede pro resto da sessão, inclusive pra
+chamadas feitas depois via terminal.
 
 ### 5. Descobrir os ids de camada
 

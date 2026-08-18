@@ -2307,6 +2307,80 @@ anterior, não um bug de código), drag moveu a última linha
 outras, marcar/ocultar todos funcionou, salvar confirmado no backend
 com a estrutura exata esperada, zero erro de console.
 
+**Automação rodando num segundo PC — "servidor geo" (2026-08-18)**: o
+Leo saiu de férias por 15 dias e queria garantir que a automação diária
+de Talhões/Limites (`automacao/vigiar-talhoes-limites/`, ver o README
+dela) continuasse rodando sem depender do PC dele ligado. Importante
+deixar claro (achado real de conversa, não só suposição): o app em si
+— backend (Render/Docker), frontend (GitHub Pages), banco (Neon),
+storage (R2) — já é **100% nuvem** desde a leva "Deploy de produção"
+(ver acima) e não depende de PC nenhum ligado; login/sync/visualização
+continuam funcionando sozinhos o tempo todo. A ÚNICA coisa que depende
+de uma máquina ligada é essa automação específica, porque ela lê
+`\\lnxfs3\work3\Projetos\SHAPES_RPA` — uma pasta de rede **interna** da
+empresa, inalcançável de fora (não dá pra rodar isso num runner de
+nuvem tipo GitHub Actions).
+
+Solução: mover a tarefa agendada (Windows Task Scheduler, 8:05) pra um
+segundo PC dentro da rede da empresa que fica ligado o tempo todo
+(apelidado aqui de "servidor geo" — máquina física/RDP, conta de domínio
+`geotecnologia`, não a conta pessoal do Leo). Configurado numa sessão
+guiada por chat (o Leo rodando os comandos remotamente, a IA orientando
+passo a passo) — vale registrar os obstáculos reais encontrados, porque
+provavelmente se repetem numa 3ª máquina no futuro:
+
+1. **Node/git não instalados** — resolvido com Scoop (`irm get.scoop.sh
+   | iex` seguido de `scoop install nodejs git`), mesmo padrão sem-admin
+   já usado neste projeto (Cygwin/Postgres).
+2. **Rede exige portal cativo antes de liberar internet externa** — a
+   primeira tentativa de instalar o Scoop falhou com um erro
+   confuso do PowerShell (`System.Xml.XmlDocument não é reconhecido`).
+   Causa real: `Invoke-RestMethod` recebeu HTML de redirecionamento pro
+   portal do FortiGate (`fwpedra.uspedra.com.br:1003/fgtauth?...`) em
+   vez do script — a rede dessa empresa exige autenticar por navegador
+   antes de liberar tráfego externo, não só a inspeção TLS já
+   documentada no README da automação. Resolvido abrindo um navegador
+   de verdade nessa máquina, completando a autenticação uma vez — depois
+   disso o tráfego do PowerShell/terminal passou a funcionar igual.
+   Adicionado ao README da automação como um passo a checar em qualquer
+   PC novo dessa rede.
+3. **Acesso à pasta de rede "falhou" na primeira tentativa** —
+   `Test-Path`/`Get-ChildItem` em `\\lnxfs3\work3\Projetos\SHAPES_RPA`
+   travou/retornou `False` no primeiro teste (motivo levou a investigar
+   uma pista falsa: um `net use` mostrava `G:` mapeado pra
+   `\\lnxfs2\work3`, servidor **diferente** — "2" em vez de "3" — mas
+   essa unidade já estava com status "Não disponível"/desconectada, e
+   tentar esse caminho alternativo também falhou). A causa real: só
+   precisava tentar de novo — a MESMA chamada pro caminho original
+   (`lnxfs3`) funcionou normalmente na segunda tentativa, sinal de
+   latência de negociação SMB/Kerberos na primeira conexão à pasta, não
+   um caminho errado. Lição: não descartar o caminho documentado só
+   porque a primeira tentativa falhou — tentar de novo antes de caçar
+   alternativas.
+4. **Bug real achado no próprio script do README** (não específico
+   desta máquina — corrigido no arquivo): o trecho que exporta o
+   certificado do FortiGate usava `[System.IO.File]::WriteAllText`
+   com um caminho **relativo** (`"fortinet-ca.pem"`) — o diretório
+   "atual" do processo .NET não necessariamente é o mesmo `$PWD` do
+   PowerShell, então o arquivo nasceu na pasta pessoal do usuário
+   (`C:\Users\geotecnologia\`) em vez da pasta da automação, mesmo já
+   tendo dado `cd` certinho antes. Corrigido no README pra usar
+   `Join-Path (Get-Location) "fortinet-ca.pem"` (caminho absoluto).
+5. `.env` escrito com o caminho **UNC direto**
+   (`\\lnxfs3\work3\Projetos\SHAPES_RPA`) em vez de uma letra de unidade
+   mapeada (`I:`) — evita depender de mapear/persistir uma letra de
+   drive nessa máquina nova, mais portátil pra uma 3ª máquina no futuro.
+6. `mapeamento-camadas.json` já veio correto do `git clone` (inclui os
+   ids do mapa ICOL, corrigidos numa sessão anterior) — `npm run
+   listar-camadas` confirmou que bate exatamente com o catálogo real de
+   produção antes de rodar `npm run vigiar` de verdade.
+
+Sem mudança de código no app em si nesta entrada — só infraestrutura
+(instalação/configuração numa máquina nova) + a correção do
+`WriteAllText` no README da automação, que é um bug real e não
+específico desta rede (qualquer PowerShell moderno tem esse
+comportamento).
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
