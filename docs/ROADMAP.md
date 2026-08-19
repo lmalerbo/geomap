@@ -330,20 +330,32 @@ código) e criar a conta de serviço em produção antes do primeiro uso
 real. Ver `automacao/vigiar-talhoes-limites/README.md` pro passo a
 passo completo de configuração.
 
-## Fase 3.10 — Apontamento de voo pelo mapa (integração DroneManagement)
+## Fase 3.11 — Apontamento de voo pelo mapa (integração DroneManagement)
 
 - [x] Engenharia reversa da API do DroneManagement (auth SSO, endpoints de
       leitura/criação/atualização/remoção, correlação com talhão via
       SECAO+TALHAO) — validado com teste real de criar→atualizar→apagar
       um registro descartável. Ver `docs/INTEGRACAO_DRONEMANAGEMENT.md`.
-- [ ] Decidir onde roda a sessão de serviço (Playwright) — dentro do
-      backend Docker existente ou worker separado
-- [ ] Backend: endpoint proxy de leitura (talhões pendentes de voo)
-- [ ] Backend: endpoint proxy de escrita (apontar voo)
-- [ ] Frontend: camada visual dos talhões pendentes + painel de apontamento
-- [ ] Decidir quem pode apontar (todo usuário do mapa vs papel dedicado)
-- [ ] Conta de serviço do DroneManagement criada e configurada (env var,
-      nunca no repositório)
+- [x] Sessão de serviço (Playwright dentro do backend Docker existente,
+      login lazy em memória) — validado no Render free tier de verdade
+      (~30s por login, estável em chamadas repetidas)
+- [x] Backend: endpoint proxy de leitura (`GET /voos/pendentes/:mapaId`)
+- [x] Backend: endpoint proxy de escrita em lote
+      (`POST /voos/apontamentos`, melhor-esforço por talhão)
+- [x] Backend: `POST /admin/camadas/:id/duplicar` (camada avulsa, pra
+      criar a réplica "Talhões — Voos")
+- [x] Frontend: camada visual dos talhões pendentes (cor por status) +
+      modo de apontamento em lote (`useApontamentoVoo.js` + painel em
+      `Mapa.jsx`) — build de produção validado, **ainda falta teste
+      interativo real no navegador** (criar o mapa "Voos" pelo admin,
+      testar clique/seleção/confirmação de ponta a ponta)
+- [x] Quem pode apontar: decidido — todo usuário com permissão no mapa
+      "Voos" (mesmo modelo de permissão por mapa já existente), mais a
+      tabela `pilotos_dronemgmt` (usuário GeoMap → identidade real no
+      DroneManagement)
+- [x] Conta usada: pessoal do Leo (decisão consciente, não uma conta de
+      serviço dedicada — ver trade-off documentado em
+      `docs/INTEGRACAO_DRONEMANAGEMENT.md`)
 
 ## Fase 4 — Ideias futuras (não compromissadas)
 
