@@ -2381,6 +2381,60 @@ Sem mudança de código no app em si nesta entrada — só infraestrutura
 específico desta rede (qualquer PowerShell moderno tem esse
 comportamento).
 
+**Continuação (2026-08-18/19)**: `npm run vigiar` rodado de verdade no
+servidor geo, com um incidente real no meio — não bug de código, causa
+externa:
+
+- **Job de Talhões travou "processando" pra sempre** — coincidiu com eu
+  (a IA, na sessão local) dar `git push` de uma documentação enquanto o
+  `vigiar` rodava no servidor geo. Confirmado via logs do Render
+  (dashboard, aba Logs): o serviço `geomap-docker` fez um **novo
+  deploy** bem no meio do job (`==> Deploying...` às 18:14:00Z, job de
+  Talhões tinha começado 18:10:15Z) — o processo antigo (com o job em
+  andamento) foi substituído por um novo, e como o job nunca teve
+  chance de marcar `erro`/`concluido` no banco, ficou preso em
+  `processando` permanentemente. Pista que confirmou o diagnóstico: os
+  jobs de Limites que rodaram DEPOIS (já no processo novo) completaram
+  no tempo normal, em vez de competir por CPU com o Talhões "ainda
+  rodando" — prova de que o job antigo não estava mais consumindo nada,
+  só órfão. **Lição importante pra qualquer sessão futura**: nunca dar
+  `git push` no repositório enquanto uma automação pesada está em
+  andamento contra o mesmo serviço Render (auto-deploy no push mata
+  qualquer job em background no meio do caminho, sem gerar nem log de
+  erro claro pro lado que estava esperando).
+- Reexecutado no dia seguinte (19/08, sem push nenhum no meio) — 100%
+  limpo, Talhões e Limites, 8 camadas no total. Talhões ficou bem mais
+  lento que o baseline documentado antes (~12-14min por camada aqui,
+  contra 8-12min completo documentado em sessão anterior) — dentro do
+  limite de 20min por job que a automação já usa (`aguardarJobConcluir`
+  em `lib/api.mjs`), mas sem muita margem; se o dataset continuar
+  crescendo, vale revisitar esse timeout.
+- Tarefa agendada criada (`schtasks /create`, sem admin, roda sob o
+  usuário `geotecnologia`) e testada de verdade via `schtasks /run`
+  (não só rodando `npm run vigiar` na mão) — confirmado que reconhece
+  corretamente "já processado hoje" e termina limpo.
+- **Falso alarme de encoding**: linhas do `log.txt` escritas pela
+  execução via `schtasks /run` apareciam com acento quebrado
+  (`conclusÃ£o`) no `Get-Content log.txt -Tail 10` — **não é bug**, é o
+  `Get-Content -Tail` do PowerShell 5.1 adivinhando a codificação
+  errado; com `-Encoding UTF8` explícito as mesmas linhas aparecem
+  certas. Os bytes gravados pelo `fs.appendFile` (sempre UTF-8, default
+  do Node) nunca estiveram errados.
+- **Energia**: plano "Alto Desempenho" já tinha "nunca suspender" na
+  tomada (`powercfg /query ... STANDBYIDLE` com índice AC =
+  `0x00000000`), mas a bateria estava em só 180s (3min) — ajustado pra
+  nunca também (`powercfg /change standby-timeout-dc 0`) como garantia
+  extra caso a máquina algum dia dependa de bateria/nobreak, mesmo o
+  Leo tendo confirmado que ela fica sempre na tomada.
+- Tela de bloqueio **não** é problema pro modo "Interativo apenas" do
+  Task Scheduler — bloquear não desloga a sessão, só trava a tela;
+  suspensão/hibernação é que impediria a tarefa de disparar (coberto
+  pelo ajuste de energia acima).
+
+Estado final: automação 100% operacional no servidor geo, agendada pra
+rodar sozinha todo dia às 8:05 durante as férias do Leo (15 dias), sem
+depender do PC dele nem de ninguém logado presencialmente.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
