@@ -26,6 +26,7 @@ import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
+import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
 import {
   linkGoogleMaps,
   linkWaze,
@@ -745,6 +746,10 @@ async function adicionarCamada(map, protocol, mapa) {
     // buscada (ver montarIndiceBusca/talhoesPorDesc) — só camadas com o
     // campo TALHAO fazem sentido aparecer nesse card.
     ehTalhao,
+    // "padrao" | "voos" (réplica de talhões pra apontamento de voo, ver
+    // docs/INTEGRACAO_DRONEMANAGEMENT.md) — decide se o clique nessa
+    // camada abre o painel de atributos normal ou o fluxo de apontamento.
+    tipoCamada: estilo.tipoCamada,
     sourceId,
     fillLayerId,
     lineLayerId,
@@ -866,6 +871,15 @@ export default function Mapa() {
   const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual);
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto, mapaId);
+  // A camada com tipoCamada:"voos" (réplica de Talhões pra apontamento,
+  // ver docs/INTEGRACAO_DRONEMANAGEMENT.md) — null enquanto ela não
+  // carregou ou esse mapa não tem uma. Lida direto de camadasCarregadasRef
+  // (populado pelo efeito 4 abaixo); refletir sempre que ele muda não
+  // precisa de state próprio, já que indiceBusca/errosCamada (usados só
+  // como sinal de "algo carregou") já disparam um re-render depois de
+  // cada rodada desse efeito.
+  const voosInfo = [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null;
+  const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
   // Nome + cor real de cada feição do arquivo importado (ver
   // resumoFeicoesTemporaria) — alimenta o swatch (cor única, faixa de cores,
   // ou o magenta padrão quando o arquivo não tem simbologia nenhuma) e a
@@ -1252,6 +1266,18 @@ export default function Mapa() {
         return;
       }
 
+      // Modo de apontamento de voo (ver useApontamentoVoo.js): clique num
+      // talhão pendente da camada "voos" marca/desmarca ele pro lote em
+      // andamento, em vez do fluxo normal de painel de atributos — checado
+      // antes do resto pra nunca abrir os dois ao mesmo tempo.
+      if (apontamento.modoApontamento && voosInfo?.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
+        const featuresVoos = map.queryRenderedFeatures(e.point, { layers: [voosInfo.fillLayerId] });
+        if (featuresVoos.length > 0) {
+          apontamento.alternarSelecao(featuresVoos[0].properties);
+          return;
+        }
+      }
+
       const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
@@ -1293,7 +1319,14 @@ export default function Mapa() {
     map.on("click", handleClick);
     return () => map.off("click", handleClick);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapaPronto, camadasVisiveis, medicao.medindo, medicao.origemPontos]);
+  }, [
+    mapaPronto,
+    camadasVisiveis,
+    medicao.medindo,
+    medicao.origemPontos,
+    apontamento.modoApontamento,
+    voosInfo,
+  ]);
 
   // 7) highlight de grupo: destaca todas as partes do talhão/seção
   // selecionado (mesma SECAO+TALHAO ou DESC_SECAO), sem desenhar nada
@@ -1999,6 +2032,58 @@ export default function Mapa() {
             </>
           )}
         </aside>
+
+        {voosInfo && (
+          <aside className="painel-flutuante painel-apontamento aberto">
+            {!apontamento.modoApontamento ? (
+              <button type="button" className="botao-abrir-apontamento" onClick={apontamento.iniciarModo}>
+                Apontar voo ({apontamento.pendentes.length} pendente
+                {apontamento.pendentes.length === 1 ? "" : "s"})
+              </button>
+            ) : (
+              <>
+                <div className="cabecalho-painel-track">
+                  <h3>Apontar voo</h3>
+                  <button
+                    type="button"
+                    className="fechar"
+                    onClick={apontamento.cancelarModo}
+                    aria-label="Cancelar apontamento"
+                    title="Cancelar apontamento"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="aviso-track">Clique nos talhões pendentes (laranja) pra selecionar.</p>
+                <p>
+                  {apontamento.selecionados.size} talhão{apontamento.selecionados.size === 1 ? "" : "ões"}{" "}
+                  selecionado{apontamento.selecionados.size === 1 ? "" : "s"}
+                </p>
+                <label>
+                  Data do voo
+                  <input
+                    type="date"
+                    value={apontamento.dataVoo}
+                    onChange={(e) => apontamento.setDataVoo(e.target.value)}
+                  />
+                </label>
+                {apontamento.resultado && (
+                  <p className={apontamento.resultado.falha.length > 0 ? "erro" : "resultado-medicao"}>
+                    {apontamento.resultado.sucesso.length} talhão(ões) apontado(s)
+                    {apontamento.resultado.falha.length > 0 && `, ${apontamento.resultado.falha.length} falharam`}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  disabled={apontamento.selecionados.size === 0 || apontamento.enviando}
+                  onClick={apontamento.confirmarLote}
+                >
+                  {apontamento.enviando ? "Enviando…" : "Confirmar apontamento"}
+                </button>
+              </>
+            )}
+          </aside>
+        )}
 
         <aside className={`painel-flutuante painel-track${track.mostrarPainelTrack ? " aberto" : ""}`}>
           {track.mostrarPainelTrack && (

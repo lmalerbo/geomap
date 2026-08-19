@@ -839,6 +839,71 @@ adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
   res.status(201).json({ ...novoMapa, grupoIds, camadaCount: camadasOrigem.length });
 });
 
+// Duplica uma única camada (diferente de duplicar mapa inteiro acima) —
+// pensado pra criar a réplica "Talhões — Voos" a partir da camada
+// "Talhões" real, num mapa "Voos" separado (ver
+// docs/INTEGRACAO_DRONEMANAGEMENT.md). `mapaId` no corpo é opcional: sem
+// ele, duplica pro mesmo mapa da camada de origem; com ele, precisa
+// apontar pra um mapa que já existe. Mesmo miolo de cópia server-side no
+// R2 já usado em "duplicar mapa" acima, sem repetir a lógica de
+// permissões/mapa (aqui é só a camada).
+adminRouter.post("/admin/camadas/:id/duplicar", async (req, res) => {
+  const camadaId = Number(req.params.id);
+  if (!Number.isInteger(camadaId)) {
+    return res.status(400).json({ erro: "id de camada inválido" });
+  }
+
+  const { rows: camadaRows } = await pool.query(
+    `SELECT mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config
+     FROM camadas WHERE id = $1`,
+    [camadaId]
+  );
+  const camadaOrigem = camadaRows[0];
+  if (!camadaOrigem) {
+    return res.status(404).json({ erro: "camada não encontrada" });
+  }
+
+  let mapaDestinoId = camadaOrigem.mapa_id;
+  if (req.body?.mapaId !== undefined) {
+    mapaDestinoId = Number(req.body.mapaId);
+    if (!Number.isInteger(mapaDestinoId)) {
+      return res.status(400).json({ erro: "mapaId inválido" });
+    }
+    const { rows: mapaDestinoRows } = await pool.query("SELECT id FROM mapas WHERE id = $1", [mapaDestinoId]);
+    if (!mapaDestinoRows[0]) {
+      return res.status(404).json({ erro: "mapa de destino não encontrado" });
+    }
+  }
+
+  const novaChave = `${crypto.randomUUID()}.pmtiles`;
+  await duplicarArquivo(camadaOrigem.arquivo_path, novaChave);
+
+  const { rows: novaCamadaRows } = await pool.query(
+    `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, mapa_id, nome, versao, categoria, publicado_em`,
+    [
+      mapaDestinoId,
+      `${camadaOrigem.nome} (cópia)`,
+      camadaOrigem.versao,
+      camadaOrigem.categoria,
+      novaChave,
+      camadaOrigem.atributos_config === null ? null : JSON.stringify(camadaOrigem.atributos_config),
+      camadaOrigem.estilo_config === null ? null : JSON.stringify(camadaOrigem.estilo_config),
+    ]
+  );
+  const novaCamada = novaCamadaRows[0];
+
+  await registrarAuditoria(
+    req.usuarioId,
+    "duplicar_camada",
+    `camada ${camadaId} (${camadaOrigem.nome}) → camada ${novaCamada.id}, mapa destino ${mapaDestinoId}`,
+    req.ip
+  );
+
+  res.status(201).json(novaCamada);
+});
+
 // Dashboard: agrega a tabela logs (já existia desde o MVP, guarda
 // login/download por usuário+camada+data) — sem schema novo.
 adminRouter.get("/admin/estatisticas", async (req, res) => {

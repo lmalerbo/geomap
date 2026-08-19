@@ -119,6 +119,18 @@ export async function duplicarMapaAdmin(token, mapaId) {
   return resp.json();
 }
 
+// Duplica uma única camada (diferente de duplicarMapaAdmin acima) —
+// mapaDestinoId é opcional, sem ele duplica pro mesmo mapa da origem.
+export async function duplicarCamadaAdmin(token, camadaId, mapaDestinoId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/duplicar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(mapaDestinoId !== undefined ? { mapaId: mapaDestinoId } : {}),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 // --- Painel de administração: grupos ---
 
 export async function criarGrupoAdmin(token, nome) {
@@ -356,4 +368,31 @@ export async function salvarConfigEstilo(token, camadaId, estilo) {
   await tratarResposta(resp);
   const { estilo: salvo } = await resp.json();
   return salvo;
+}
+
+// --- Integração DroneManagement (apontamento de voo pelo mapa) ---
+// Ver docs/INTEGRACAO_DRONEMANAGEMENT.md — o frontend nunca fala direto
+// com o DroneManagement, só com essas duas rotas do próprio backend.
+
+export async function buscarVoosPendentes(token, mapaId) {
+  const resp = await fetch(`${API_URL}/voos/pendentes/${mapaId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+// registros: [{id, secao, talhao}, ...] — mesmo objeto devolvido por
+// buscarVoosPendentes, sem precisar remontar nada. Resposta:
+// {sucesso: [id,...], falha: [{id, erro}, ...]} — melhor-esforço por
+// item, nunca tudo-ou-nada.
+export async function apontarVoos(token, { mapaId, dataVoo, registros }) {
+  const resp = await fetch(`${API_URL}/voos/apontamentos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ mapaId, dataVoo, registros }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
 }

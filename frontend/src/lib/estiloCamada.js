@@ -141,6 +141,11 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
     };
     return {
       tipoDesenho: tipoDesenhoOuPadrao(bruto, preenchimentoFinal, contornoFinal),
+      // "padrao" (comportamento de sempre) | "voos" (réplica de talhões
+      // pra apontamento de voo, ver docs/INTEGRACAO_DRONEMANAGEMENT.md) —
+      // campo de nível superior novo, mesmo padrão de tipoDesenho: sem
+      // migration (estilo_config é jsonb livre), lido direto do bruto.
+      tipoCamada: bruto?.tipoCamada || "padrao",
       preenchimento: preenchimentoFinal,
       contorno: contornoFinal,
       rotulo: {
@@ -166,6 +171,7 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
 
   return {
     tipoDesenho: tipoDesenhoOuPadrao(bruto, preenchimentoAntigo, contornoAntigo),
+    tipoCamada: bruto?.tipoCamada || "padrao",
     preenchimento: preenchimentoAntigo,
     contorno: contornoAntigo,
     rotulo: { ...ROTULO_VAZIO, mostrar, zoomMinimo },

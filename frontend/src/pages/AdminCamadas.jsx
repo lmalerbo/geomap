@@ -13,6 +13,7 @@ import {
   salvarConfigEstilo,
   buscarConfigAtributos,
   salvarConfigAtributos,
+  duplicarCamadaAdmin,
 } from "../lib/api.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 import { corDaCamada } from "../lib/paleta.js";
@@ -115,6 +116,8 @@ export default function AdminCamadas() {
   const [novaVersao, setNovaVersao] = useState("");
   const [novoArquivo, setNovoArquivo] = useState([]);
   const [removendo, setRemovendo] = useState(false);
+  const [duplicando, setDuplicando] = useState(false);
+  const [mapaDestinoDuplicar, setMapaDestinoDuplicar] = useState(null);
   const [salvandoArquivo, setSalvandoArquivo] = useState(false);
   const [salvoArquivoEm, setSalvoArquivoEm] = useState(null);
 
@@ -413,6 +416,21 @@ export default function AdminCamadas() {
       setErroDetalhe(e.message);
     } finally {
       setRemovendo(false);
+    }
+  }
+
+  async function duplicarCamadaSelecionada() {
+    const camada = camadas.find((c) => c.id === camadaSelecionadaId);
+    const destino = mapaDestinoDuplicar ?? camada?.mapa_id;
+    setDuplicando(true);
+    setErroDetalhe(null);
+    try {
+      await duplicarCamadaAdmin(sessao.token, camadaSelecionadaId, destino != null ? Number(destino) : undefined);
+      await carregarCamadas();
+    } catch (e) {
+      setErroDetalhe(e.message);
+    } finally {
+      setDuplicando(false);
     }
   }
 
@@ -919,6 +937,30 @@ export default function AdminCamadas() {
                   </button>
                 </form>
 
+                <div className="linha-duplicar-camada">
+                  <select
+                    aria-label="Mapa de destino da cópia"
+                    value={mapaDestinoDuplicar ?? camadas.find((c) => c.id === camadaSelecionadaId)?.mapa_id ?? ""}
+                    onChange={(e) => setMapaDestinoDuplicar(e.target.value)}
+                  >
+                    {mapas.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.nome}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="botao-secundario"
+                    onClick={duplicarCamadaSelecionada}
+                    disabled={duplicando}
+                    title="Cria uma cópia desta camada (arquivo incluso) no mapa escolhido"
+                  >
+                    {duplicando && <span className="spinner" aria-hidden="true" />}
+                    {duplicando ? "Duplicando…" : "Duplicar camada"}
+                  </button>
+                </div>
+
                 <button
                   type="button"
                   className="botao-remover-mapa botao-remover-camada-workspace"
@@ -938,6 +980,15 @@ export default function AdminCamadas() {
                 <h2>Estilo</h2>
 
                 {avisoEstilo && <p className="erro">{avisoEstilo}</p>}
+
+                <label className="campo-form-admin campo-form-admin--checkbox">
+                  <input
+                    type="checkbox"
+                    checked={estiloForm.tipoCamada === "voos"}
+                    onChange={(e) => atualizarEstiloFormCampo("tipoCamada", e.target.checked ? "voos" : "padrao")}
+                  />
+                  Camada de apontamento de voo (integração DroneManagement)
+                </label>
 
                 {!ehPontoAtual && (
                   <>

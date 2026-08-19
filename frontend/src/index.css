@@ -1771,6 +1771,38 @@ input[type="file"]::file-selector-button:hover {
   width: 280px;
 }
 
+/* Só existe no mapa "Voos" (ver docs/INTEGRACAO_DRONEMANAGEMENT.md) —
+   mesmo canto do track log; raro os dois estarem abertos ao mesmo tempo
+   nesse mapa específico (aceito o mesmo trade-off já existente entre
+   .painel-medicao/.painel-atributos, que dividem o canto direito). */
+.painel-apontamento {
+  bottom: 16px;
+  left: 16px;
+  width: 280px;
+}
+
+.painel-apontamento .botao-abrir-apontamento {
+  width: 100%;
+}
+
+.painel-apontamento > button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.painel-apontamento label {
+  display: block;
+  margin: 10px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.painel-apontamento input[type="date"] {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+}
+
 /* Título + botão fechar como linha flex normal, em vez do botão fechar
    absolutamente posicionado (.painel-flutuante .fechar) sobre um
    padding-right "no olho" no h3 — o padding antigo (24px) reservava menos
@@ -2147,6 +2179,18 @@ input[type="file"]::file-selector-button:hover {
   margin-top: 16px;
 }
 
+.linha-duplicar-camada {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.linha-duplicar-camada select {
+  flex: 1;
+}
+
 @media (max-width: 900px) {
   .workspace-camadas {
     grid-template-columns: 1fr;
@@ -2347,6 +2391,12 @@ input[type="file"]::file-selector-button:hover {
      ferramentas estiverem abertas ao mesmo tempo, não tampam uma a outra
      por completo numa tela estreita. */
   .painel-track {
+    left: 8px;
+    bottom: 8px;
+    width: min(260px, calc(100vw - 16px));
+  }
+
+  .painel-apontamento {
     left: 8px;
     bottom: 8px;
     width: min(260px, calc(100vw - 16px));
