@@ -40,6 +40,16 @@ COPY pipeline/rotulos ./pipeline/rotulos
 COPY backend/package.json backend/package-lock.json ./backend/
 WORKDIR /app/backend
 RUN npm ci --omit=dev
+
+# Chromium headless pro login SSO no DroneManagement (ver
+# backend/src/lib/dronemgmt.js e docs/INTEGRACAO_DRONEMANAGEMENT.md) — sem
+# login simples por POST nesse sistema de terceiros, só via navegador de
+# verdade. --with-deps instala as bibliotecas do sistema que o Chromium
+# precisa (funciona no Debian desta imagem). Engorda bastante a imagem
+# (+300MB+) — spike de validação em andamento pra confirmar se isso cabe no
+# free tier do Render (0.1 CPU) antes de investir no resto da integração.
+RUN npx playwright install --with-deps chromium
+
 COPY backend/src ./src
 
 ENV NODE_ENV=production

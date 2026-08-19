@@ -330,6 +330,21 @@ código) e criar a conta de serviço em produção antes do primeiro uso
 real. Ver `automacao/vigiar-talhoes-limites/README.md` pro passo a
 passo completo de configuração.
 
+## Fase 3.10 — Apontamento de voo pelo mapa (integração DroneManagement)
+
+- [x] Engenharia reversa da API do DroneManagement (auth SSO, endpoints de
+      leitura/criação/atualização/remoção, correlação com talhão via
+      SECAO+TALHAO) — validado com teste real de criar→atualizar→apagar
+      um registro descartável. Ver `docs/INTEGRACAO_DRONEMANAGEMENT.md`.
+- [ ] Decidir onde roda a sessão de serviço (Playwright) — dentro do
+      backend Docker existente ou worker separado
+- [ ] Backend: endpoint proxy de leitura (talhões pendentes de voo)
+- [ ] Backend: endpoint proxy de escrita (apontar voo)
+- [ ] Frontend: camada visual dos talhões pendentes + painel de apontamento
+- [ ] Decidir quem pode apontar (todo usuário do mapa vs papel dedicado)
+- [ ] Conta de serviço do DroneManagement criada e configurada (env var,
+      nunca no repositório)
+
 ## Fase 4 — Ideias futuras (não compromissadas)
 
 - [ ] Exportar/imprimir área selecionada como PDF

@@ -12,6 +12,7 @@ import AdmZip from "adm-zip";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
 import { SENHA_TEMPORARIA_PADRAO } from "../lib/senhaTemporaria.js";
+import { testarLogin } from "../lib/dronemgmt.js";
 import {
   salvarArquivo,
   apagarArquivo,
@@ -340,6 +341,20 @@ adminRouter.use(exigirAutenticacao, exigirAdmin);
 // Placeholder: confirma que a proteção por papel funciona ponta a ponta.
 adminRouter.get("/admin/ping", (req, res) => {
   res.json({ ok: true });
+});
+
+// TEMPORÁRIO — spike de validação da integração DroneManagement (ver
+// docs/INTEGRACAO_DRONEMANAGEMENT.md, Etapa 1): confirma que o login via
+// Playwright/SSO aguenta rodar dentro do ambiente real do Render (free
+// tier, ~0.1 CPU) antes de construir o resto da integração em cima disso.
+// Remover esta rota depois de validado — não é uma feature, é diagnóstico.
+adminRouter.get("/admin/dronemgmt/teste-login", async (req, res) => {
+  try {
+    const resultado = await testarLogin();
+    res.json({ ok: true, ...resultado });
+  } catch (err) {
+    res.status(500).json({ ok: false, erro: err.message });
+  }
 });
 
 // Ações administrativas sensíveis (criar/editar usuário, redefinir senha,
