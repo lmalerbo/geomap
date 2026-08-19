@@ -16,6 +16,7 @@ import cors from "cors";
 import { authRouter } from "./routes/auth.js";
 import { mapasRouter } from "./routes/mapas.js";
 import { adminRouter } from "./routes/admin.js";
+import { voosRouter } from "./routes/voos.js";
 
 export const app = express();
 
@@ -26,6 +27,7 @@ app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.use(authRouter);
 app.use(mapasRouter);
 app.use(adminRouter);
+app.use(voosRouter);
 
 // Rede de segurança final — sem isso, o erro capturado por
 // express-async-errors ainda cairia no handler de erro padrão do Express,

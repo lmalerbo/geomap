@@ -316,7 +316,19 @@ sendo o contrato da API em si, não repete o plano.
   caminho: senha com `#` sem aspas no `.env` é cortada ali mesmo pelo
   dotenv (tudo depois do `#` vira comentário) — sempre envolver a senha
   em aspas duplas no `.env` se ela tiver `#`.
-- **Ainda não deployado/testado no Render de verdade** — só validado
-  local até aqui. Esse é o próximo passo, e é o que importa de verdade
-  pro risco original (CPU/RAM do free tier), não a correção do login em
-  si (já confirmada).
+- **Etapa 1 concluída — validada em produção real no Render
+  (`geomap-docker`, free tier, 0.1 CPU)** (2026-08-19): 3 chamadas
+  consecutivas a `GET /admin/dronemgmt/teste-login` (via curl, JWT admin
+  do GeoMap) responderam `200 {"ok":true,"duracaoMs":~30500-31100}` — o
+  login sozinho leva ~30-31s no Render (vs ~7.5s local), ~4x mais lento
+  mas **estável** (sem crash/restart entre tentativas, memória aguentou).
+  **Risco #1 do plano (Playwright/Chromium não caber no free tier)
+  descartado** — cabe, só é mais lento. Uma primeira tentativa isolada
+  voltou `502` (provavelmente o serviço reiniciando logo depois de salvar
+  as env vars novas no painel do Render, não falta de recurso — as 3
+  tentativas seguintes, já com o serviço estável, funcionaram direto).
+  **Ainda não medido**: o cenário de "primeiro acesso do dia" (Render
+  dormindo 15min+, cold start do Node ~30-60s **somado** aos ~30s do
+  login) — só testamos com o serviço já acordado. Rota temporária de
+  diagnóstico continua no ar por enquanto (não removida ainda, pode servir
+  pra esse teste de cold start depois).
