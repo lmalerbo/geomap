@@ -346,3 +346,21 @@ sendo o contrato da API em si, não repete o plano.
   login) — só testamos com o serviço já acordado. Rota temporária de
   diagnóstico continua no ar por enquanto (não removida ainda, pode servir
   pra esse teste de cold start depois).
+- **Etapas 2-5 concluídas** (2026-08-19) — leitura (`GET
+  /voos/pendentes/:mapaId`), escrita em lote (`POST /voos/apontamentos`),
+  `POST /admin/camadas/:id/duplicar`, flag `tipoCamada`, hook
+  `useApontamentoVoo.js` + painel em `Mapa.jsx`. Achado real testando a
+  escrita: o `PUT` do DroneManagement exige o registro inteiro (não é
+  PATCH parcial) e rejeita os campos de metadado geridos pelo servidor —
+  ver a seção "Endpoints confirmados" acima.
+- **Mapa "Voos" criado de verdade em produção** (id 70, grupo "dept.
+  geotecnologia" com permissão, mesmo grupo do Leo) com a camada "Talhões
+  — Voos" (id 331, `tipoCamada: "voos"`, duplicada de "Talhões" do mapa
+  "Geral") — pronto pra testar interativamente no navegador. `GET
+  /voos/pendentes/70` confirmado devolvendo os 3785 registros pendentes
+  reais.
+- **Pendente, só o Leo consegue fazer**: teste interativo real no
+  navegador (abrir o mapa "Voos", conferir a coloração por status, ligar
+  o modo de apontamento, selecionar talhões, confirmar um lote) — nunca
+  testado clicando de verdade, só validado via chamadas de API isoladas
+  e `vite build` limpo.
