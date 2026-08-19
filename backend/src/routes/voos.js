@@ -81,3 +81,89 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
     }))
   );
 });
+
+// Apontamento em lote — o piloto seleciona vários talhões pendentes no
+// mapa (modo de apontamento, ver docs/INTEGRACAO_DRONEMANAGEMENT.md) e
+// confirma uma data única pro lote inteiro. Melhor-esforço por item: a
+// API do DroneManagement não tem transação entre registros, então um
+// item falhar não aborta os outros — a resposta separa sucesso de falha
+// pro frontend refletir por talhão.
+voosRouter.post("/voos/apontamentos", async (req, res) => {
+  const { mapaId, dataVoo, registros } = req.body || {};
+
+  if (!Number.isInteger(mapaId)) {
+    return res.status(400).json({ erro: "mapaId inválido" });
+  }
+  if (!dataVoo || Number.isNaN(Date.parse(dataVoo))) {
+    return res.status(400).json({ erro: "dataVoo inválida" });
+  }
+  if (!Array.isArray(registros) || registros.length === 0) {
+    return res.status(400).json({ erro: "registros deve ser uma lista não-vazia" });
+  }
+  for (const r of registros) {
+    if (!r?.id || !r?.secao || !r?.talhao) {
+      return res.status(400).json({ erro: "cada item de registros precisa de id, secao e talhao" });
+    }
+  }
+
+  if (!(await usuarioTemPermissaoMapa(req.usuarioId, mapaId))) {
+    return res.status(404).json({ erro: "mapa não encontrado" });
+  }
+
+  const { rows: pilotoRows } = await pool.query(
+    "SELECT pilot_user_ad_id FROM pilotos_dronemgmt WHERE usuario_id = $1",
+    [req.usuarioId]
+  );
+  const pilotUserADId = pilotoRows[0]?.pilot_user_ad_id;
+  if (!pilotUserADId) {
+    return res.status(400).json({ erro: "seu usuário não está associado a um piloto do DroneManagement" });
+  }
+
+  const dataIso = new Date(dataVoo).toISOString();
+  const sucesso = [];
+  const falha = [];
+
+  for (const registro of registros) {
+    try {
+      // O PUT do DroneManagement valida o corpo inteiro como se fosse
+      // substituir o registro (campos obrigatórios como flightProject
+      // continuam exigidos mesmo numa "atualização") — não é PATCH
+      // parcial. Precisa buscar o registro atual primeiro e mesclar as
+      // mudanças nele, senão volta 400 "Projeto voo deve ser preenchido"
+      // (confirmado testando). Os 5 campos de metadado do registro
+      // (id/isEnabled/userId/createdUtc/modifiedUtc) são geridos pelo
+      // próprio servidor e precisam ser removidos antes do PUT, senão
+      // volta 400 "campos ... são inválidos para esse formulário"
+      // (confirmado testando).
+      const getResp = await chamarApi(`/portal/api/v1/gateway/formbuilder/formdata/${registro.id}`);
+      if (!getResp.ok) {
+        falha.push({ id: registro.id, erro: `DroneManagement (GET) respondeu ${getResp.status}` });
+        continue;
+      }
+      const { id: _id, isEnabled, userId, createdUtc, modifiedUtc, ...camposEditaveis } = await getResp.json();
+      const resp = await chamarApi(`/portal/api/v1/gateway/formbuilder/formdata/${registro.id}`, {
+        method: "PUT",
+        body: {
+          ...camposEditaveis,
+          startDateFlight: dataIso,
+          endDateFlight: dataIso,
+          source: 2,
+          pilotUserADId,
+        },
+      });
+      if (!resp.ok) {
+        falha.push({ id: registro.id, erro: `DroneManagement respondeu ${resp.status}` });
+        continue;
+      }
+      await pool.query(
+        "INSERT INTO apontamentos_voo (usuario_id, mapa_id, dronemgmt_id, secao, talhao) VALUES ($1, $2, $3, $4, $5)",
+        [req.usuarioId, mapaId, registro.id, registro.secao, registro.talhao]
+      );
+      sucesso.push(registro.id);
+    } catch (err) {
+      falha.push({ id: registro.id, erro: err.message });
+    }
+  }
+
+  res.json({ sucesso, falha });
+});

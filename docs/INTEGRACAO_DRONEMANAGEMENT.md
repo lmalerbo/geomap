@@ -101,9 +101,23 @@ Todos sob `{base_url}/portal/api/v1/gateway/formbuilder/formdata`:
 | Ação | Método | URL | Observação |
 |---|---|---|---|
 | Listar/filtrar | `GET` | `.../query?pageNumber=&pageSize=&filter=&expand=layer,flightProject` | `filter` é um JSON (estilo Mongo) urlencoded; `expand` traz os dados relacionados (`layerDetails`, `flightProjectDetails`) já resolvidos |
+| Buscar 1 registro | `GET` | `.../formdata/{id}` | devolve o registro completo, sem `expand` — necessário antes de todo `PUT` (ver abaixo) |
 | Criar | `POST` | `.../formdata` | body = objeto com os campos do registro; `id` é gerado pelo servidor |
 | Atualizar | `PUT` | `.../formdata/{id}` | responde `204` sem corpo; testado e confirmado que persiste |
 | Apagar | `DELETE` | `.../formdata/{id}` | responde `200` com o registro apagado (útil pra confirmar o último estado) |
+
+**`PUT` não é PATCH parcial** — confirmado testando: mandar só os campos
+que mudaram (ex: `{startDateFlight, endDateFlight, source,
+pilotUserADId}`) volta `400` ("Projeto voo deve ser preenchido") porque o
+servidor valida o corpo inteiro contra os campos obrigatórios do
+formulário, como se fosse substituir o registro inteiro. O fluxo certo é
+sempre **`GET /formdata/{id}` → mesclar as mudanças → `PUT` o objeto
+inteiro de volta**. E o objeto que o `GET` devolve não pode ir direto pro
+`PUT`: precisa remover antes os 5 campos de metadado geridos pelo próprio
+servidor (`id`, `isEnabled`, `userId`, `createdUtc`, `modifiedUtc`) —
+mandá-los de volta no `PUT` também volta `400` ("campos ... são inválidos
+para esse formulário"). Confirmado com o ciclo completo
+`GET → PUT → verificar → DELETE` num registro descartável.
 
 Ciclo completo (criar → atualizar → apagar) testado manualmente via
 Console do navegador nesta sessão, num registro descartável — os 3 passos
