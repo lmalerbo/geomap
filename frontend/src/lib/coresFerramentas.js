@@ -15,20 +15,20 @@ export const CORES_FERRAMENTAS = {
   track: "#dc2626",
   temporaria: "#c026d3",
   // Apontamento de voo pelo mapa (ver
-  // docs/INTEGRACAO_DRONEMANAGEMENT.md) — cor por tipo de voo em si vem
-  // de paleta.js (corPorProjeto em useApontamentoVoo.js, estável por
-  // nome). Só as 3 cores de "estado", não de tipo, vivem aqui: azul de
-  // alto contraste pro que o piloto já selecionou no modo de apontamento
-  // (nunca se confunde com nenhuma cor de tipo nem com o amarelo de
-  // destaqueGrupo); cinza-escuro quase preto pro talhão com 2+ tipos
-  // pendentes ao mesmo tempo (nunca uma cor "de tipo" de verdade, senão
-  // pareceria só mais um tipo em vez de um aviso de "múltiplo, escolha
-  // qual"); verde de confirmação rápida (~4s) depois de apontar com
-  // sucesso — mais claro que o verde escuro da paleta categórica
-  // (paleta.js), pra não parecer só mais uma cor de tipo.
-  vooSelecionado: "#2563eb",
+  // docs/INTEGRACAO_DRONEMANAGEMENT.md) — cor por tipo de voo em si é
+  // fixa por nome (ORDEM_E_COR_TIPO_VOO em useApontamentoVoo.js, pedido
+  // exato do Leo 2026-08-20: verde/amarelo/branco/vermelho/amarelo
+  // florescente/rosa/roxo/marrom claro/azul). Só as 3 cores de "estado",
+  // não de tipo, vivem aqui — precisam ser diferentes de TODAS as 9 cores
+  // de tipo (aparecem juntas na mesma tela): ciano de alto contraste pro
+  // que o piloto já selecionou no modo de apontamento; cinza-escuro quase
+  // preto pro talhão com 2+ tipos pendentes ao mesmo tempo (nunca uma cor
+  // "de tipo" de verdade, senão pareceria só mais um tipo em vez de um
+  // aviso de "múltiplo, escolha qual"); laranja de confirmação rápida
+  // (~4s) depois de apontar com sucesso.
+  vooSelecionado: "#06b6d4",
   vooMultiplo: "#1f2937",
-  vooConfirmado: "#22c55e",
+  vooConfirmado: "#f97316",
   destaqueGrupo: "#ffd400",
   marcadorSelecao: "#6b3fa0",
   fundoMapaPadrao: "#e8eef1",

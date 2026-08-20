@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
-import { PALETA_HEX } from "../lib/paleta.js";
 import { buscarVoosPendentes, apontarVoos } from "../lib/api.js";
 
 const FONTE_SELECAO = "fonte-voos-selecao";
@@ -31,16 +30,45 @@ function getLayerSeguro(map, id) {
   }
 }
 
-// Cor estável por nome de projeto/tipo de voo — por hash do nome, não por
-// posição numa lista ordenada. Posição mudaria toda vez que um tipo
-// aparece/some de `pendentes` (ex: depois de confirmar o último talhão de
-// um tipo, ele some da lista e todo mundo depois dele na ordem alfabética
-// deslizaria pra outra cor) — hash fixa a cor de cada nome pra sempre,
-// não importa o que mais existe na lista no momento.
+// Cor e ordem fixas por tipo de voo — pedido explícito do Leo (2026-08-20)
+// depois de ver a primeira versão (cor por hash do nome, sem ordem
+// específica). Nomes vêm literais de flightProjectDetails.description no
+// DroneManagement (ver docs/INTEGRACAO_DRONEMANAGEMENT.md) — os 9 valores
+// reais confirmados nos dados de produção.
+const ORDEM_E_COR_TIPO_VOO = [
+  ["Falhas Plantio", "#16a34a"], // verde
+  ["Falhas Soca", "#eab308"], // amarelo
+  ["Sistematização", "#ffffff"], // branco (Sistematização/Expansão)
+  ["Ervas Daninhas", "#dc2626"], // vermelho
+  ["Drone Aplicação", "#ccff00"], // amarelo florescente
+  ["Ambiental", "#ec4899"], // rosa
+  ["Experimentação Agrícola", "#9333ea"], // roxo
+  ["Levantamento Topográfico", "#c19a6b"], // marrom claro
+  ["Projeto Plantio", "#2563eb"], // azul
+];
+const INDICE_ORDEM_TIPO_VOO = new Map(ORDEM_E_COR_TIPO_VOO.map(([nome], i) => [nome, i]));
+const COR_POR_TIPO_VOO = new Map(ORDEM_E_COR_TIPO_VOO);
+
+// Fallback só pra um tipo novo que apareça no DroneManagement e ainda não
+// tenha entrado na lista fixa acima — cor por hash do nome (nunca some/
+// undefined), até alguém adicionar a cor de verdade na lista.
 function corPorProjeto(nome) {
+  if (COR_POR_TIPO_VOO.has(nome)) return COR_POR_TIPO_VOO.get(nome);
   let h = 0;
   for (let i = 0; i < nome.length; i++) h = (h * 31 + nome.charCodeAt(i)) >>> 0;
-  return PALETA_HEX[h % PALETA_HEX.length];
+  const paletaFallback = ["#2a78d6", "#1baf7a", "#4a3aa7", "#e87ba4", "#eb6834"];
+  return paletaFallback[h % paletaFallback.length];
+}
+
+// Ordem fixa (ORDEM_E_COR_TIPO_VOO acima); tipo desconhecido (fora da
+// lista) vai pro fim, em ordem alfabética entre si.
+function ordenarTiposVoo(nomes) {
+  return [...nomes].sort((a, b) => {
+    const ia = INDICE_ORDEM_TIPO_VOO.get(a) ?? Infinity;
+    const ib = INDICE_ORDEM_TIPO_VOO.get(b) ?? Infinity;
+    if (ia !== ib) return ia - ib;
+    return a.localeCompare(b);
+  });
 }
 
 // Ferramenta de apontamento de voo pelo mapa (ver
@@ -99,7 +127,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // Lista de projetos/campanhas presentes nos pendentes atuais (pra
   // preencher os checkboxes de filtro) — derivado, não state próprio,
   // porque é 100% função de `pendentes`.
-  const projetosDisponiveis = [...new Set(pendentes.map((r) => r.projeto).filter(Boolean))].sort();
+  const projetosDisponiveis = ordenarTiposVoo([...new Set(pendentes.map((r) => r.projeto).filter(Boolean))]);
   // Nome + cor (estável, ver corPorProjeto) de cada tipo — pro painel
   // desenhar o swatch ao lado de cada checkbox.
   const legendaProjetos = projetosDisponiveis.map((nome) => ({ nome, cor: corPorProjeto(nome) }));
