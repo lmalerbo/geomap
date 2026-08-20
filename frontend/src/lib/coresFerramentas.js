@@ -14,14 +14,21 @@ export const CORES_FERRAMENTAS = {
   medicaoRelatorioContorno: "#c2410c",
   track: "#dc2626",
   temporaria: "#c026d3",
-  // Camada "Talhões — Voos" (réplica pra apontamento, ver
-  // docs/INTEGRACAO_DRONEMANAGEMENT.md): laranja de atenção pro talhão
-  // pendente (distinto do laranja de medição, mais próximo de vermelho —
-  // "precisa de ação"), azul de alto contraste pro que o piloto já
-  // selecionou no modo de apontamento (nunca se confunde com o laranja
-  // de pendente nem com o amarelo de destaqueGrupo).
-  vooPendente: "#f97316",
+  // Apontamento de voo pelo mapa (ver
+  // docs/INTEGRACAO_DRONEMANAGEMENT.md) — cor por tipo de voo em si vem
+  // de paleta.js (corPorProjeto em useApontamentoVoo.js, estável por
+  // nome). Só as 3 cores de "estado", não de tipo, vivem aqui: azul de
+  // alto contraste pro que o piloto já selecionou no modo de apontamento
+  // (nunca se confunde com nenhuma cor de tipo nem com o amarelo de
+  // destaqueGrupo); cinza-escuro quase preto pro talhão com 2+ tipos
+  // pendentes ao mesmo tempo (nunca uma cor "de tipo" de verdade, senão
+  // pareceria só mais um tipo em vez de um aviso de "múltiplo, escolha
+  // qual"); verde de confirmação rápida (~4s) depois de apontar com
+  // sucesso — mais claro que o verde escuro da paleta categórica
+  // (paleta.js), pra não parecer só mais uma cor de tipo.
   vooSelecionado: "#2563eb",
+  vooMultiplo: "#1f2937",
+  vooConfirmado: "#22c55e",
   destaqueGrupo: "#ffd400",
   marcadorSelecao: "#6b3fa0",
   fundoMapaPadrao: "#e8eef1",

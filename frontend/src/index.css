@@ -1803,6 +1803,33 @@ input[type="file"]::file-selector-button:hover {
   color: var(--text-muted);
 }
 
+.swatch-tipo-voo {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.escolha-tipo-voo {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.escolha-tipo-voo p {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.escolha-tipo-voo .botao-secundario {
+  margin-top: 6px;
+  width: 100%;
+}
+
 .painel-apontamento label {
   display: block;
   margin: 10px 0;

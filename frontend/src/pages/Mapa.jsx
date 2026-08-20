@@ -2037,16 +2037,17 @@ export default function Mapa() {
           <aside className="painel-flutuante painel-apontamento aberto">
             {!apontamento.modoApontamento ? (
               <>
-                {apontamento.projetosDisponiveis.length > 1 && (
+                {apontamento.legendaProjetos.length > 1 && (
                   <div className="filtro-projetos-voo">
                     <p className="rotulo-filtro-projetos-voo">Tipo de voo</p>
-                    {apontamento.projetosDisponiveis.map((nome) => (
+                    {apontamento.legendaProjetos.map(({ nome, cor }) => (
                       <label key={nome} className="campo-form-admin campo-form-admin--checkbox">
                         <input
                           type="checkbox"
                           checked={apontamento.filtroProjetos?.has(nome) ?? true}
                           onChange={() => apontamento.alternarFiltroProjeto(nome)}
                         />
+                        <span className="swatch-tipo-voo" style={{ backgroundColor: cor }} aria-hidden="true" />
                         {nome}
                       </label>
                     ))}
@@ -2087,9 +2088,30 @@ export default function Mapa() {
                     ×
                   </button>
                 </div>
-                <p className="aviso-track">Clique nos talhões pendentes (laranja) pra selecionar.</p>
+                <p className="aviso-track">Clique nos talhões pendentes (coloridos) pra selecionar.</p>
+                {apontamento.escolhaPendente && (
+                  <div className="escolha-tipo-voo">
+                    <p>
+                      Talhão {apontamento.escolhaPendente.talhao} tem {apontamento.escolhaPendente.registros.length}{" "}
+                      pendências — qual você apontou?
+                    </p>
+                    {apontamento.escolhaPendente.registros.map((registro) => (
+                      <label key={registro.id} className="campo-form-admin campo-form-admin--checkbox">
+                        <input
+                          type="checkbox"
+                          checked={apontamento.selecionados.has(registro.id)}
+                          onChange={() => apontamento.escolherRegistro(registro)}
+                        />
+                        {registro.projeto}
+                      </label>
+                    ))}
+                    <button type="button" className="botao-secundario" onClick={apontamento.fecharEscolha}>
+                      OK
+                    </button>
+                  </div>
+                )}
                 <p>
-                  {apontamento.selecionados.size} talhão{apontamento.selecionados.size === 1 ? "" : "ões"}{" "}
+                  {apontamento.selecionados.size} apontamento{apontamento.selecionados.size === 1 ? "" : "s"}{" "}
                   selecionado{apontamento.selecionados.size === 1 ? "" : "s"}
                 </p>
                 <label>
