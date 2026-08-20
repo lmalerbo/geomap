@@ -2074,8 +2074,9 @@ export default function Mapa() {
                     </>
                   ) : (
                     <>
-                      Apontar voo ({apontamento.pendentesFiltrados.length} pendente
-                      {apontamento.pendentesFiltrados.length === 1 ? "" : "s"})
+                      Apontar voo (
+                      {apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha
+                      pendentes)
                     </>
                   )}
                 </button>

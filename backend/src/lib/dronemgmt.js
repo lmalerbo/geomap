@@ -23,6 +23,38 @@ const TIMEOUT_LOGIN_MS = 30_000;
 // de novo toda hora enquanto o backend está ocioso ou dormindo.
 let sessaoCache = null; // { cookie, xsrfToken, obtidaEm }
 
+// Navegador Chromium mantido vivo entre logins (Playwright), em vez de
+// abrir+fechar um processo inteiro a cada relogin — achado real (2026-08-20,
+// Leo reportou 1,5-2min de carregamento em TODA visita ao mapa "Voos", não
+// só na primeira do dia): abrir um Chromium do zero é o passo mais pesado
+// do login, e no plano free do Render (RAM bem limitada, imagem já carrega
+// GDAL/tippecanoe) repetir isso a cada requisição é provável causa de
+// pressão de memória (possível derrubada/reinício do processo, perdendo o
+// sessaoCache e forçando login de novo sempre — nunca confirmado via log do
+// Render nesta sessão, mas é a hipótese mais provável dado o padrão
+// observado). Reusar o navegador entre logins elimina o custo de
+// lançar/matar o processo do Chromium a cada vez; só a aba (context/page)
+// é criada e fechada por login.
+let navegadorPromise = null;
+
+async function obterNavegador() {
+  if (!navegadorPromise) {
+    navegadorPromise = chromium.launch({
+      headless: true,
+      // Reduz footprint de memória em containers com pouca RAM — mesmo
+      // princípio de qualquer Chromium rodando em CI/container pequeno:
+      // /dev/shm costuma ser pequeno demais no Docker por padrão (causa
+      // crash do Chromium, não só lentidão) e a GPU não existe de verdade
+      // num servidor headless.
+      args: ["--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"],
+    });
+    navegadorPromise.catch(() => {
+      navegadorPromise = null; // não deixa uma falha de lançamento presa em cache pra sempre
+    });
+  }
+  return navegadorPromise;
+}
+
 function validarConfig() {
   const faltando = ["DRONEMGMT_BASE_URL", "DRONEMGMT_FORM_ID", "DRONEMGMT_UNIT_ID", "DRONEMGMT_USUARIO", "DRONEMGMT_SENHA"].filter(
     (nome) => !process.env[nome]
@@ -32,27 +64,36 @@ function validarConfig() {
   }
 }
 
-// Abre um Chromium headless, loga pela tela normal (SSO redireciona por
-// conta própria até o cookie ser gravado) e extrai os cookies de sessão —
-// mesma técnica de login_dronemgmt() em atualizar_voos.py.
+// Loga pela tela normal (SSO redireciona por conta própria até o cookie ser
+// gravado) e extrai os cookies de sessão — mesma técnica de
+// login_dronemgmt() em atualizar_voos.py. Usa o Chromium persistente
+// (obterNavegador) — só a aba (context/page) é criada e fechada aqui, nunca
+// o navegador inteiro, pra não pagar o custo de lançar um processo Chromium
+// do zero a cada login.
 async function logar() {
   validarConfig();
-  const browser = await chromium.launch({ headless: true });
+  const browser = await obterNavegador();
+  const context = await browser.newContext();
   try {
-    const context = await browser.newContext();
     const page = await context.newPage();
+    // "domcontentloaded" em vez de "networkidle" no primeiro goto — só
+    // precisamos que o formulário de login exista no DOM pra preencher,
+    // não que toda atividade de rede pare (a tela de login pode ter
+    // polling/analytics em segundo plano que atrasa "networkidle" sem
+    // nenhum ganho real de confiabilidade aqui).
     await page.goto(`${BASE_URL}/portal/flight-consult`, {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
       timeout: TIMEOUT_LOGIN_MS,
     });
     await page.getByPlaceholder("Digite seu e-mail").fill(USUARIO);
     await page.getByPlaceholder("Digite sua senha").fill(SENHA);
     await page.getByRole("button", { name: "Entrar" }).click();
     // Login passa por vários redirects (SSO -> callback -> app) antes do
-    // cookie existir de fato — espera o app autenticado renderizar, não só
-    // a URL mudar.
+    // cookie existir de fato — espera o app autenticado renderizar (sinal
+    // direto de que o cookie já foi gravado), sem esperar "networkidle"
+    // depois disso: o texto já aparecer é suficiente, esperar rede parar
+    // por completo só soma tempo sem melhorar a confiabilidade.
     await page.getByText("Consulta Geral").waitFor({ timeout: TIMEOUT_LOGIN_MS });
-    await page.waitForLoadState("networkidle");
 
     const cookies = await context.cookies();
     const cookiesDm = cookies.filter((c) => c.name.startsWith("DRONEMANAGEMENT-PORTAL"));
@@ -63,7 +104,7 @@ async function logar() {
     }
     return { cookie, xsrfToken };
   } finally {
-    await browser.close();
+    await context.close(); // fecha só a aba — o navegador persistente continua vivo pro próximo login
   }
 }
 

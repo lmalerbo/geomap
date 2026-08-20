@@ -55,20 +55,34 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
     ],
   });
 
-  const registros = [];
-  let pagina = 1;
-  while (true) {
+  async function buscarPagina(pagina) {
     const resp = await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", {
       params: { pageNumber: pagina, pageSize: TAMANHO_PAGINA, filter: filtro, expand: "layer,flightProject" },
     });
-    if (!resp.ok) {
-      return res.status(502).json({ erro: `DroneManagement respondeu ${resp.status}` });
+    if (!resp.ok) throw new Error(`DroneManagement respondeu ${resp.status}`);
+    return resp.json();
+  }
+
+  let registros, count;
+  try {
+    // Página 1 primeiro (sozinha) pra saber `count` — só depois disso dá
+    // pra saber quantas páginas faltam. Concorrência 5 nas seguintes:
+    // troca N idas-e-voltas sequenciais por ⌈N/5⌉, mesma técnica já usada
+    // nos scripts de limpeza desta sessão (ver backend/_achar_voos_duplicados.mjs)
+    // — o DroneManagement aguentou concorrência 8 sem erro nesses scripts.
+    const primeira = await buscarPagina(1);
+    registros = primeira.value || [];
+    count = primeira.count || 0;
+    const totalPaginas = Math.ceil(count / TAMANHO_PAGINA);
+    const CONCORRENCIA = 5;
+    for (let inicio = 2; inicio <= totalPaginas; inicio += CONCORRENCIA) {
+      const lote = [];
+      for (let p = inicio; p < inicio + CONCORRENCIA && p <= totalPaginas; p++) lote.push(buscarPagina(p));
+      const resultados = await Promise.all(lote);
+      for (const dados of resultados) registros.push(...(dados.value || []));
     }
-    const dados = await resp.json();
-    const registrosPagina = dados.value || [];
-    registros.push(...registrosPagina);
-    if (!registrosPagina.length || registros.length >= (dados.count || 0)) break;
-    pagina += 1;
+  } catch (err) {
+    return res.status(502).json({ erro: err.message });
   }
 
   res.json(
@@ -83,6 +97,11 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
       talhao: r.landPlot,
       controlStatus: r.controlStatus,
       verifyFlightSize: r.verifyFlightSize,
+      // Área do talhão em hectares (layerDetails.totalArea, vem de
+      // expand=layer acima) — pedido do Leo (2026-08-20) pra mostrar
+      // hectares pendentes em vez de contagem de talhões no painel do
+      // mapa (ver useApontamentoVoo.js).
+      areaHa: r.layerDetails?.totalArea ?? null,
     }))
   );
 });

@@ -137,7 +137,7 @@ function ordenarTiposVoo(nomes) {
 // de empilhar N contornos um em cima do outro — clicar nele abre uma
 // escolha rápida (`escolhaPendente`) em vez de marcar direto.
 export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
-  const [pendentes, setPendentes] = useState([]); // [{id, projeto, secao, talhao, controlStatus, verifyFlightSize}]
+  const [pendentes, setPendentes] = useState([]); // [{id, projeto, secao, talhao, controlStatus, verifyFlightSize, areaHa}]
   // `null` = sem filtro (mostra todos os tipos); com filtro, só os
   // marcados. Nunca usa Set vazio pra "todos" — senão não dava pra
   // distinguir de "usuário desmarcou tudo".
@@ -185,6 +185,14 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // porque não é state (não existe "esqueceu de recalcular").
   const pendentesFiltrados =
     filtroProjetos == null ? pendentes : pendentes.filter((r) => filtroProjetos.has(r.projeto));
+
+  // Hectares pendentes em vez de contagem de talhões (pedido do Leo,
+  // 2026-08-20 — é o dado que a empresa usa no dia a dia, não quantidade de
+  // talhões). Soma por REGISTRO pendente (não por talhão único) — mesmo
+  // critério que a contagem antiga já usava (um talhão com pendência em 2
+  // tipos de voo diferentes contava 2 no "(N pendentes)" de antes; aqui
+  // soma a área dele 2 vezes também, uma por tipo).
+  const areaPendenteHa = pendentesFiltrados.reduce((soma, r) => soma + (r.areaHa || 0), 0);
 
   // 1) busca os pendentes quando a camada "voos" fica disponível (troca de
   // mapa, ou a camada muda de assinatura — ver adicionarCamada).
@@ -505,6 +513,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   return {
     pendentes,
     pendentesFiltrados,
+    areaPendenteHa,
     projetosDisponiveis,
     legendaProjetos,
     filtroProjetos,
