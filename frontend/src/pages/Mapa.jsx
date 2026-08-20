@@ -2036,10 +2036,28 @@ export default function Mapa() {
         {voosInfo && (
           <aside className="painel-flutuante painel-apontamento aberto">
             {!apontamento.modoApontamento ? (
-              <button type="button" className="botao-abrir-apontamento" onClick={apontamento.iniciarModo}>
-                Apontar voo ({apontamento.pendentes.length} pendente
-                {apontamento.pendentes.length === 1 ? "" : "s"})
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="botao-abrir-apontamento"
+                  onClick={apontamento.iniciarModo}
+                  disabled={apontamento.carregandoPendentes}
+                >
+                  {apontamento.carregandoPendentes ? (
+                    <>
+                      <span className="spinner" aria-hidden="true" /> Carregando pendências…
+                    </>
+                  ) : (
+                    <>
+                      Apontar voo ({apontamento.pendentes.length} pendente
+                      {apontamento.pendentes.length === 1 ? "" : "s"})
+                    </>
+                  )}
+                </button>
+                {apontamento.erroPendentes && (
+                  <p className="erro">Erro ao carregar pendências: {apontamento.erroPendentes}</p>
+                )}
+              </>
             ) : (
               <>
                 <div className="cabecalho-painel-track">

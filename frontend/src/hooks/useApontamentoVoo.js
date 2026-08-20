@@ -28,6 +28,15 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   const [dataVoo, setDataVoo] = useState(() => new Date().toISOString().slice(0, 10));
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState(null); // {sucesso, falha} do último envio, pro painel mostrar
+  // Sem isso, o botão mostrava "0 pendentes" (o valor inicial de
+  // `pendentes`) enquanto a busca ainda estava em andamento — indistinguível
+  // de "de verdade não tem nenhum pendente". A primeira busca pode demorar
+  // bastante (login SSO no DroneManagement, ~30-45s no Render, ver
+  // docs/INTEGRACAO_DRONEMANAGEMENT.md), então essa distinção importa de
+  // verdade, não é só estética. `erroPendentes` pelo mesmo motivo — antes
+  // uma falha só ia pro console, invisível pro usuário.
+  const [carregandoPendentes, setCarregandoPendentes] = useState(false);
+  const [erroPendentes, setErroPendentes] = useState(null);
 
   const pendentesPorChaveRef = useRef(new Map());
 
@@ -36,13 +45,21 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   useEffect(() => {
     if (!voosInfo || !mapaId || !token) return;
     let cancelado = false;
+    setCarregandoPendentes(true);
+    setErroPendentes(null);
     buscarVoosPendentes(token, mapaId)
       .then((dados) => {
         if (cancelado) return;
         setPendentes(dados);
         pendentesPorChaveRef.current = new Map(dados.map((r) => [chave(r.secao, r.talhao), r]));
       })
-      .catch((err) => console.error("Erro ao buscar voos pendentes:", err));
+      .catch((err) => {
+        console.error("Erro ao buscar voos pendentes:", err);
+        if (!cancelado) setErroPendentes(err.message);
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoPendentes(false);
+      });
     return () => {
       cancelado = true;
     };
@@ -176,6 +193,8 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
 
   return {
     pendentes,
+    carregandoPendentes,
+    erroPendentes,
     modoApontamento,
     selecionados,
     dataVoo,
