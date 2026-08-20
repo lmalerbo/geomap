@@ -821,6 +821,12 @@ export default function Mapa() {
   const [sincronizando, setSincronizando] = useState(true);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [offline, setOffline] = useState(false);
+  // "dispositivo" (sem internet de verdade) | "servidor" (o aparelho tem
+  // internet, mas a chamada ao backend falhou — servidor fora do ar,
+  // bloqueio de borda etc, ver sincronizarMapas) | null enquanto não se
+  // sabe ainda — muda a mensagem exibida (ver barra-mapa abaixo) pra não
+  // o usuário achar que é problema do celular dele quando não é.
+  const [motivoOffline, setMotivoOffline] = useState(null);
   // Nada baixado localmente pra este mapa ainda — mesmo raciocínio de
   // Inicio.jsx (ver AvisoPrimeiraSincronizacao): baseado no estado real do
   // IndexedDB, não num "já vi isso" salvo em localStorage.
@@ -1080,6 +1086,7 @@ export default function Mapa() {
         return nova;
       });
       setOffline(!resultado.online);
+      setMotivoOffline(resultado.online ? null : resultado.motivo);
       if (resultado.online) setUltimaSincronizacao(resultado.sincronizadoEm);
       setSincronizando(false);
 
@@ -1583,7 +1590,9 @@ export default function Mapa() {
           {sincronizando
             ? "Sincronizando…"
             : offline
-              ? "Offline — usando último mapa salvo"
+              ? motivoOffline === "servidor"
+                ? "Servidor indisponível — usando último mapa salvo"
+                : "Offline — usando último mapa salvo"
               : ultimaSincronizacao
                 ? `Atualizado às ${ultimaSincronizacao.toLocaleTimeString("pt-BR", {
                     hour: "2-digit",

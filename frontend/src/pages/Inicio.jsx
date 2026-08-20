@@ -25,6 +25,11 @@ export default function Inicio() {
   const [sincronizando, setSincronizando] = useState(true);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState(null);
   const [offline, setOffline] = useState(false);
+  // "dispositivo" | "servidor" | null — ver mesmo campo em Mapa.jsx/
+  // sincronizarMapas: diferencia "sem internet de verdade" de "o aparelho
+  // tem internet, mas o servidor não respondeu", pra não o usuário achar
+  // que o problema é do celular dele quando é do backend.
+  const [motivoOffline, setMotivoOffline] = useState(null);
   const [menuAberto, setMenuAberto] = useState(false);
   // Nada baixado ainda neste dispositivo/navegador (primeira sincronização
   // de verdade, ou o IndexedDB foi limpo — ex: Safari/iOS pode purgar
@@ -61,6 +66,7 @@ export default function Inicio() {
       listarMapasDisponiveis().then(setMapas);
       setContagemCamadas(contarCamadasPorMapa(resultado.mapas));
       setOffline(!resultado.online);
+      setMotivoOffline(resultado.online ? null : resultado.motivo);
       if (resultado.online) setUltimaSincronizacao(resultado.sincronizadoEm);
       setSincronizando(false);
     });
@@ -84,7 +90,9 @@ export default function Inicio() {
           {sincronizando
             ? "Sincronizando…"
             : offline
-              ? "Offline — usando últimos mapas salvos"
+              ? motivoOffline === "servidor"
+                ? "Servidor indisponível — usando últimos mapas salvos"
+                : "Offline — usando últimos mapas salvos"
               : ultimaSincronizacao
                 ? `Atualizado às ${ultimaSincronizacao.toLocaleTimeString("pt-BR", {
                     hour: "2-digit",
@@ -128,7 +136,9 @@ export default function Inicio() {
           <p className="sem-dados-estatistica">
             <IconeEstadoVazio />
             {offline
-              ? "Nenhum mapa disponível localmente. Conecte-se à internet para sincronizar."
+              ? motivoOffline === "servidor"
+                ? "Nenhum mapa disponível localmente. O servidor está indisponível no momento — tente de novo em alguns minutos."
+                : "Nenhum mapa disponível localmente. Conecte-se à internet para sincronizar."
               : "Nenhum mapa disponível para sua conta. Peça ao administrador para conceder acesso se precisar ver algum mapa."}
           </p>
         )}

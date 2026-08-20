@@ -38,6 +38,23 @@ function offsetAnel(indice) {
   return sinal * grupo * PASSO_OFFSET_ANEL;
 }
 
+// `fetch()` rejeitando com TypeError ("Failed to fetch") é sempre falha de
+// rede/servidor, nunca vem com mensagem própria pro usuário — diferente de
+// um erro HTTP de verdade (ver tratarResposta em api.js), que já chega com
+// texto em português vindo do backend. navigator.onLine diferencia "esse
+// aparelho não tem internet" de "tem internet, mas não conseguiu falar com
+// o servidor" (queda do backend, bloqueio de borda — ex: incidente do
+// Render em 2026-08-20), pra não o piloto achar que o problema é do
+// celular dele quando não é.
+function mensagemErroPendentes(err) {
+  if (err instanceof TypeError) {
+    return navigator.onLine
+      ? "Servidor indisponível no momento. Tente de novo em alguns minutos."
+      : "Sem conexão com a internet. Conecte-se pra ver as pendências de voo.";
+  }
+  return err.message;
+}
+
 // Chave usada tanto pra indexar `pendentes` quanto pra montar a expressão
 // MapLibre (["concat", ["get","SECAO"], "-", ["get","TALHAO"]]) — precisa
 // ser idêntica dos dois lados pro "match" bater. Mesmo padrão já usado em
@@ -184,7 +201,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       })
       .catch((err) => {
         console.error("Erro ao buscar voos pendentes:", err);
-        if (!cancelado) setErroPendentes(err.message);
+        if (!cancelado) setErroPendentes(mensagemErroPendentes(err));
       })
       .finally(() => {
         if (!cancelado) setCarregandoPendentes(false);
@@ -479,7 +496,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       setEscolhaPendente(null);
       setModoApontamento(false);
     } catch (err) {
-      setResultado({ sucesso: [], falha: [{ erro: err.message }] });
+      setResultado({ sucesso: [], falha: [{ erro: mensagemErroPendentes(err) }] });
     } finally {
       setEnviando(false);
     }

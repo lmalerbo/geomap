@@ -22,7 +22,12 @@ export async function sincronizarMapas(token) {
   try {
     catalogo = await buscarCatalogo(token);
   } catch {
-    return { online: false, mapas: locais };
+    // navigator.onLine é o único jeito disponível de diferenciar "aparelho
+    // sem internet" de "conseguiu falar com a rede, mas o servidor não
+    // respondeu" (queda do backend, bloqueio de borda — ex: incidente do
+    // Render em 2026-08-20) — mensagens diferentes evitam o usuário achar
+    // que o problema é do celular dele quando na verdade é do servidor.
+    return { online: false, mapas: locais, motivo: navigator.onLine ? "servidor" : "dispositivo" };
   }
 
   await salvarMapasDisponiveis(catalogo);
