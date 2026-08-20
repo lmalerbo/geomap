@@ -13,6 +13,21 @@ function chave(secao, talhao) {
   return `${secao}-${talhao}`;
 }
 
+// map.getLayer() do MapLibre lança exceção (em vez de devolver undefined)
+// quando o estilo interno ainda não terminou de carregar — confirmado num
+// crash real testando um remount do mapa (troca de mapa via key={mapaId}
+// em App.jsx), que derrubava o componente <Mapa> inteiro. `mapaPronto`
+// nos efeitos abaixo já reduz a janela disso acontecer, mas essa função
+// é o cinto de segurança de verdade — nunca deixa esse erro específico
+// escapar pra fora do hook.
+function getLayerSeguro(map, id) {
+  try {
+    return map.getLayer(id);
+  } catch {
+    return undefined;
+  }
+}
+
 // Ferramenta de apontamento de voo pelo mapa (ver
 // docs/INTEGRACAO_DRONEMANAGEMENT.md) — mesmo espírito de useMedicao.js/
 // useTrackLog.js: `mapRef`/`mapaPronto` vêm de fora (mapa único do
@@ -22,7 +37,13 @@ function chave(secao, talhao) {
 // ela. `mapaId`/`token` são pra chamar o backend (GET /voos/pendentes,
 // POST /voos/apontamentos).
 export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
-  const [pendentes, setPendentes] = useState([]); // [{id, secao, talhao, controlStatus, verifyFlightSize}]
+  const [pendentes, setPendentes] = useState([]); // [{id, projeto, secao, talhao, controlStatus, verifyFlightSize}]
+  // Talhões pendentes vêm de qualquer projeto/campanha de voo misturados
+  // (ex: "Falhas Plantio", "Projeto Plantio") — pedido explícito do Leo
+  // pra poder ver/apontar só um tipo por vez. `null` = mostra todos (não
+  // usar Set vazio pra "todos", senão não dava pra distinguir de "nenhum
+  // selecionado" depois que o usuário desmarcasse tudo).
+  const [filtroProjetos, setFiltroProjetos] = useState(null);
   const [modoApontamento, setModoApontamento] = useState(false);
   const [selecionados, setSelecionados] = useState(new Map()); // chave -> registro pendente
   const [dataVoo, setDataVoo] = useState(() => new Date().toISOString().slice(0, 10));
@@ -40,6 +61,17 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
 
   const pendentesPorChaveRef = useRef(new Map());
 
+  // Lista de projetos/campanhas presentes nos pendentes atuais (pra
+  // preencher os checkboxes de filtro) — derivado, não state próprio,
+  // porque é 100% função de `pendentes`.
+  const projetosDisponiveis = [...new Set(pendentes.map((r) => r.projeto).filter(Boolean))].sort();
+
+  // `null` = sem filtro (mostra tudo); com filtro, só os projetos
+  // marcados. Também derivado — nunca fica dessincronizado de `pendentes`
+  // porque não é state (não existe "esqueceu de recalcular").
+  const pendentesFiltrados =
+    filtroProjetos == null ? pendentes : pendentes.filter((r) => filtroProjetos.has(r.projeto));
+
   // 1) busca os pendentes quando a camada "voos" fica disponível (troca de
   // mapa, ou a camada muda de assinatura — ver adicionarCamada).
   useEffect(() => {
@@ -47,11 +79,11 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     let cancelado = false;
     setCarregandoPendentes(true);
     setErroPendentes(null);
+    setFiltroProjetos(null); // volta pra "todos" ao trocar de camada/mapa
     buscarVoosPendentes(token, mapaId)
       .then((dados) => {
         if (cancelado) return;
         setPendentes(dados);
-        pendentesPorChaveRef.current = new Map(dados.map((r) => [chave(r.secao, r.talhao), r]));
       })
       .catch((err) => {
         console.error("Erro ao buscar voos pendentes:", err);
@@ -65,32 +97,55 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     };
   }, [voosInfo?.id, voosInfo?.assinatura, mapaId, token]);
 
+  // Mantém o índice secao-talhao -> registro sempre alinhado com o que
+  // está sendo mostrado/colorido no momento (pendentesFiltrados, não a
+  // lista bruta) — clicar num talhão escondido pelo filtro não deveria
+  // selecionar nada (ver alternarSelecao).
+  useEffect(() => {
+    pendentesPorChaveRef.current = new Map(pendentesFiltrados.map((r) => [chave(r.secao, r.talhao), r]));
+  }, [pendentesFiltrados]);
+
   // 2) colore a camada "voos" por status (persistente, sempre visível
   // enquanto a camada existir) — sobrescreve o fill-color/line-color que
   // adicionarCamada já aplicou, direto na camada carregada. Roda de novo
-  // sempre que a lista de pendentes muda (ex: depois de confirmar um lote).
+  // sempre que a lista de pendentes (ou o filtro de projeto) muda.
+  //
+  // Enquanto a primeira busca ainda não terminou (carregandoPendentes),
+  // NÃO mexe no estilo — antes disso a expressão caía no fallback
+  // "chaves vazias" e deixava a camada inteira transparente por até ~90s
+  // (login SSO + baixar a camada pela 1ª vez), parecendo "mapa vazio,
+  // nada carrega" (bug real reportado pelo Leo). E mesmo depois de
+  // carregado, quem NÃO está pendente/filtrado usa a cor que a camada já
+  // tinha configurada (`voosInfo.cor`), não transparente — a réplica
+  // continua parecendo um mapa de talhões normal, só com os pendentes em
+  // destaque, em vez de sumir o resto.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !voosInfo) return;
+    // `mapaPronto` (não só `map` truthy) — sem isso, um remount do mapa
+    // (troca de mapa, ver key={mapaId} em App.jsx) pode rodar este efeito
+    // com um `map` cujo estilo interno ainda não carregou; `map.getLayer`
+    // do MapLibre lança exceção nesse estado em vez de devolver
+    // undefined, o que derrubava o componente inteiro (confirmado num
+    // crash real testando: "Cannot read properties of undefined (reading
+    // 'getLayer')", pego pelo ErrorBoundary).
+    if (!map || !mapaPronto || !voosInfo || carregandoPendentes) return;
 
-    const chaves = pendentes.map((r) => chave(r.secao, r.talhao));
-    const expressaoCor = [
-      "match",
-      ["concat", ["get", "SECAO"], "-", ["get", "TALHAO"]],
-      chaves.length > 0 ? chaves : ["__nenhum__"],
-      CORES_FERRAMENTAS.vooPendente,
-      "rgba(0,0,0,0)",
-    ];
+    const chaves = pendentesFiltrados.map((r) => chave(r.secao, r.talhao));
+    const corPadrao = voosInfo.cor || "#2a78d6";
+    const expressaoCor =
+      chaves.length > 0
+        ? ["match", ["concat", ["get", "SECAO"], "-", ["get", "TALHAO"]], chaves, CORES_FERRAMENTAS.vooPendente, corPadrao]
+        : corPadrao;
 
-    if (voosInfo.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
+    if (voosInfo.fillLayerId && getLayerSeguro(map, voosInfo.fillLayerId)) {
       map.setPaintProperty(voosInfo.fillLayerId, "fill-color", expressaoCor);
       map.setPaintProperty(voosInfo.fillLayerId, "fill-opacity", 0.55);
     }
-    if (voosInfo.lineLayerId && map.getLayer(voosInfo.lineLayerId)) {
+    if (voosInfo.lineLayerId && getLayerSeguro(map, voosInfo.lineLayerId)) {
       map.setPaintProperty(voosInfo.lineLayerId, "line-color", expressaoCor);
       map.setPaintProperty(voosInfo.lineLayerId, "line-opacity", 1);
     }
-  }, [pendentes, voosInfo, mapRef]);
+  }, [pendentesFiltrados, carregandoPendentes, voosInfo, mapaPronto, mapRef]);
 
   // 3) fonte/camada própria pra destacar os talhões selecionados no lote
   // em andamento — deliberadamente NÃO reaproveita o highlightLayerId
@@ -99,9 +154,9 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // enquanto o modo estiver ligado.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !voosInfo) return;
+    if (!map || !mapaPronto || !voosInfo) return;
     if (!modoApontamento) {
-      if (map.getLayer(CAMADA_SELECAO)) map.removeLayer(CAMADA_SELECAO);
+      if (getLayerSeguro(map, CAMADA_SELECAO)) map.removeLayer(CAMADA_SELECAO);
       if (map.getSource(FONTE_SELECAO)) map.removeSource(FONTE_SELECAO);
       return;
     }
@@ -122,17 +177,17 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     });
 
     return () => {
-      if (map.getLayer(CAMADA_SELECAO)) map.removeLayer(CAMADA_SELECAO);
+      if (getLayerSeguro(map, CAMADA_SELECAO)) map.removeLayer(CAMADA_SELECAO);
       if (map.getSource(FONTE_SELECAO)) map.removeSource(FONTE_SELECAO);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modoApontamento, voosInfo?.id]);
+  }, [modoApontamento, voosInfo?.id, mapaPronto]);
 
   // 4) atualiza o filtro da camada de seleção a cada talhão marcado/
   // desmarcado — sem recriar fonte/camada.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.getLayer(CAMADA_SELECAO)) return;
+    if (!map || !mapaPronto || !getLayerSeguro(map, CAMADA_SELECAO)) return;
     const chaves = [...selecionados.keys()];
     map.setFilter(
       CAMADA_SELECAO,
@@ -140,7 +195,20 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
         ? ["match", ["concat", ["get", "SECAO"], "-", ["get", "TALHAO"]], chaves, true, false]
         : ["==", ["literal", 1], ["literal", 2]]
     );
-  }, [selecionados, mapRef]);
+  }, [selecionados, mapaPronto, mapRef]);
+
+  // `filtroProjetos` só vira um Set concreto no primeiro toggle — parte de
+  // "todos marcados" (não do vazio) pra desmarcar 1 projeto excluir só
+  // ele, não esconder tudo de repente.
+  function alternarFiltroProjeto(nome) {
+    setFiltroProjetos((atual) => {
+      const base = atual ?? new Set(projetosDisponiveis);
+      const novo = new Set(base);
+      if (novo.has(nome)) novo.delete(nome);
+      else novo.add(nome);
+      return novo;
+    });
+  }
 
   function iniciarModo() {
     setSelecionados(new Map());
@@ -193,6 +261,10 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
 
   return {
     pendentes,
+    pendentesFiltrados,
+    projetosDisponiveis,
+    filtroProjetos,
+    alternarFiltroProjeto,
     carregandoPendentes,
     erroPendentes,
     modoApontamento,

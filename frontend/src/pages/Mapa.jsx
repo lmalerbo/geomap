@@ -2037,6 +2037,21 @@ export default function Mapa() {
           <aside className="painel-flutuante painel-apontamento aberto">
             {!apontamento.modoApontamento ? (
               <>
+                {apontamento.projetosDisponiveis.length > 1 && (
+                  <div className="filtro-projetos-voo">
+                    <p className="rotulo-filtro-projetos-voo">Tipo de voo</p>
+                    {apontamento.projetosDisponiveis.map((nome) => (
+                      <label key={nome} className="campo-form-admin campo-form-admin--checkbox">
+                        <input
+                          type="checkbox"
+                          checked={apontamento.filtroProjetos?.has(nome) ?? true}
+                          onChange={() => apontamento.alternarFiltroProjeto(nome)}
+                        />
+                        {nome}
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
                   className="botao-abrir-apontamento"
@@ -2049,8 +2064,8 @@ export default function Mapa() {
                     </>
                   ) : (
                     <>
-                      Apontar voo ({apontamento.pendentes.length} pendente
-                      {apontamento.pendentes.length === 1 ? "" : "s"})
+                      Apontar voo ({apontamento.pendentesFiltrados.length} pendente
+                      {apontamento.pendentesFiltrados.length === 1 ? "" : "s"})
                     </>
                   )}
                 </button>

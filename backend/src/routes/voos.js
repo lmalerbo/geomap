@@ -74,6 +74,11 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
   res.json(
     registros.map((r) => ({
       id: r.id,
+      // Nome do projeto/campanha de voo (ex: "Falhas Plantio", "Projeto
+      // Plantio") — vem de flightProjectDetails porque pedimos
+      // expand=flightProject na query acima; sem isso só teríamos o uuid
+      // de flightProject, inútil pra mostrar/filtrar na tela.
+      projeto: r.flightProjectDetails?.description || null,
       secao: r.section,
       talhao: r.landPlot,
       controlStatus: r.controlStatus,

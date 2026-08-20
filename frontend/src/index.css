@@ -1790,6 +1790,19 @@ input[type="file"]::file-selector-button:hover {
   margin-top: 10px;
 }
 
+.filtro-projetos-voo {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rotulo-filtro-projetos-voo {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 .painel-apontamento label {
   display: block;
   margin: 10px 0;
