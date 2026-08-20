@@ -154,6 +154,17 @@ voosRouter.post("/voos/apontamentos", async (req, res) => {
           endDateFlight: dataIso,
           source: 2,
           pilotUserADId,
+          // Sem isso o registro fica com os campos de data preenchidos mas
+          // continua "pendente" pro próprio DroneManagement — confirmado
+          // via formstructure (formbuilder/formstructure/:id): verifyFlightSize
+          // 9 = "Voado", controlStatus 4 = "Voado, processar imagens" (o
+          // status que a mobile app real seta ao apontar um voo, antes do
+          // pipeline de processamento de imagens avançar isso mais pra
+          // frente). Faltava nesta chamada — 2 apontamentos reais
+          // (2026-08-20, secao 10104/10105) sumiram do GeoMap mas nunca
+          // apareceram como voados no DroneManagement por causa disso.
+          controlStatus: 4,
+          verifyFlightSize: 9,
         },
       });
       if (!resp.ok) {
