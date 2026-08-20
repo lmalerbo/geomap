@@ -1779,6 +1779,13 @@ input[type="file"]::file-selector-button:hover {
   bottom: 16px;
   left: 16px;
   width: 280px;
+  /* Sem isso, o modo de apontamento ligado (legenda + escolha de tipo +
+     data + resultado) podia crescer o bastante pra cobrir quase a tela
+     inteira num celular — nada limitava a altura do painel, só a
+     posição. Rola dentro do próprio painel em vez de continuar
+     crescendo, mesma técnica de .painel-atributos. */
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
 }
 
 .painel-apontamento .botao-abrir-apontamento {
@@ -2440,6 +2447,10 @@ input[type="file"]::file-selector-button:hover {
     left: 8px;
     bottom: 8px;
     width: min(260px, calc(100vw - 16px));
+    /* Mais apertado que o teto de desktop (70vh) — no celular o mapa
+       por trás precisa continuar navegável (pinça/arraste) enquanto o
+       painel está aberto, não só "caber na tela". */
+    max-height: 40vh;
   }
 }
 

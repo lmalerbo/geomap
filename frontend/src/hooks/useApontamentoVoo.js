@@ -7,6 +7,37 @@ const CAMADA_SELECAO = "camada-voos-selecao";
 const FILTRO_NENHUM = ["==", ["literal", 1], ["literal", 2]];
 const TEMPO_CONFIRMACAO_MS = 4000;
 
+// Talhão com 2+ tipos de voo pendentes ao mesmo tempo: em vez de uma cor
+// única de "múltiplo" (que não diz QUAIS tipos são), desenha um contorno
+// concêntrico por tipo via line-offset, cada um na cor real do seu tipo —
+// decisão confirmada com o Leo (2026-08-20). Alternar cores num único
+// traço tracejado foi cogitado primeiro e descartado: o MapLibre não tem
+// controle de fase de tracejado (duas camadas com o mesmo line-dasharray
+// desenham exatamente nas mesmas posições, uma cobre a outra por
+// completo) nem line-gradient sobre fonte vector-tile (line-gradient só
+// funciona com GeoJSON+lineMetrics) — anéis concêntricos são a
+// alternativa que funciona de forma confiável pra qualquer quantidade de
+// tipos.
+const CAMADA_ANEL_PREFIXO = "camada-voos-anel-";
+const MAX_ANEIS_MULTIPLO = 6;
+const LARGURA_ANEL = 2.5;
+const PASSO_OFFSET_ANEL = 2.5;
+
+function idCamadaAnel(indice) {
+  return `${CAMADA_ANEL_PREFIXO}${indice}`;
+}
+
+// Anel 0 fica exatamente na borda real do talhão (mesma posição visual do
+// contorno de 1 tipo só, pra não "pular" quando um segundo tipo passa a
+// existir ou deixa de existir); os seguintes alternam pra fora/dentro em
+// passos crescentes.
+function offsetAnel(indice) {
+  if (indice === 0) return 0;
+  const grupo = Math.ceil(indice / 2);
+  const sinal = indice % 2 === 1 ? 1 : -1;
+  return sinal * grupo * PASSO_OFFSET_ANEL;
+}
+
 // Chave usada tanto pra indexar `pendentes` quanto pra montar a expressão
 // MapLibre (["concat", ["get","SECAO"], "-", ["get","TALHAO"]]) — precisa
 // ser idêntica dos dois lados pro "match" bater. Mesmo padrão já usado em
@@ -206,9 +237,12 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       map.setPaintProperty(voosInfo.fillLayerId, "fill-opacity", 0);
     }
 
-    // Agrupa por talhão: 0 tipos pendentes visíveis = sem contorno; 1 tipo
-    // = cor daquele tipo; 2+ tipos ao mesmo tempo = cor de "múltiplo"
-    // (nunca desenha vários contornos empilhados no mesmo talhão).
+    // Agrupa por talhão, já na ordem fixa de exibição (ordenarTiposVoo) —
+    // essa ordem decide em qual anel (offsetAnel) cada tipo cai quando o
+    // talhão tem 2+ pendências ao mesmo tempo. 0 tipos pendentes visíveis
+    // = sem contorno; 1 tipo = cor daquele tipo, no contorno normal; 2+
+    // tipos = um anel por tipo (ver bloco abaixo), nunca uma cor genérica
+    // de "múltiplo".
     const tiposPorTalhao = new Map(); // chave -> Set<projeto>
     for (const r of pendentesFiltrados) {
       const k = chave(r.secao, r.talhao);
@@ -217,10 +251,16 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     }
 
     const chavesVerdes = new Set(recemApontados.keys());
-    const chavesPorCor = new Map(); // cor -> [chaves]
-    for (const [k, tipos] of tiposPorTalhao) {
+    const chavesPorCor = new Map(); // cor -> [chaves], só quando tem 1 tipo só
+    const multiploPorChave = new Map(); // chave -> string[] tipos (ordenados), quando tem 2+
+
+    for (const [k, tiposSet] of tiposPorTalhao) {
       if (chavesVerdes.has(k)) continue; // recém apontado tem prioridade, tratado à parte
-      const cor = tipos.size > 1 ? CORES_FERRAMENTAS.vooMultiplo : corPorProjeto([...tipos][0]);
+      if (tiposSet.size > 1) {
+        multiploPorChave.set(k, ordenarTiposVoo([...tiposSet]));
+        continue;
+      }
+      const cor = corPorProjeto([...tiposSet][0]);
       if (!chavesPorCor.has(cor)) chavesPorCor.set(cor, []);
       chavesPorCor.get(cor).push(k);
     }
@@ -230,6 +270,8 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     for (const [cor, chaves] of chavesPorCor) ramos.push(chaves, cor);
     if (chavesVerdes.size > 0) ramos.push([...chavesVerdes], CORES_FERRAMENTAS.vooConfirmado);
 
+    // Talhão com 2+ tipos não desenha nada no contorno normal — quem
+    // desenha ele são os anéis, logo abaixo.
     const expressaoCor =
       ramos.length > 0
         ? ["match", ["concat", ["get", "SECAO"], "-", ["get", "TALHAO"]], ...ramos, semContorno]
@@ -240,7 +282,60 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       map.setPaintProperty(voosInfo.lineLayerId, "line-width", 3);
       map.setPaintProperty(voosInfo.lineLayerId, "line-opacity", 1);
     }
+
+    // Anéis concêntricos: um por posição (ver offsetAnel). Cada anel só
+    // pinta os talhões que têm um tipo NAQUELA posição — um talhão com
+    // menos tipos que MAX_ANEIS_MULTIPLO simplesmente fica transparente
+    // nos anéis que sobram pra ele.
+    for (let i = 0; i < MAX_ANEIS_MULTIPLO; i++) {
+      const idAnel = idCamadaAnel(i);
+      if (!getLayerSeguro(map, idAnel)) continue;
+      const ramosAnel = [];
+      for (const [k, tipos] of multiploPorChave) {
+        if (i < tipos.length) ramosAnel.push(k, corPorProjeto(tipos[i]));
+      }
+      const expressaoAnel =
+        ramosAnel.length > 0
+          ? ["match", ["concat", ["get", "SECAO"], "-", ["get", "TALHAO"]], ...ramosAnel, semContorno]
+          : semContorno;
+      map.setPaintProperty(idAnel, "line-color", expressaoAnel);
+    }
   }, [pendentesFiltrados, recemApontados, carregandoPendentes, voosInfo, mapaPronto, mapRef]);
+
+  // 2b) cria/destrói os MAX_ANEIS_MULTIPLO contornos concêntricos usados
+  // pra desenhar talhão com 2+ tipos pendentes (ver offsetAnel acima) —
+  // uma vez por voosInfo, mesmo padrão de lifecycle já usado pra
+  // CAMADA_SELECAO no efeito 3 logo abaixo. Paint inicial transparente;
+  // quem decide cor/visibilidade de cada anel a cada momento é o efeito
+  // de coloração (2) acima.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto || !voosInfo) return;
+
+    for (let i = 0; i < MAX_ANEIS_MULTIPLO; i++) {
+      const id = idCamadaAnel(i);
+      if (getLayerSeguro(map, id)) continue;
+      map.addLayer({
+        id,
+        type: "line",
+        source: voosInfo.sourceId,
+        "source-layer": voosInfo.sourceLayerPrincipal,
+        paint: {
+          "line-color": "rgba(0,0,0,0)",
+          "line-width": LARGURA_ANEL,
+          "line-offset": offsetAnel(i),
+        },
+      });
+    }
+
+    return () => {
+      for (let i = 0; i < MAX_ANEIS_MULTIPLO; i++) {
+        const id = idCamadaAnel(i);
+        if (getLayerSeguro(map, id)) map.removeLayer(id);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voosInfo?.id, voosInfo?.sourceId, voosInfo?.sourceLayerPrincipal, mapaPronto]);
 
   // 3) fonte/camada própria pra destacar os talhões selecionados no lote
   // em andamento — deliberadamente NÃO reaproveita o highlightLayerId
