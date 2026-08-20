@@ -26,8 +26,16 @@ app.use(express.json());
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.use(authRouter);
 app.use(mapasRouter);
-app.use(adminRouter);
+// voosRouter precisa vir ANTES do adminRouter: adminRouter registra
+// `router.use(exigirAdmin)` sem prefixo de caminho (linha logo abaixo de
+// onde ele é definido) — como os dois são montados na raiz do app (sem
+// app.use("/admin", ...)), esse middleware intercepta QUALQUER requisição
+// que chegue até ele, não só as que batem nalguma rota /admin/* definida
+// depois. Com adminRouter antes, todo usuário não-admin tomava 403 em
+// /voos/* mesmo a rota existindo em voosRouter — só não apareceu antes
+// porque só foi testado logado como admin.
 app.use(voosRouter);
+app.use(adminRouter);
 
 // Rede de segurança final — sem isso, o erro capturado por
 // express-async-errors ainda cairia no handler de erro padrão do Express,

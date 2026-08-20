@@ -1243,7 +1243,7 @@ export default function Mapa() {
           map.setPaintProperty(info.circleLayerId, "circle-stroke-opacity", visivel ? info.opacidadeContorno : 0);
         }
       }
-      if (info.rotuloLayerId) {
+      if (info.rotuloLayerId && map.getLayer(info.rotuloLayerId)) {
         map.setPaintProperty(info.rotuloLayerId, "text-opacity", visivel ? 1 : 0);
       }
     }
