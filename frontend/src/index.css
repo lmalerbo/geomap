@@ -1781,7 +1781,11 @@ input[type="file"]::file-selector-button:hover {
    novos (seguir câmera, pausar/continuar, grade de exportar/compartilhar/
    ver no mapa/limpar). */
 .painel-track {
-  bottom: 16px;
+  /* 40px, não 16px — a barra de escala nativa do MapLibre (ScaleControl,
+     "bottom-left") ocupa essa faixa (10px de margem + ~16px de altura
+     própria, ~26px do fundo) e ficava coberta pelos painéis desse canto
+     (achado real, 2026-08-21). */
+  bottom: 40px;
   left: 16px;
   width: 280px;
 }
@@ -1791,7 +1795,7 @@ input[type="file"]::file-selector-button:hover {
    nesse mapa específico (aceito o mesmo trade-off já existente entre
    .painel-medicao/.painel-atributos, que dividem o canto direito). */
 .painel-apontamento {
-  bottom: 16px;
+  bottom: 40px; /* mesmo motivo de .painel-track — folga pra barra de escala */
   left: 16px;
   width: 280px;
   /* Sem isso, o modo de apontamento ligado (legenda + escolha de tipo +
@@ -1816,7 +1820,7 @@ input[type="file"]::file-selector-button:hover {
    está renderizado. */
 .pilha-apontamento {
   position: absolute;
-  bottom: 16px;
+  bottom: 40px; /* mesmo motivo de .painel-track — folga pra barra de escala */
   left: 16px;
   z-index: 1;
   max-width: calc(100vw - 32px);
@@ -2484,13 +2488,13 @@ input[type="file"]::file-selector-button:hover {
      por completo numa tela estreita. */
   .painel-track {
     left: 8px;
-    bottom: 8px;
+    bottom: 32px; /* mesma folga da barra de escala do desktop, ver .painel-track base */
     width: min(260px, calc(100vw - 16px));
   }
 
   .painel-apontamento {
     left: 8px;
-    bottom: 8px;
+    bottom: 32px;
     width: min(260px, calc(100vw - 16px));
     /* Mais apertado que o teto de desktop (70vh) — no celular o mapa
        por trás precisa continuar navegável (pinça/arraste) enquanto o
@@ -2500,7 +2504,7 @@ input[type="file"]::file-selector-button:hover {
 
   .pilha-apontamento {
     left: 8px;
-    bottom: 8px;
+    bottom: 32px;
     max-width: calc(100vw - 16px);
   }
 
