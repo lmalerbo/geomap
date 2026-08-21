@@ -407,6 +407,21 @@ input[type="file"]::file-selector-button:hover {
   font-size: 13px;
 }
 
+/* Nome do mapa que o usuário está vendo (ex: "Geral"), ao lado do botão
+   "Trocar mapa" — pedido do Leo (2026-08-21), pra não depender de lembrar
+   qual mapa está aberto. Já existia como state (nomeMapaAtual, usado nos
+   arquivos exportados pela medição), só faltava aparecer na tela. */
+.nome-mapa-atual {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .status-medicao {
   padding: 4px 10px;
   border-radius: 999px;
@@ -1793,48 +1808,38 @@ input[type="file"]::file-selector-button:hover {
   margin-top: 10px;
 }
 
-/* Empilha o botão "Apontar voo" (sempre visível) + a legenda de tipos de
-   voo (botão circular recolhido ou painel aberto), mesmo canto/largura que
-   .painel-apontamento ocupava antes de virar 2 elementos separados
-   (2026-08-21). column-reverse mantém o botão de apontar sempre colado no
-   fundo (bottom:16px) mesmo quando a legenda acima cresce ao expandir —
-   mesmo motivo de .pilha-topo-esquerda usar flex em vez de offset fixo. */
+/* Canto inferior-esquerdo — botão "Apontar voo" no mesmo esquema
+   círculo⇄cartão de Camadas/Tipo de voo (2026-08-21). Só 1 elemento por
+   vez (círculo ou cartão), diferente de .pilha-topo-esquerda que empilha
+   vários — ainda assim um wrapper próprio (em vez de posicionar o botão/
+   aside direto) deixa a posição consistente não importa qual dos dois
+   está renderizado. */
 .pilha-apontamento {
   position: absolute;
   bottom: 16px;
   left: 16px;
   z-index: 1;
-  display: flex;
-  flex-direction: column-reverse;
-  align-items: flex-start;
-  gap: 12px;
-  width: 280px;
   max-width: calc(100vw - 32px);
 }
 
-.pilha-apontamento .botao-abrir-apontamento {
-  width: 100%;
-}
-
-.pilha-apontamento .erro {
-  width: 100%;
-}
-
-/* Estado recolhido da legenda de tipos de voo — mesmo padrão de
+/* Estado recolhido do botão "Apontar voo" — mesmo padrão de
    .botao-camadas-recolhido (botão circular com sombra própria). */
 .botao-apontamento-recolhido {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   animation: entrada var(--dur-painel) var(--ease-saida);
 }
 
-.painel-legenda-voo {
-  width: 100%;
+.painel-apontamento-inicio {
+  width: 280px;
+  max-width: calc(100vw - 32px);
 }
 
-.painel-legenda-voo .filtro-projetos-voo {
-  margin: 0;
+.conteudo-painel-apontamento-inicio {
   padding: 0 16px 12px;
-  border-bottom: none;
+}
+
+.conteudo-painel-apontamento-inicio .botao-abrir-apontamento {
+  width: 100%;
 }
 
 .filtro-projetos-voo {
@@ -2496,6 +2501,10 @@ input[type="file"]::file-selector-button:hover {
   .pilha-apontamento {
     left: 8px;
     bottom: 8px;
+    max-width: calc(100vw - 16px);
+  }
+
+  .painel-apontamento-inicio {
     width: min(260px, calc(100vw - 16px));
   }
 }

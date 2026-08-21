@@ -55,8 +55,23 @@ function IconeMenu() {
   );
 }
 
+// Alvo/mira — botão recolhido da ação "Apontar voo" (distinto do ícone de
+// drone, que agora é só da legenda "Tipo de voo").
+function IconeApontamento() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="4" />
+      <line x1="12" y1="1" x2="12" y2="4" />
+      <line x1="12" y1="20" x2="12" y2="23" />
+      <line x1="1" y1="12" x2="4" y2="12" />
+      <line x1="20" y1="12" x2="23" y2="12" />
+    </svg>
+  );
+}
+
 // Drone (mesmo estilo de traço 2px dos outros ícones do projeto) — botão
-// recolhido do painel de apontamento de voo.
+// recolhido da legenda "Tipo de voo".
 function IconeVoo() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -856,12 +871,17 @@ export default function Mapa() {
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
   // entre plataformas.
   const [painelCamadasAberto, setPainelCamadasAberto] = useState(false);
-  // Painel de apontamento de voo (legenda de tipos + botão "Apontar voo")
-  // recolhido por padrão, mesmo esquema do de camadas — pedido do Leo
-  // (2026-08-21). O botão que liga o modo de apontamento em si fica
-  // separado (fora deste painel, ver painel-apontamento-acoes abaixo),
-  // pra não depender de abrir o painel só pra começar a apontar.
-  const [painelApontamentoAberto, setPainelApontamentoAberto] = useState(false);
+  // Legenda "Tipo de voo" — recolhida por padrão, mesmo esquema do painel
+  // de camadas; agrupada junto com ele (topo-esquerda, ver
+  // pilha-topo-esquerda) por pedido do Leo (2026-08-21) — as duas são
+  // "informação/filtro", só o botão de ação "Apontar voo" fica separado
+  // (canto inferior-esquerdo, ver painelApontarAberto abaixo).
+  const [painelTipoVooAberto, setPainelTipoVooAberto] = useState(false);
+  // Botão "Apontar voo" (ação de entrar no modo de apontamento) também
+  // recolhido por padrão, mesmo esquema — clicar no círculo abre um cartão
+  // pequeno com o botão de verdade dentro, em vez do botão ficar sempre
+  // exposto ocupando espaço no mapa.
+  const [painelApontarAberto, setPainelApontarAberto] = useState(false);
   // Quais camadas têm a legenda completa expandida (categorizado/graduado/
   // gradiente/forma por atributo) — só existe a setinha de expandir pra
   // camada que tem algo além do swatch simples (ver temLegendaDetalhada).
@@ -1629,6 +1649,9 @@ export default function Mapa() {
             Medição ativa: {medicao.modoMedicao === "area" ? "área" : "distância"}
           </span>
         )}
+        <span className="nome-mapa-atual" title={nomeMapaAtual}>
+          {nomeMapaAtual}
+        </span>
         <Link to="/inicio" className="botao-circular" aria-label="Trocar mapa" title="Trocar mapa">
           <IconeMapas />
         </Link>
@@ -1720,7 +1743,10 @@ export default function Mapa() {
           <button
             type="button"
             className="botao-circular botao-camadas-recolhido"
-            onClick={() => setPainelCamadasAberto(true)}
+            onClick={() => {
+              setPainelCamadasAberto(true);
+              setPainelTipoVooAberto(false); // mutuamente exclusivos (pedido do Leo, 2026-08-21) — dois cards abertos juntos na mesma pilha poluíam a tela
+            }}
             aria-label="Abrir painel de camadas"
             title="Camadas"
           >
@@ -1956,6 +1982,51 @@ export default function Mapa() {
             </ul>
           </div>
         )}
+
+        {voosInfo &&
+          !apontamento.modoApontamento &&
+          apontamento.legendaProjetos.length > 1 &&
+          (!painelTipoVooAberto ? (
+            <button
+              type="button"
+              className="botao-circular botao-camadas-recolhido"
+              onClick={() => {
+                setPainelTipoVooAberto(true);
+                setPainelCamadasAberto(false); // mutuamente exclusivos, ver comentário em Camadas
+              }}
+              aria-label="Abrir legenda de tipos de voo"
+              title="Tipo de voo"
+            >
+              <IconeVoo />
+            </button>
+          ) : (
+            <aside className="painel-camadas">
+              <button
+                type="button"
+                className="cabecalho-painel-camadas"
+                onClick={() => setPainelTipoVooAberto(false)}
+                aria-expanded={painelTipoVooAberto}
+              >
+                <span>Tipo de voo</span>
+                <span className="seta seta--aberta" aria-hidden="true">
+                  ›
+                </span>
+              </button>
+              <div className="filtro-projetos-voo">
+                {apontamento.legendaProjetos.map(({ nome, cor }) => (
+                  <label key={nome} className="campo-form-admin campo-form-admin--checkbox">
+                    <input
+                      type="checkbox"
+                      checked={apontamento.filtroProjetos?.has(nome) ?? true}
+                      onChange={() => apontamento.alternarFiltroProjeto(nome)}
+                    />
+                    <span className="swatch-tipo-voo" style={{ backgroundColor: cor }} aria-hidden="true" />
+                    {nome}
+                  </label>
+                ))}
+              </div>
+            </aside>
+          ))}
         </div>
 
         {mapasLocais.length === 0 && !sincronizando && (
@@ -2067,74 +2138,59 @@ export default function Mapa() {
         </aside>
 
         {voosInfo && !apontamento.modoApontamento && (
-          // Botão "Apontar voo" separado do painel de legenda (pedido do Leo,
-          // 2026-08-21) — não depende de abrir o painel pra começar a
-          // apontar. column-reverse ancora o botão sempre no mesmo lugar
-          // (bottom:16px) mesmo quando o painel acima cresce/encolhe ao
-          // expandir (mesmo motivo de pilha-topo-esquerda usar flex em vez
-          // de offset fixo).
+          // Botão "Apontar voo" no mesmo esquema círculo⇄cartão de
+          // Camadas/Tipo de voo (pedido do Leo, 2026-08-21) — canto
+          // inferior-esquerdo, separado da legenda (que foi pro
+          // pilha-topo-esquerda, junto de Camadas).
           <div className="pilha-apontamento">
-            <button
-              type="button"
-              className="botao-abrir-apontamento"
-              onClick={apontamento.iniciarModo}
-              disabled={apontamento.carregandoPendentes}
-            >
-              {apontamento.carregandoPendentes ? (
-                <>
-                  <span className="spinner" aria-hidden="true" /> Carregando pendências…
-                </>
-              ) : (
-                <>
-                  Apontar voo (
-                  {apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha
-                  pendentes)
-                </>
-              )}
-            </button>
-            {apontamento.erroPendentes && (
-              <p className="erro">Erro ao carregar pendências: {apontamento.erroPendentes}</p>
-            )}
-
-            {apontamento.legendaProjetos.length > 1 &&
-              (!painelApontamentoAberto ? (
+            {!painelApontarAberto ? (
+              <button
+                type="button"
+                className="botao-circular botao-apontamento-recolhido"
+                onClick={() => setPainelApontarAberto(true)}
+                aria-label="Abrir apontamento de voo"
+                title="Apontar voo"
+              >
+                <IconeApontamento />
+              </button>
+            ) : (
+              <aside className="painel-camadas painel-apontamento-inicio">
                 <button
                   type="button"
-                  className="botao-circular botao-apontamento-recolhido"
-                  onClick={() => setPainelApontamentoAberto(true)}
-                  aria-label="Abrir legenda de tipos de voo"
-                  title="Tipos de voo"
+                  className="cabecalho-painel-camadas"
+                  onClick={() => setPainelApontarAberto(false)}
+                  aria-expanded={painelApontarAberto}
                 >
-                  <IconeVoo />
+                  <span>Apontar voo</span>
+                  <span className="seta seta--aberta" aria-hidden="true">
+                    ›
+                  </span>
                 </button>
-              ) : (
-                <aside className="painel-camadas painel-legenda-voo">
+                <div className="conteudo-painel-apontamento-inicio">
                   <button
                     type="button"
-                    className="cabecalho-painel-camadas"
-                    onClick={() => setPainelApontamentoAberto(false)}
-                    aria-expanded={painelApontamentoAberto}
+                    className="botao-abrir-apontamento"
+                    onClick={apontamento.iniciarModo}
+                    disabled={apontamento.carregandoPendentes}
                   >
-                    <span>Tipo de voo</span>
-                    <span className="seta seta--aberta" aria-hidden="true">
-                      ›
-                    </span>
+                    {apontamento.carregandoPendentes ? (
+                      <>
+                        <span className="spinner" aria-hidden="true" /> Carregando pendências…
+                      </>
+                    ) : (
+                      <>
+                        Apontar voo (
+                        {apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha
+                        pendentes)
+                      </>
+                    )}
                   </button>
-                  <div className="filtro-projetos-voo">
-                    {apontamento.legendaProjetos.map(({ nome, cor }) => (
-                      <label key={nome} className="campo-form-admin campo-form-admin--checkbox">
-                        <input
-                          type="checkbox"
-                          checked={apontamento.filtroProjetos?.has(nome) ?? true}
-                          onChange={() => apontamento.alternarFiltroProjeto(nome)}
-                        />
-                        <span className="swatch-tipo-voo" style={{ backgroundColor: cor }} aria-hidden="true" />
-                        {nome}
-                      </label>
-                    ))}
-                  </div>
-                </aside>
-              ))}
+                  {apontamento.erroPendentes && (
+                    <p className="erro">Erro ao carregar pendências: {apontamento.erroPendentes}</p>
+                  )}
+                </div>
+              </aside>
+            )}
           </div>
         )}
 
