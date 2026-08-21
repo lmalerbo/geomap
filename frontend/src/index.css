@@ -1788,13 +1788,53 @@ input[type="file"]::file-selector-button:hover {
   overflow-y: auto;
 }
 
-.painel-apontamento .botao-abrir-apontamento {
-  width: 100%;
-}
-
 .painel-apontamento > button {
   width: 100%;
   margin-top: 10px;
+}
+
+/* Empilha o botão "Apontar voo" (sempre visível) + a legenda de tipos de
+   voo (botão circular recolhido ou painel aberto), mesmo canto/largura que
+   .painel-apontamento ocupava antes de virar 2 elementos separados
+   (2026-08-21). column-reverse mantém o botão de apontar sempre colado no
+   fundo (bottom:16px) mesmo quando a legenda acima cresce ao expandir —
+   mesmo motivo de .pilha-topo-esquerda usar flex em vez de offset fixo. */
+.pilha-apontamento {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 12px;
+  width: 280px;
+  max-width: calc(100vw - 32px);
+}
+
+.pilha-apontamento .botao-abrir-apontamento {
+  width: 100%;
+}
+
+.pilha-apontamento .erro {
+  width: 100%;
+}
+
+/* Estado recolhido da legenda de tipos de voo — mesmo padrão de
+   .botao-camadas-recolhido (botão circular com sombra própria). */
+.botao-apontamento-recolhido {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  animation: entrada var(--dur-painel) var(--ease-saida);
+}
+
+.painel-legenda-voo {
+  width: 100%;
+}
+
+.painel-legenda-voo .filtro-projetos-voo {
+  margin: 0;
+  padding: 0 16px 12px;
+  border-bottom: none;
 }
 
 .filtro-projetos-voo {
@@ -2451,6 +2491,12 @@ input[type="file"]::file-selector-button:hover {
        por trás precisa continuar navegável (pinça/arraste) enquanto o
        painel está aberto, não só "caber na tela". */
     max-height: 40vh;
+  }
+
+  .pilha-apontamento {
+    left: 8px;
+    bottom: 8px;
+    width: min(260px, calc(100vw - 16px));
   }
 }
 
