@@ -36,9 +36,41 @@ async function usuarioTemPermissaoMapa(usuarioId, mapaId) {
   return rows.length > 0;
 }
 
+function mapearRegistro(r) {
+  return {
+    id: r.id,
+    // Nome do projeto/campanha de voo (ex: "Falhas Plantio", "Projeto
+    // Plantio") — vem de flightProjectDetails porque pedimos
+    // expand=flightProject na query acima; sem isso só teríamos o uuid
+    // de flightProject, inútil pra mostrar/filtrar na tela.
+    projeto: r.flightProjectDetails?.description || null,
+    secao: r.section,
+    talhao: r.landPlot,
+    controlStatus: r.controlStatus,
+    verifyFlightSize: r.verifyFlightSize,
+    // Área do talhão em hectares (layerDetails.totalArea, vem de
+    // expand=layer acima) — pedido do Leo (2026-08-20) pra mostrar
+    // hectares pendentes em vez de contagem de talhões no painel do
+    // mapa (ver useApontamentoVoo.js).
+    areaHa: r.layerDetails?.totalArea ?? null,
+  };
+}
+
 // Lista os talhões pendentes de voo pra unidade configurada
 // (DRONEMGMT_UNIT_ID) — devolve só os campos que o mapa precisa pra
 // cruzar com SECAO/TALHAO e colorir por status; nunca cookie/token.
+//
+// Cache persistente (voos_pendentes_cache, migration 013): buscar e
+// processar os ~3700 registros pendentes leva uns 18s (medido em
+// produção, 2026-09-21), mesmo com a sessão de login já em cache — pedido
+// do Leo pra só pagar esse custo quando algo de fato mudou. A cada
+// chamada, primeiro faz uma checagem barata (pageSize:1, só pra saber o
+// `count` atual — medido em ~0.5s com sessão quente, contra ~18s da busca
+// completa) e só refaz a busca completa se esse número for diferente do
+// que está salvo. `?forcar=1` pula essa checagem e busca tudo de novo na
+// hora — escape hatch pro caso raro em que um registro é removido e outro
+// adicionado no mesmo intervalo (count bate por coincidência, mas o
+// conteúdo mudou).
 voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
   const mapaId = Number(req.params.mapaId);
   if (!Number.isInteger(mapaId)) {
@@ -55,55 +87,59 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
     ],
   });
 
-  async function buscarPagina(pagina) {
+  async function buscarPagina(pagina, tamanhoPagina = TAMANHO_PAGINA) {
     const resp = await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", {
-      params: { pageNumber: pagina, pageSize: TAMANHO_PAGINA, filter: filtro, expand: "layer,flightProject" },
+      params: { pageNumber: pagina, pageSize: tamanhoPagina, filter: filtro, expand: "layer,flightProject" },
     });
     if (!resp.ok) throw new Error(`DroneManagement respondeu ${resp.status}`);
     return resp.json();
   }
 
-  let registros, count;
+  const forcar = req.query.forcar === "1";
+
   try {
-    // Página 1 primeiro (sozinha) pra saber `count` — só depois disso dá
-    // pra saber quantas páginas faltam. Concorrência 5 nas seguintes:
-    // troca N idas-e-voltas sequenciais por ⌈N/5⌉, mesma técnica já usada
-    // nos scripts de limpeza desta sessão (ver backend/_achar_voos_duplicados.mjs)
-    // — o DroneManagement aguentou concorrência 8 sem erro nesses scripts.
+    const checagem = await buscarPagina(1, 1);
+    const countAtual = checagem.count || 0;
+
+    if (!forcar) {
+      const { rows } = await pool.query(
+        "SELECT count_dronemgmt, registros FROM voos_pendentes_cache WHERE mapa_id = $1",
+        [mapaId]
+      );
+      if (rows[0] && rows[0].count_dronemgmt === countAtual) {
+        return res.json(rows[0].registros);
+      }
+    }
+
+    // Página 1 primeiro (sozinha) pra saber `count`... já sabemos (acima),
+    // mas precisamos dos registros de verdade agora, não só count.
+    // Concorrência 5 nas seguintes: troca N idas-e-voltas sequenciais por
+    // ⌈N/5⌉, mesma técnica já usada nos scripts de limpeza desta sessão
+    // (ver backend/_achar_voos_duplicados.mjs) — o DroneManagement
+    // aguentou concorrência 8 sem erro nesses scripts.
     const primeira = await buscarPagina(1);
-    registros = primeira.value || [];
-    count = primeira.count || 0;
+    const registrosBrutos = primeira.value || [];
+    const count = primeira.count || 0;
     const totalPaginas = Math.ceil(count / TAMANHO_PAGINA);
     const CONCORRENCIA = 5;
     for (let inicio = 2; inicio <= totalPaginas; inicio += CONCORRENCIA) {
       const lote = [];
       for (let p = inicio; p < inicio + CONCORRENCIA && p <= totalPaginas; p++) lote.push(buscarPagina(p));
       const resultados = await Promise.all(lote);
-      for (const dados of resultados) registros.push(...(dados.value || []));
+      for (const dados of resultados) registrosBrutos.push(...(dados.value || []));
     }
+
+    const registros = registrosBrutos.map(mapearRegistro);
+    await pool.query(
+      `INSERT INTO voos_pendentes_cache (mapa_id, count_dronemgmt, registros, atualizado_em)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (mapa_id) DO UPDATE SET count_dronemgmt = $2, registros = $3, atualizado_em = now()`,
+      [mapaId, count, JSON.stringify(registros)]
+    );
+    res.json(registros);
   } catch (err) {
     return res.status(502).json({ erro: err.message });
   }
-
-  res.json(
-    registros.map((r) => ({
-      id: r.id,
-      // Nome do projeto/campanha de voo (ex: "Falhas Plantio", "Projeto
-      // Plantio") — vem de flightProjectDetails porque pedimos
-      // expand=flightProject na query acima; sem isso só teríamos o uuid
-      // de flightProject, inútil pra mostrar/filtrar na tela.
-      projeto: r.flightProjectDetails?.description || null,
-      secao: r.section,
-      talhao: r.landPlot,
-      controlStatus: r.controlStatus,
-      verifyFlightSize: r.verifyFlightSize,
-      // Área do talhão em hectares (layerDetails.totalArea, vem de
-      // expand=layer acima) — pedido do Leo (2026-08-20) pra mostrar
-      // hectares pendentes em vez de contagem de talhões no painel do
-      // mapa (ver useApontamentoVoo.js).
-      areaHa: r.layerDetails?.totalArea ?? null,
-    }))
-  );
 });
 
 // Apontamento em lote — o piloto seleciona vários talhões pendentes no
