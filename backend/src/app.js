@@ -20,6 +20,15 @@ import { voosRouter } from "./routes/voos.js";
 
 export const app = express();
 
+// Sem isso, `req.ip` (usado pra gravar o IP em todo log de auditoria —
+// login, ações admin) sempre devolve o endereço interno do proxy reverso
+// do Render (`::1`), nunca o IP real de quem chamou — confirmado
+// investigando um pedido do Leo pra saber qual máquina rodou a automação
+// diária (2026-09-21): todo log, de qualquer usuário, sempre mostrava
+// "::1". Render é o único proxy na frente do processo, então confiar nele
+// pra extrair o IP real do cabeçalho X-Forwarded-For é seguro aqui.
+app.set("trust proxy", true);
+
 app.use(cors());
 app.use(express.json());
 
