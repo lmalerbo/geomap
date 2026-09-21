@@ -85,7 +85,13 @@ async function logar() {
       waitUntil: "domcontentloaded",
       timeout: TIMEOUT_LOGIN_MS,
     });
-    await page.getByPlaceholder("Digite seu e-mail").fill(USUARIO);
+    // Placeholder mudou de "Digite seu e-mail" pra "Digite seu usuário"
+    // quando o DroneManagement redesenhou a tela de login (nova marca
+    // "Plataforma Corporativa - Pedra Agroindustrial S/A", Ant Design) —
+    // achado investigando o app parar de carregar pendências (2026-09-21).
+    // Sem relação com o valor em si, que já era o username simples desde
+    // sempre (ver DRONEMGMT_USUARIO/docs/INTEGRACAO_DRONEMANAGEMENT.md).
+    await page.getByPlaceholder("Digite seu usuário").fill(USUARIO);
     await page.getByPlaceholder("Digite sua senha").fill(SENHA);
     await page.getByRole("button", { name: "Entrar" }).click();
     // Login passa por vários redirects (SSO -> callback -> app) antes do
@@ -103,6 +109,20 @@ async function logar() {
       throw new Error("login não retornou cookie/xsrf válidos (usuário/senha incorretos?)");
     }
     return { cookie, xsrfToken };
+  } catch (err) {
+    // Erro de timeout/locator do Playwright (ex: elemento nunca apareceu —
+    // como aconteceu quando a tela de login mudou de layout, 2026-09-21)
+    // vem com um "Call log" técnico de várias linhas, inútil e confuso pro
+    // usuário final — chegava cru até o painel de apontamento no frontend
+    // (ver mensagemErroPendentes em useApontamentoVoo.js, que só trata
+    // TypeError de rede, não erro HTTP com corpo). Mensagem própria (erro
+    // completo sempre vai pro log do servidor pra investigar depois);
+    // erros que já são nossos (ex: cookie/xsrf ausente, acima) passam direto.
+    if (err.name === "TimeoutError" || /Call log:/.test(err.message)) {
+      console.error("Falha no login do DroneManagement:", err);
+      throw new Error("DroneManagement não respondeu a tempo. Tente de novo em alguns minutos.");
+    }
+    throw err;
   } finally {
     await context.close(); // fecha só a aba — o navegador persistente continua vivo pro próximo login
   }
