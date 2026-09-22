@@ -15,10 +15,24 @@ voosRouter.use(exigirAutenticacao);
 
 const UNIT_ID = process.env.DRONEMGMT_UNIT_ID || "";
 
-// Mesmo critério de "pendente" já usado pela tela "Agendamento de Voos"
-// do DroneManagement (2 Aguardar porte .. 6 Voar urgente — tudo antes de
-// 9 Voado), confirmado capturando a requisição real dessa tela.
-const VERIFY_FLIGHT_SIZE_PENDENTES = [2, 3, 4, 5, 6];
+// Critério de "pendente pra voar de verdade" — pedido explícito do Leo
+// (2026-09-22), depois de reparar que talhões com Verificar Porte
+// "Aguardar porte"/"Verificar porte" (valores 2/3) apareciam no mapa como
+// se estivessem prontos, mesmo Status já mostrando "A voar": esses dois
+// valores só significam "na fila, esperando o porte da cana", não "pode
+// voar agora" — só 4 (Voar), 5 (Voo liberado) e 6 (Voar urgente) são de
+// verdade acionáveis. Restrito ainda mais aqui (só 5/6, sem o 4) porque
+// foi exatamente o que o Leo pediu ao descrever a regra.
+const CONTROL_STATUS_A_VOAR = 2; // "Status" = A voar
+const VERIFY_FLIGHT_SIZE_PRONTOS = [5, 6]; // "Verificar Porte" = Voo liberado, Voar urgente
+
+// Falhas Soca tem uma trava extra: só considerar pendente quem está em
+// 02º ou 03º Corte (layerDetails.internship) — mesmo critério de negócio
+// já usado nos scripts de limpeza desta sessão (ver
+// backend/_cancelar_estagio_soca.mjs), agora também aplicado no que o
+// piloto vê no mapa, não só na limpeza administrativa.
+const FINALIDADE_FALHAS_SOCA = "Falhas Soca";
+const ESTAGIOS_FALHAS_SOCA = new Set([2, 3]); // 02º Corte, 03º Corte
 
 const TAMANHO_PAGINA = 500;
 
@@ -83,7 +97,8 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
   const filtro = JSON.stringify({
     $and: [
       { unitId: `UUID('${UNIT_ID}')` },
-      { $or: VERIFY_FLIGHT_SIZE_PENDENTES.map((v) => ({ verifyFlightSize: v })) },
+      { controlStatus: CONTROL_STATUS_A_VOAR },
+      { $or: VERIFY_FLIGHT_SIZE_PRONTOS.map((v) => ({ verifyFlightSize: v })) },
     ],
   });
 
@@ -129,7 +144,17 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
       for (const dados of resultados) registrosBrutos.push(...(dados.value || []));
     }
 
-    const registros = registrosBrutos.map(mapearRegistro);
+    // Falhas Soca com estágio fora de 02º/03º Corte não conta como
+    // pendente de verdade (ver ESTAGIOS_FALHAS_SOCA acima) — as outras
+    // finalidades não têm essa trava extra.
+    const registrosFiltrados = registrosBrutos.filter((r) => {
+      if (r.flightProjectDetails?.description === FINALIDADE_FALHAS_SOCA) {
+        return ESTAGIOS_FALHAS_SOCA.has(r.layerDetails?.internship);
+      }
+      return true;
+    });
+
+    const registros = registrosFiltrados.map(mapearRegistro);
     await pool.query(
       `INSERT INTO voos_pendentes_cache (mapa_id, count_dronemgmt, registros, atualizado_em)
        VALUES ($1, $2, $3, now())
