@@ -2239,10 +2239,26 @@ export default function Mapa() {
               <input type="date" value={apontamento.dataVoo} onChange={(e) => apontamento.setDataVoo(e.target.value)} />
             </label>
             {apontamento.resultado && (
-              <p className={apontamento.resultado.falha.length > 0 ? "erro" : "resultado-medicao"}>
-                {apontamento.resultado.sucesso.length} talhão(ões) apontado(s)
-                {apontamento.resultado.falha.length > 0 && `, ${apontamento.resultado.falha.length} falharam`}
-              </p>
+              <>
+                <p className={apontamento.resultado.falha.length > 0 ? "erro" : "resultado-medicao"}>
+                  {apontamento.resultado.sucesso.length} talhão(ões) apontado(s)
+                  {apontamento.resultado.falha.length > 0 && `, ${apontamento.resultado.falha.length} falharam`}
+                </p>
+                {apontamento.resultado.falha.length > 0 && (
+                  // Motivo de verdade, não só a contagem — antes disso não
+                  // dava pra saber por que falhou sem investigar o backend
+                  // (achado real: piloto sem vínculo em pilotos_dronemgmt
+                  // via só "1 falharam" sem nenhuma pista, 2026-09-22).
+                  // Deduplicado — as mesmas 5 falhas geralmente têm o
+                  // mesmo motivo (ex: chamada inteira rejeitada), listar
+                  // repetido não ajuda em nada.
+                  <ul className="detalhe-falha-apontamento">
+                    {[...new Set(apontamento.resultado.falha.map((f) => f.erro))].map((erro, i) => (
+                      <li key={i}>{erro}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
             <button
               type="button"

@@ -504,7 +504,16 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       setEscolhaPendente(null);
       setModoApontamento(false);
     } catch (err) {
-      setResultado({ sucesso: [], falha: [{ erro: mensagemErroPendentes(err) }] });
+      // A chamada inteira falhou antes do backend processar qualquer item
+      // (rede, ou uma validação que rejeita o lote todo — ex: usuário sem
+      // vínculo em pilotos_dronemgmt) — sem isso, "falha" sempre tinha
+      // exatamente 1 item não importa quantos talhões estavam
+      // selecionados, mostrando "1 falharam" mesmo pra um lote de 5 (achado
+      // real investigando um piloto sem conseguir apontar, 2026-09-22).
+      // Um item por selecionado (mesmo erro repetido) faz a contagem bater
+      // com o que o usuário via na tela antes de confirmar.
+      const mensagem = mensagemErroPendentes(err);
+      setResultado({ sucesso: [], falha: [...selecionados.keys()].map((id) => ({ id, erro: mensagem })) });
     } finally {
       setEnviando(false);
     }
