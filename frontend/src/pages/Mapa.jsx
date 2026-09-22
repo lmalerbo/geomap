@@ -1004,10 +1004,19 @@ export default function Mapa() {
       // raiz do Map nesta versão do MapLibre — colocar direto em
       // options.preserveDrawingBuffer é silenciosamente ignorado).
       canvasContextAttributes: { preserveDrawingBuffer: true },
+      // Atribuição (Esri/Maxar, obrigatória pelos termos do fundo satélite
+      // — ver seção "Fundo satélite" acima) recolhida por padrão (só o
+      // ícone "ⓘ", expande no clique) em vez do texto completo sempre
+      // visível — pedido do Leo (2026-09-22), ficava "encavalado" com a
+      // barra de escala em telas estreitas. attributionControl:false aqui
+      // + addControl manual abaixo porque não dá pra passar `compact`
+      // direto nessa opção do construtor, só criando o controle à parte.
+      attributionControl: false,
     });
     mapRef.current = map;
     if (import.meta.env.DEV) window.__map = map;
 
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
     const geolocate = new maplibregl.GeolocateControl({
       positionOptions: { enableHighAccuracy: true },
@@ -1692,11 +1701,11 @@ export default function Mapa() {
           <div className="painel-busca">
             <input
               type="search"
-              placeholder={
-                indiceBusca.length > 0
-                  ? "Buscar fazenda (nome ou código; separe com ; pra buscar várias)…"
-                  : "Busca não disponível para este mapa"
-              }
+              // Placeholder mais curto (2026-09-22) — a dica de buscar
+              // várias fazendas separando com ";" ficava "poluído" na
+              // barra; a funcionalidade continua igual, só não é mais
+              // anunciada no texto do campo.
+              placeholder={indiceBusca.length > 0 ? "Buscar fazenda…" : "Busca não disponível para este mapa"}
               value={buscaTexto}
               onChange={(e) => {
                 setBuscaTexto(e.target.value);
