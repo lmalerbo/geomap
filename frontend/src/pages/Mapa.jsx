@@ -1373,6 +1373,14 @@ export default function Mapa() {
       }
       if (itens.length === 0) return;
 
+      // Fecha Camadas/Tipo de voo ao abrir Atributos — pedido do Leo
+      // (2026-09-22, "muito fácil poluir a tela"): no mobile os 3 cards
+      // simultâneos (Camadas/Tipo de voo no topo + Atributos embaixo,
+      // que vira full-width nessa largura) já foram flagrados se
+      // sobrepondo de verdade, não só poluindo visualmente. No máximo 1
+      // card de informação aberto por vez.
+      setPainelCamadasAberto(false);
+      setPainelTipoVooAberto(false);
       setSelecao({ lngLat: e.lngLat, itens, indice: 0 });
     }
 
@@ -1755,6 +1763,7 @@ export default function Mapa() {
             onClick={() => {
               setPainelCamadasAberto(true);
               setPainelTipoVooAberto(false); // mutuamente exclusivos (pedido do Leo, 2026-08-21) — dois cards abertos juntos na mesma pilha poluíam a tela
+              setSelecao(null); // fecha Atributos também (2026-09-22) — no máximo 1 card de informação aberto por vez
             }}
             aria-label="Abrir painel de camadas"
             title="Camadas"
@@ -2002,6 +2011,7 @@ export default function Mapa() {
               onClick={() => {
                 setPainelTipoVooAberto(true);
                 setPainelCamadasAberto(false); // mutuamente exclusivos, ver comentário em Camadas
+                setSelecao(null); // fecha Atributos também (2026-09-22)
               }}
               aria-label="Abrir legenda de tipos de voo"
               title="Tipo de voo"

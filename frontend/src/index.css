@@ -2545,6 +2545,17 @@ input[type="file"]::file-selector-button:hover {
   .painel-apontamento-inicio {
     width: min(260px, calc(100vw - 16px));
   }
+
+  /* .painel-atributos vira full-width nessa largura (left/right:8px) — sem
+     isso ele cobre/se cola visualmente no botão "Apontar voo" e no painel
+     de track, que ficam no mesmo canto inferior (achado real testando no
+     celular, 2026-09-22: o botão aparecia "grudado" no card de atributos).
+     :has() é progressive enhancement — sem suporte, some a garantia extra
+     mas nada quebra (mesmo overlap de antes, não pior). */
+  .area-mapa:has(.painel-atributos.aberto) .pilha-apontamento,
+  .area-mapa:has(.painel-atributos.aberto) .painel-track.aberto {
+    display: none;
+  }
 }
 
 .painel-atributos dl {
