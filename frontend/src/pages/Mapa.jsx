@@ -369,6 +369,13 @@ async function montarIndiceBusca(infos) {
   // parecia "aproximar de lugar aleatório" porque só a maior peça ficava
   // visível no zoom fixo de antes).
   const boundsPorDesc = new Map(); // DESC_SECAO -> [minLng, minLat, maxLng, maxLat]
+  // Mesma extensão, mas por SECAO individual (DESC_SECAO+"|"+SECAO) — nomes
+  // coincidem entre propriedades genuinamente diferentes (ex: duas seções
+  // reais chamadas "Belo Horizonte", achado real reportado pelo Leo,
+  // 2026-09-22); sem isso a busca por um código específico (ex: 20643)
+  // caía na extensão fundida do nome inteiro, que podia estar dominada por
+  // OUTRO código (ex: 10016) — "buscar 20643, mas ir parar em 10016".
+  const boundsPorChaveSecao = new Map(); // "DESC_SECAO|SECAO" -> [minLng, minLat, maxLng, maxLat]
   // Lista de talhões (número + atributos + ponto aproximado) de cada
   // fazenda/seção, só a partir de camadas com campo TALHAO — alimenta o
   // card "Talhões da fazenda" que aparece ao selecionar um resultado de
@@ -410,6 +417,14 @@ async function montarIndiceBusca(infos) {
           }
           const coordsGeoJson = feature.toGeoJSON(x, y, z).geometry.coordinates;
           expandirBoundsComCoords(boundsPorDesc.get(props.DESC_SECAO), coordsGeoJson);
+
+          if ("SECAO" in props) {
+            const chaveSecao = `${props.DESC_SECAO}|${props.SECAO}`;
+            if (!boundsPorChaveSecao.has(chaveSecao)) {
+              boundsPorChaveSecao.set(chaveSecao, [Infinity, Infinity, -Infinity, -Infinity]);
+            }
+            expandirBoundsComCoords(boundsPorChaveSecao.get(chaveSecao), coordsGeoJson);
+          }
 
           if (info.ehTalhao && "TALHAO" in props) {
             if (!talhoesPorDesc.has(props.DESC_SECAO)) talhoesPorDesc.set(props.DESC_SECAO, new Map());
@@ -457,17 +472,50 @@ async function montarIndiceBusca(infos) {
           const [lng, lat] = feature.toGeoJSON(x, y, z).geometry.coordinates;
           const texto = String(props.rotulo);
           const codigos = codigosPorDesc.get(props.rotulo);
-          const buscavelExtra = codigos ? ` ${[...codigos].join(" ")}` : "";
-          const bounds = boundsPorDesc.get(props.rotulo) || null;
 
-          indice.push({
-            texto,
-            buscavel: normalizarTexto(texto + buscavelExtra),
-            lng,
-            lat,
-            bounds,
-            mapaId: info.id,
-          });
+          if (codigos && codigos.size > 1) {
+            // Nome ambíguo — mais de 1 SECAO real com esse nome (ex: duas
+            // seções sem relação nenhuma entre si chamadas "Belo
+            // Horizonte", achado real reportado pelo Leo: buscar o código
+            // 20643 caía na extensão fundida, dominada pelo código 10016,
+            // 2026-09-22). 1 entrada por código, cada uma com a própria
+            // extensão (não a fundida de boundsPorDesc) e o código no
+            // texto pra desambiguar — mesmo padrão já usado em Talhões
+            // ("Talhão N — Fazenda (cód. X)").
+            for (const codigo of codigos) {
+              const boundsCodigo = boundsPorChaveSecao.get(`${props.rotulo}|${codigo}`) || null;
+              const centro = boundsCodigo
+                ? [(boundsCodigo[0] + boundsCodigo[2]) / 2, (boundsCodigo[1] + boundsCodigo[3]) / 2]
+                : [lng, lat];
+              indice.push({
+                texto: `${texto} (cód. ${codigo})`,
+                // nomeBase (DESC_SECAO real) + codigo próprios — usados
+                // pra achar os talhões certos (talhoesPorDesc é indexado
+                // pelo nome cru) e destacar só esse código no mapa, não
+                // os dois fundidos (ver selecionarResultadoBusca/efeito 7).
+                nomeBase: texto,
+                codigo,
+                buscavel: normalizarTexto(`${texto} ${codigo}`),
+                lng: centro[0],
+                lat: centro[1],
+                bounds: boundsCodigo,
+                mapaId: info.id,
+              });
+            }
+          } else {
+            const buscavelExtra = codigos ? ` ${[...codigos].join(" ")}` : "";
+            const bounds = boundsPorDesc.get(props.rotulo) || null;
+            indice.push({
+              texto,
+              nomeBase: texto,
+              codigo: null,
+              buscavel: normalizarTexto(texto + buscavelExtra),
+              lng,
+              lat,
+              bounds,
+              mapaId: info.id,
+            });
+          }
         }
       }
     }
@@ -1429,7 +1477,15 @@ export default function Mapa() {
         }
       }
     } else if (buscaSelecionada) {
-      const filtro = construirFiltroGrupo({ DESC_SECAO: buscaSelecionada.texto });
+      // Resultado ambíguo (codigo preenchido, ver montarIndiceBusca): só
+      // destaca esse código específico, não todo mundo com o mesmo nome.
+      const filtro = buscaSelecionada.codigo
+        ? [
+            "all",
+            ["==", ["get", "DESC_SECAO"], buscaSelecionada.nomeBase],
+            ["==", ["get", "SECAO"], buscaSelecionada.codigo],
+          ]
+        : construirFiltroGrupo({ DESC_SECAO: buscaSelecionada.nomeBase ?? buscaSelecionada.texto });
       for (const info of camadasCarregadasRef.current.values()) {
         if (map.getLayer(info.highlightLayerId)) {
           map.setFilter(info.highlightLayerId, filtro);
@@ -1559,7 +1615,15 @@ export default function Mapa() {
     // (ex: um Limites sem Talhões correspondente carregado ainda).
     setSelecao(null);
     setBuscaSelecionada(resultado);
-    setTalhoesFazenda(talhoesPorDescRef.current.get(resultado.texto) || []);
+    // talhoesPorDesc é indexado pelo nome cru (nomeBase), não pelo texto
+    // decorado ("Nome (cód. X)") de um resultado ambíguo — sem filtrar
+    // por código depois, a lista misturava talhões das duas propriedades
+    // diferentes que só coincidem no nome (achado real, 2026-09-22).
+    const todosTalhoes = talhoesPorDescRef.current.get(resultado.nomeBase ?? resultado.texto) || [];
+    const talhoesDoCodigo = resultado.codigo
+      ? todosTalhoes.filter((t) => String(t.secao) === String(resultado.codigo))
+      : todosTalhoes;
+    setTalhoesFazenda(talhoesDoCodigo);
   }
 
   function fecharTalhoesFazenda() {
