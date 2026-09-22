@@ -2146,12 +2146,19 @@ export default function Mapa() {
             {!painelApontarAberto ? (
               <button
                 type="button"
-                className="botao-circular botao-apontamento-recolhido"
+                className="botao-apontamento-recolhido"
                 onClick={() => setPainelApontarAberto(true)}
-                aria-label="Abrir apontamento de voo"
-                title="Apontar voo"
+                aria-label={
+                  apontamento.carregandoPendentes ? "Carregando pendências de voo" : "Abrir apontamento de voo"
+                }
+                title={apontamento.carregandoPendentes ? "Carregando pendências…" : "Apontar voo"}
               >
-                <IconeApontamento />
+                {apontamento.carregandoPendentes ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <IconeApontamento />
+                )}
+                <span>{apontamento.carregandoPendentes ? "Carregando…" : "Apontar voo"}</span>
               </button>
             ) : (
               <aside className="painel-camadas painel-apontamento-inicio">
@@ -2170,7 +2177,16 @@ export default function Mapa() {
                   <button
                     type="button"
                     className="botao-abrir-apontamento"
-                    onClick={apontamento.iniciarModo}
+                    onClick={() => {
+                      // Entrar no modo de apontamento desfaz qualquer seleção
+                      // que possa confundir o piloto (talhão/atributos aberto,
+                      // marcador de clique, card de talhões da fazenda) —
+                      // pedido do Leo (2026-09-22): a tela deve focar só na
+                      // tarefa de apontar, sem sobra visual de outra coisa.
+                      setSelecao(null);
+                      fecharTalhoesFazenda();
+                      apontamento.iniciarModo();
+                    }}
                     disabled={apontamento.carregandoPendentes}
                   >
                     {apontamento.carregandoPendentes ? (
@@ -2191,6 +2207,48 @@ export default function Mapa() {
                 </div>
               </aside>
             )}
+          </div>
+        )}
+
+        {/* Confirmação do apontamento — fora do card de modo de apontamento
+            de propósito: `confirmarLote` desliga `modoApontamento` no mesmo
+            instante que grava o resultado, então um toast preso dentro
+            daquele card nunca chegava a aparecer (achado real, 2026-09-22).
+            Fica independente, com fechamento automático (ver
+            useApontamentoVoo.js) — mesmo padrão visual de .pilha-toasts já
+            usado pelos avisos de job do admin. */}
+        {voosInfo && apontamento.resultado && (
+          <div className="pilha-toasts" role="status" aria-live="polite">
+            <div className={`toast toast--${apontamento.resultado.falha.length > 0 ? "erro" : "sucesso"}`}>
+              <div>
+                <span>
+                  {apontamento.resultado.sucesso.length > 0 &&
+                    `${apontamento.resultado.sucesso.length} apontamento${apontamento.resultado.sucesso.length === 1 ? "" : "s"} enviado${apontamento.resultado.sucesso.length === 1 ? "" : "s"} com sucesso.`}
+                  {apontamento.resultado.sucesso.length > 0 && apontamento.resultado.falha.length > 0 && " "}
+                  {apontamento.resultado.falha.length > 0 &&
+                    `${apontamento.resultado.falha.length} falhou${apontamento.resultado.falha.length === 1 ? "" : "aram"}.`}
+                </span>
+                {apontamento.resultado.falha.length > 0 && (
+                  // Motivo de verdade, não só a contagem (achado real: piloto
+                  // sem vínculo em pilotos_dronemgmt via só "1 falharam" sem
+                  // nenhuma pista, 2026-09-22). Deduplicado — as mesmas N
+                  // falhas geralmente têm o mesmo motivo.
+                  <ul className="detalhe-falha-apontamento">
+                    {[...new Set(apontamento.resultado.falha.map((f) => f.erro))].map((erro, i) => (
+                      <li key={i}>{erro}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <button
+                type="button"
+                className="fechar"
+                onClick={apontamento.fecharResultado}
+                aria-label="Fechar aviso"
+              >
+                ×
+              </button>
+            </div>
           </div>
         )}
 
@@ -2238,28 +2296,6 @@ export default function Mapa() {
               Data do voo
               <input type="date" value={apontamento.dataVoo} onChange={(e) => apontamento.setDataVoo(e.target.value)} />
             </label>
-            {apontamento.resultado && (
-              <>
-                <p className={apontamento.resultado.falha.length > 0 ? "erro" : "resultado-medicao"}>
-                  {apontamento.resultado.sucesso.length} talhão(ões) apontado(s)
-                  {apontamento.resultado.falha.length > 0 && `, ${apontamento.resultado.falha.length} falharam`}
-                </p>
-                {apontamento.resultado.falha.length > 0 && (
-                  // Motivo de verdade, não só a contagem — antes disso não
-                  // dava pra saber por que falhou sem investigar o backend
-                  // (achado real: piloto sem vínculo em pilotos_dronemgmt
-                  // via só "1 falharam" sem nenhuma pista, 2026-09-22).
-                  // Deduplicado — as mesmas 5 falhas geralmente têm o
-                  // mesmo motivo (ex: chamada inteira rejeitada), listar
-                  // repetido não ajuda em nada.
-                  <ul className="detalhe-falha-apontamento">
-                    {[...new Set(apontamento.resultado.falha.map((f) => f.erro))].map((erro, i) => (
-                      <li key={i}>{erro}</li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
             <button
               type="button"
               disabled={apontamento.selecionados.size === 0 || apontamento.enviando}

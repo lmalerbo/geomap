@@ -470,6 +470,20 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     setEscolhaPendente(null);
   }
 
+  // Toast de confirmação some sozinho depois de um tempo — mesma duração
+  // de TEMPO_CONFIRMACAO_MS (4s) já usada pro destaque verde no mapa, pra
+  // as duas confirmações (mapa + toast) sumirem juntas. `fecharResultado`
+  // cobre o fechamento manual (botão × do toast).
+  useEffect(() => {
+    if (!resultado) return;
+    const id = setTimeout(() => setResultado(null), TEMPO_CONFIRMACAO_MS);
+    return () => clearTimeout(id);
+  }, [resultado]);
+
+  function fecharResultado() {
+    setResultado(null);
+  }
+
   // Melhor-esforço por talhão (ver POST /voos/apontamentos) — nunca
   // tudo-ou-nada, o backend já separa sucesso de falha. Quem teve sucesso
   // fica marcado como "recém apontado" (verde) por alguns segundos antes
@@ -538,6 +552,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     setDataVoo,
     enviando,
     resultado,
+    fecharResultado,
     iniciarModo,
     cancelarModo,
     alternarSelecao,
