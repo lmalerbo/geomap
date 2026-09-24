@@ -3,7 +3,11 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 async function tratarResposta(resp) {
   if (!resp.ok) {
     const corpo = await resp.json().catch(() => ({}));
-    throw new Error(corpo.erro || `Erro HTTP ${resp.status}`);
+    const erro = new Error(corpo.erro || `Erro HTTP ${resp.status}`);
+    // A fila offline de pins (lib/syncPins.js) decide entre "tentar de novo"
+    // e "descartar" pelo status — erro de rede não tem status.
+    erro.status = resp.status;
+    throw erro;
   }
   return resp;
 }
@@ -77,21 +81,28 @@ export async function listarMapasAdmin(token) {
   return resp.json();
 }
 
-export async function criarMapaAdmin(token, { nome, descricao, grupoIds }) {
+// permissoes ([{grupoId, podeEditar}]) é o formato novo (ver Task 5+ — anotar
+// o mapa exige distinguir grupo com permissão de visualizar de grupo com
+// permissão de editar); grupoIds continua aceito porque AdminMapas.jsx ainda
+// manda só esse campo (legado) até uma task futura atualizar o formulário —
+// mandar só permissoes faria o backend tratar a lista de grupos como vazia
+// e apagar as permissões do mapa. Os dois vão juntos; campos undefined saem
+// do JSON.stringify sozinhos, e o backend prefere permissoes quando é array.
+export async function criarMapaAdmin(token, { nome, descricao, permissoes, grupoIds }) {
   const resp = await fetch(`${API_URL}/admin/mapas`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ nome, descricao, grupoIds }),
+    body: JSON.stringify({ nome, descricao, permissoes, grupoIds }),
   });
   await tratarResposta(resp);
   return resp.json();
 }
 
-export async function atualizarMapaAdmin(token, mapaId, { nome, descricao, grupoIds }) {
+export async function atualizarMapaAdmin(token, mapaId, { nome, descricao, permissoes, grupoIds }) {
   const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ nome, descricao, grupoIds }),
+    body: JSON.stringify({ nome, descricao, permissoes, grupoIds }),
   });
   await tratarResposta(resp);
   return resp.json();
@@ -392,6 +403,37 @@ export async function apontarVoos(token, { mapaId, dataVoo, registros }) {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ mapaId, dataVoo, registros }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+// --- Anotações (pins) do mapa — ver lib/syncPins.js ---
+
+export async function listarPinsRemoto(token, mapaId, desde) {
+  const qs = desde ? `?desde=${encodeURIComponent(desde)}` : "";
+  const resp = await fetch(`${API_URL}/mapas/${mapaId}/pins${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function salvarPinRemoto(token, mapaId, id, corpo) {
+  const resp = await fetch(`${API_URL}/mapas/${mapaId}/pins/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(corpo),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function removerPinRemoto(token, mapaId, id, removidoEm) {
+  const resp = await fetch(`${API_URL}/mapas/${mapaId}/pins/${id}?removidoEm=${encodeURIComponent(removidoEm)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
   });
   await tratarResposta(resp);
   return resp.json();
