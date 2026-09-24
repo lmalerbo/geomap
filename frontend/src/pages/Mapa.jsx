@@ -574,6 +574,12 @@ async function adicionarCamada(map, protocol, mapa) {
   // tipoDesenho valer nos dois lugares sem mexer em mais nada.
   if (!ehPonto && tipoDesenho === "contorno") preenchimento.opacidade = 0;
   if (!ehPonto && tipoDesenho === "preenchimento") contorno.opacidade = 0;
+  // Camada de voos é só contorno colorido por tipo (ver useApontamentoVoo)
+  // — o hook zera o preenchimento, mas o efeito de liga/desliga camadas
+  // reaplica opacidadePreenchimento sempre que a sincronização termina;
+  // no celular isso costuma acontecer depois do hook e o fundo creme da
+  // camada voltava a aparecer. Zerar na origem vale pros dois lugares.
+  if (estilo.tipoCamada === "voos") preenchimento.opacidade = 0;
   const corPreenchimento = expressaoCorPreenchimento(preenchimento);
   const corContorno = expressaoCorContorno(contorno);
   const traco = expressaoTracoLinha(contorno.estiloTraco);
