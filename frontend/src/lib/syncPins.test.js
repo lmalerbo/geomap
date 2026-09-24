@@ -51,6 +51,23 @@ describe("enviarPendentes", () => {
     expect(aoDescartar).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), expect.objectContaining({ status: 403 }));
   });
 
+  it("403 zera o cursor do mapa pra receberPins trazer a versão do servidor de volta", async () => {
+    const store = criarStore([pin()]);
+    await store.salvarCursor(1, "2026-09-24T13:00:00.000Z");
+    const api = {
+      salvarPin: async () => { throw erroHttp(403); },
+      listarPins: vi.fn(async () => ({
+        pins: [pin({ pendente: undefined })],
+        agora: "2026-09-24T14:00:00.000Z",
+      })),
+    };
+    const sync = criarSyncPins({ api, store });
+    await sync.enviarPendentes("tk");
+    await sync.receberPins("tk", 1);
+    expect(api.listarPins).toHaveBeenCalledWith("tk", 1, null);
+    expect(store.pins.get("a").pendente).toBeNull();
+  });
+
   it("não apaga edição local feita durante o envio", async () => {
     const store = criarStore([pin()]);
     const api = {

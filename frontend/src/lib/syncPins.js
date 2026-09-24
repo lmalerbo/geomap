@@ -37,6 +37,12 @@ export function criarSyncPins({ api, store, aoDescartar }) {
       } catch (erro) {
         if (STATUS_DESCARTE.has(erro?.status)) {
           await store.remover(pin.id);
+          // Zera o cursor do mapa: se o pin descartado já existia no
+          // servidor (ex: 409 por conflito), o próximo receberPins
+          // precisa buscar tudo de novo pra trazer a versão do servidor
+          // de volta — com o cursor antigo, um GET incremental nunca
+          // devolveria esse pin (recebido_em já passou dele).
+          await store.salvarCursor(pin.mapaId, null);
           aoDescartar?.(pin, erro);
           continue;
         }
