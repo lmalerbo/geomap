@@ -637,21 +637,47 @@ adminRouter.delete("/admin/usuarios/:id", async (req, res) => {
 // --- Mapas (projetos: "Usina da Pedra", etc — o que aparece na tela
 // inicial). Permissão vive aqui, não mais por camada individual. ---
 
+// Aceita o formato novo (permissoes: [{grupoId, podeEditar}]) e o antigo
+// (grupoIds: number[] — equivale a podeEditar false), pra não quebrar um
+// cliente desatualizado.
+function lerPermissoesDoCorpo(body) {
+  if (Array.isArray(body.permissoes)) {
+    return body.permissoes
+      .filter((p) => Number.isInteger(p?.grupoId))
+      .map((p) => ({ grupoId: p.grupoId, podeEditar: p.podeEditar === true }));
+  }
+  const grupoIds = Array.isArray(body.grupoIds) ? body.grupoIds.filter(Number.isInteger) : [];
+  return grupoIds.map((grupoId) => ({ grupoId, podeEditar: false }));
+}
+
+async function gravarPermissoes(mapaId, permissoes) {
+  if (permissoes.length === 0) return;
+  await pool.query(
+    `INSERT INTO permissoes (mapa_id, grupo_id, pode_editar)
+     SELECT $1, g, e FROM unnest($2::int[], $3::bool[]) AS t(g, e)
+     ON CONFLICT (mapa_id, grupo_id) DO UPDATE SET pode_editar = EXCLUDED.pode_editar`,
+    [mapaId, permissoes.map((p) => p.grupoId), permissoes.map((p) => p.podeEditar)]
+  );
+}
+
 // Lista todos os mapas com os grupos que têm permissão em cada um —
 // admin gerencia qualquer mapa, independente do próprio grupo dele.
 adminRouter.get("/admin/mapas", async (req, res) => {
   const { rows: mapas } = await pool.query(
     `SELECT id, nome, descricao, criado_em FROM mapas ORDER BY nome`
   );
-  const { rows: permissoes } = await pool.query(`SELECT mapa_id, grupo_id FROM permissoes`);
+  const { rows: permissoes } = await pool.query(`SELECT mapa_id, grupo_id, pode_editar FROM permissoes`);
   const { rows: contagens } = await pool.query(
     `SELECT mapa_id, count(*)::int AS total FROM camadas GROUP BY mapa_id`
   );
 
   const gruposPorMapa = new Map();
+  const permissoesPorMapa = new Map();
   for (const p of permissoes) {
     if (!gruposPorMapa.has(p.mapa_id)) gruposPorMapa.set(p.mapa_id, []);
     gruposPorMapa.get(p.mapa_id).push(p.grupo_id);
+    if (!permissoesPorMapa.has(p.mapa_id)) permissoesPorMapa.set(p.mapa_id, []);
+    permissoesPorMapa.get(p.mapa_id).push({ grupoId: p.grupo_id, podeEditar: p.pode_editar });
   }
   const camadasPorMapa = new Map(contagens.map((c) => [c.mapa_id, c.total]));
 
@@ -659,6 +685,7 @@ adminRouter.get("/admin/mapas", async (req, res) => {
     mapas.map((m) => ({
       ...m,
       grupoIds: gruposPorMapa.get(m.id) || [],
+      permissoes: permissoesPorMapa.get(m.id) || [],
       camadaCount: camadasPorMapa.get(m.id) || 0,
     }))
   );
@@ -667,7 +694,7 @@ adminRouter.get("/admin/mapas", async (req, res) => {
 adminRouter.post("/admin/mapas", async (req, res) => {
   const nome = (req.body.nome || "").trim();
   const descricao = (req.body.descricao || "").trim() || null;
-  const grupoIds = Array.isArray(req.body.grupoIds) ? req.body.grupoIds : [];
+  const permissoes = lerPermissoesDoCorpo(req.body);
 
   if (!nome) {
     return res.status(400).json({ erro: "nome é obrigatório" });
@@ -680,15 +707,9 @@ adminRouter.post("/admin/mapas", async (req, res) => {
   );
   const mapa = rows[0];
 
-  if (grupoIds.length > 0) {
-    const valores = grupoIds.map((_, i) => `($1, $${i + 2})`).join(", ");
-    await pool.query(
-      `INSERT INTO permissoes (mapa_id, grupo_id) VALUES ${valores} ON CONFLICT DO NOTHING`,
-      [mapa.id, ...grupoIds]
-    );
-  }
+  await gravarPermissoes(mapa.id, permissoes);
 
-  res.status(201).json({ ...mapa, grupoIds });
+  res.status(201).json({ ...mapa, grupoIds: permissoes.map((p) => p.grupoId), permissoes });
 });
 
 // Edita nome/descrição e substitui o conjunto de grupos com permissão
@@ -701,7 +722,7 @@ adminRouter.put("/admin/mapas/:id", async (req, res) => {
   }
   const nome = (req.body.nome || "").trim();
   const descricao = (req.body.descricao || "").trim() || null;
-  const grupoIds = Array.isArray(req.body.grupoIds) ? req.body.grupoIds : [];
+  const permissoes = lerPermissoesDoCorpo(req.body);
 
   if (!nome) {
     return res.status(400).json({ erro: "nome não pode ser vazio" });
@@ -717,15 +738,9 @@ adminRouter.put("/admin/mapas/:id", async (req, res) => {
   }
 
   await pool.query("DELETE FROM permissoes WHERE mapa_id = $1", [mapaId]);
-  if (grupoIds.length > 0) {
-    const valores = grupoIds.map((_, i) => `($1, $${i + 2})`).join(", ");
-    await pool.query(
-      `INSERT INTO permissoes (mapa_id, grupo_id) VALUES ${valores} ON CONFLICT DO NOTHING`,
-      [mapaId, ...grupoIds]
-    );
-  }
+  await gravarPermissoes(mapaId, permissoes);
 
-  res.json({ ...rows[0], grupoIds });
+  res.json({ ...rows[0], grupoIds: permissoes.map((p) => p.grupoId), permissoes });
 });
 
 // Só remove se o mapa não tiver camadas — evita apagar `.pmtiles` grandes
@@ -777,7 +792,7 @@ adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
   }
 
   const { rows: permissoesOrigem } = await pool.query(
-    "SELECT grupo_id FROM permissoes WHERE mapa_id = $1",
+    "SELECT grupo_id, pode_editar FROM permissoes WHERE mapa_id = $1",
     [mapaId]
   );
   const { rows: camadasOrigem } = await pool.query(
@@ -794,14 +809,11 @@ adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
   );
   const novoMapa = novoMapaRows[0];
 
-  const grupoIds = permissoesOrigem.map((p) => p.grupo_id);
-  if (grupoIds.length > 0) {
-    const valores = grupoIds.map((_, i) => `($1, $${i + 2})`).join(", ");
-    await pool.query(
-      `INSERT INTO permissoes (mapa_id, grupo_id) VALUES ${valores} ON CONFLICT DO NOTHING`,
-      [novoMapa.id, ...grupoIds]
-    );
-  }
+  const permissoesCopia = permissoesOrigem.map((p) => ({ grupoId: p.grupo_id, podeEditar: p.pode_editar }));
+  await gravarPermissoes(novoMapa.id, permissoesCopia);
+  const grupoIds = permissoesCopia.map((p) => p.grupoId);
+
+  // Pins (anotações) NÃO são copiados: um mapa duplicado começa sem anotações.
 
   // Sequencial (não Promise.all) — mais fácil de saber exatamente qual
   // camada falhou se o R2 rejeitar alguma cópia no meio do caminho.
@@ -836,7 +848,7 @@ adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
     req.ip
   );
 
-  res.status(201).json({ ...novoMapa, grupoIds, camadaCount: camadasOrigem.length });
+  res.status(201).json({ ...novoMapa, grupoIds, permissoes: permissoesCopia, camadaCount: camadasOrigem.length });
 });
 
 // Duplica uma única camada (diferente de duplicar mapa inteiro acima) —

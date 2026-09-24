@@ -13,11 +13,12 @@ mapasRouter.use(exigirAutenticacao);
 // chamada só, sem N+1.
 mapasRouter.get("/mapas", async (req, res) => {
   const { rows: mapas } = await pool.query(
-    `SELECT DISTINCT m.id, m.nome, m.descricao
+    `SELECT m.id, m.nome, m.descricao, bool_or(p.pode_editar) AS pode_editar
      FROM mapas m
      JOIN permissoes p ON p.mapa_id = m.id
      JOIN usuarios_grupos ug ON ug.grupo_id = p.grupo_id
      WHERE ug.usuario_id = $1
+     GROUP BY m.id
      ORDER BY m.nome`,
     [req.usuarioId]
   );
@@ -41,7 +42,14 @@ mapasRouter.get("/mapas", async (req, res) => {
     camadasPorMapa.get(c.mapa_id).push(c);
   }
 
-  res.json(mapas.map((m) => ({ ...m, camadas: camadasPorMapa.get(m.id) || [] })));
+  const ehAdmin = req.usuarioPapel === "admin";
+  res.json(
+    mapas.map(({ pode_editar, ...m }) => ({
+      ...m,
+      podeEditar: ehAdmin || pode_editar === true,
+      camadas: camadasPorMapa.get(m.id) || [],
+    }))
+  );
 });
 
 // Confirma permissão de novo (não confia só em ter aparecido no catálogo,
