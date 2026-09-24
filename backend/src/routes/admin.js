@@ -367,14 +367,29 @@ adminRouter.get("/admin/dronemgmt/diagnostico", async (req, res) => {
     $and: [{ unitId: `UUID('${unitId}')` }, { $or: [2, 3, 4, 5, 6].map((v) => ({ verifyFlightSize: v })) }],
   });
   const info = await (await chamarApi("/portal/api/v1/auth/info")).json().catch(() => null);
-  const semExpand = await (
-    await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", { params: { pageNumber: 1, pageSize: 1, filter: filtro } })
-  ).json();
+  async function consultar(pageNumber, pageSize, expand) {
+    const params = { pageNumber, pageSize, filter: filtro };
+    if (expand) params.expand = expand;
+    const t0 = Date.now();
+    const resp = await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", { params });
+    const texto = await resp.text();
+    let d = null;
+    try { d = JSON.parse(texto); } catch {}
+    return { pageNumber, pageSize, expand: expand || null, status: resp.status, count: d?.count ?? null, value: d?.value?.length ?? null, bytes: texto.length, ms: Date.now() - t0 };
+  }
+  const variacoes = [
+    await consultar(1, 1, null),
+    await consultar(1, 500, null),
+    await consultar(1, 1, "layer,flightProject"),
+    await consultar(1, 500, "layer,flightProject"),
+    await consultar(2, 500, "layer,flightProject"),
+    await consultar(8, 500, "layer,flightProject"),
+  ];
   res.json({
     usuarioDroneMgmt: info?.name ?? null,
     unitIdConfigurado: unitId,
     baseUrl: process.env.DRONEMGMT_BASE_URL,
-    countPendentes: semExpand.count,
+    variacoes,
   });
 });
 
