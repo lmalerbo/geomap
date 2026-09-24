@@ -44,6 +44,8 @@ import LegendaCamada, {
 } from "../components/LegendaCamada.jsx";
 import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
+import CartaoPonto from "../components/CartaoPonto.jsx";
+import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
 
 function IconeMenu() {
   return (
@@ -920,6 +922,10 @@ export default function Mapa() {
   const [semCamadasLocais, setSemCamadasLocais] = useState(false);
   const [avisoSincronizacaoFechado, setAvisoSincronizacaoFechado] = useState(false);
   const [selecao, setSelecao] = useState(null);
+  // Clique fora de qualquer feição consultável: mostra a coordenada
+  // (CartaoPonto). Mutuamente exclusivo com `selecao` — no máximo 1 card
+  // de informação aberto por vez.
+  const [pontoSelecionado, setPontoSelecionado] = useState(null);
   const [mostrarMenuCompartilhar, setMostrarMenuCompartilhar] = useState(false);
   // Recolhido por padrão em qualquer tamanho de tela — antes só recolhia
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
@@ -972,7 +978,15 @@ export default function Mapa() {
   // criam/destroem source/layers no mapa. `mapRef`/`mapaPronto` são
   // repassados porque o mapa em si é criado uma vez só, aqui embaixo (efeito
   // 1) — os hooks não criam mapa nenhum, só desenham em cima do existente.
-  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual);
+  const medicao = useMedicao(
+    mapRef,
+    mapaPronto,
+    () => {
+      setSelecao(null);
+      setPontoSelecionado(null);
+    },
+    nomeMapaAtual
+  );
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto, mapaId);
   // A camada com tipoCamada:"voos" (réplica de Talhões pra apontamento,
@@ -1396,16 +1410,15 @@ export default function Mapa() {
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
         .filter((id) => map.getLayer(id));
-      if (layerIds.length === 0) {
-        setSelecao(null);
-        return;
-      }
-
-      const features = map.queryRenderedFeatures(e.point, { layers: layerIds });
+      const features = layerIds.length > 0 ? map.queryRenderedFeatures(e.point, { layers: layerIds }) : [];
       if (features.length === 0) {
         setSelecao(null);
+        setPainelCamadasAberto(false);
+        setPainelTipoVooAberto(false);
+        setPontoSelecionado({ lngLat: e.lngLat });
         return;
       }
+      setPontoSelecionado(null);
 
       // Tiles vizinhos podem repetir a mesma feição na borda — deduplica.
       const vistos = new Set();
@@ -1555,16 +1568,17 @@ export default function Mapa() {
     if (!map) return;
     marcadorRef.current?.remove();
     marcadorRef.current = null;
-    if (selecao) {
+    const alvo = selecao?.lngLat || pontoSelecionado?.lngLat;
+    if (alvo) {
       marcadorRef.current = new maplibregl.Marker({ color: CORES_FERRAMENTAS.marcadorSelecao })
-        .setLngLat(selecao.lngLat)
+        .setLngLat(alvo)
         .addTo(map);
     }
     return () => {
       marcadorRef.current?.remove();
       marcadorRef.current = null;
     };
-  }, [selecao]);
+  }, [selecao, pontoSelecionado]);
 
   function alternarCamada(id) {
     setCamadasVisiveis((atual) => {
@@ -1834,6 +1848,7 @@ export default function Mapa() {
               setPainelCamadasAberto(true);
               setPainelTipoVooAberto(false); // mutuamente exclusivos (pedido do Leo, 2026-08-21) — dois cards abertos juntos na mesma pilha poluíam a tela
               setSelecao(null); // fecha Atributos também (2026-09-22) — no máximo 1 card de informação aberto por vez
+              setPontoSelecionado(null);
             }}
             aria-label="Abrir painel de camadas"
             title="Camadas"
@@ -2082,6 +2097,7 @@ export default function Mapa() {
                 setPainelTipoVooAberto(true);
                 setPainelCamadasAberto(false); // mutuamente exclusivos, ver comentário em Camadas
                 setSelecao(null); // fecha Atributos também (2026-09-22)
+                setPontoSelecionado(null);
               }}
               aria-label="Abrir legenda de tipos de voo"
               title="Tipo de voo"
@@ -2572,6 +2588,7 @@ export default function Mapa() {
                   </div>
                 ))}
               </dl>
+              <LinhaCoordenada lngLat={selecao.lngLat} />
               {selecao.itens.length > 1 && (
                 <div className="paginacao-atributos">
                   <button type="button" onClick={() => irParaItem(-1)} aria-label="Feição anterior">
@@ -2588,6 +2605,13 @@ export default function Mapa() {
             </>
           )}
         </aside>
+
+        <CartaoPonto
+          lngLat={pontoSelecionado?.lngLat || null}
+          podeAnotar={false}
+          aoAdicionarPin={() => {}}
+          aoFechar={() => setPontoSelecionado(null)}
+        />
       </div>
     </main>
   );
