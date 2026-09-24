@@ -1398,19 +1398,12 @@ export default function Mapa() {
       // talhão pendente da camada "voos" marca/desmarca ele pro lote em
       // andamento, em vez do fluxo normal de painel de atributos — checado
       // antes do resto pra nunca abrir os dois ao mesmo tempo.
-      if (apontamento.modoApontamento) {
-        if (voosInfo?.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
-          const featuresVoos = map.queryRenderedFeatures(e.point, { layers: [voosInfo.fillLayerId] });
-          if (featuresVoos.length > 0) {
-            apontamento.alternarSelecao(featuresVoos[0].properties);
-            return;
-          }
+      if (apontamento.modoApontamento && voosInfo?.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
+        const featuresVoos = map.queryRenderedFeatures(e.point, { layers: [voosInfo.fillLayerId] });
+        if (featuresVoos.length > 0) {
+          apontamento.alternarSelecao(featuresVoos[0].properties);
+          return;
         }
-        // Clique fora de qualquer talhão pendente, ainda em modo de
-        // apontamento: não abre CartaoPonto (nem Atributos) — spec exige
-        // que o clique nesse modo não interfira em outra ferramenta.
-        setSelecao(null);
-        return;
       }
 
       const layerIds = [...camadasCarregadasRef.current.entries()]
@@ -1420,9 +1413,16 @@ export default function Mapa() {
       const features = layerIds.length > 0 ? map.queryRenderedFeatures(e.point, { layers: layerIds }) : [];
       if (features.length === 0) {
         setSelecao(null);
-        setPainelCamadasAberto(false);
-        setPainelTipoVooAberto(false);
-        setPontoSelecionado({ lngLat: e.lngLat });
+        // Em modo de apontamento, um clique vazio (fora de qualquer
+        // talhão pendente ou feição consultável) não deve abrir o
+        // CartaoPonto — spec exige que o clique nesse modo não
+        // interfira em outra ferramenta (comportamento de antes da
+        // Task 7, preservado aqui).
+        if (!apontamento.modoApontamento) {
+          setPainelCamadasAberto(false);
+          setPainelTipoVooAberto(false);
+          setPontoSelecionado({ lngLat: e.lngLat });
+        }
         return;
       }
       setPontoSelecionado(null);
