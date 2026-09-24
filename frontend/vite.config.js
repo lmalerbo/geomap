@@ -168,6 +168,12 @@ export default defineConfig(({ command }) => ({
           }]
         }
       }
+    }, {
+      test: {
+        name: 'unit',
+        environment: 'node',
+        include: ['src/**/*.test.js']
+      }
     }]
   }
 }));
