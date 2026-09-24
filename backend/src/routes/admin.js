@@ -12,7 +12,7 @@ import AdmZip from "adm-zip";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
 import { SENHA_TEMPORARIA_PADRAO } from "../lib/senhaTemporaria.js";
-import { testarLogin } from "../lib/dronemgmt.js";
+import { testarLogin, chamarApi } from "../lib/dronemgmt.js";
 import {
   salvarArquivo,
   apagarArquivo,
@@ -355,6 +355,27 @@ adminRouter.get("/admin/dronemgmt/teste-login", async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, erro: err.message });
   }
+});
+
+// Diagnóstico só-leitura: com qual usuário a sessão do backend está logada
+// no DroneManagement e quantas pendências ela enxerga — criado porque o
+// Render via ~1560 pendências enquanto uma consulta local com as mesmas
+// credenciais via 3816 (2026-09-24).
+adminRouter.get("/admin/dronemgmt/diagnostico", async (req, res) => {
+  const unitId = process.env.DRONEMGMT_UNIT_ID || "";
+  const filtro = JSON.stringify({
+    $and: [{ unitId: `UUID('${unitId}')` }, { $or: [2, 3, 4, 5, 6].map((v) => ({ verifyFlightSize: v })) }],
+  });
+  const info = await (await chamarApi("/portal/api/v1/auth/info")).json().catch(() => null);
+  const semExpand = await (
+    await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", { params: { pageNumber: 1, pageSize: 1, filter: filtro } })
+  ).json();
+  res.json({
+    usuarioDroneMgmt: info?.name ?? null,
+    unitIdConfigurado: unitId,
+    baseUrl: process.env.DRONEMGMT_BASE_URL,
+    countPendentes: semExpand.count,
+  });
 });
 
 // Ações administrativas sensíveis (criar/editar usuário, redefinir senha,
