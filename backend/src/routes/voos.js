@@ -2,6 +2,7 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao } from "../middleware/auth.js";
 import { chamarApi } from "../lib/dronemgmt.js";
+import { usuarioTemPermissaoMapa } from "../lib/permissoes.js";
 
 // Proxy pra integração DroneManagement (apontamento de voo pelo mapa) —
 // ver docs/INTEGRACAO_DRONEMANAGEMENT.md pro contrato completo da API de
@@ -43,20 +44,6 @@ const ESTAGIOS_FALHAS_SOCA = new Set([2, 3]); // 02º Corte, 03º Corte
 const PROPRIEDADES_FORNECEDOR = new Set(["FORNECEDOR", "FORNEC. SUBPARCERIA", "FORNECEDOR TROCA"]);
 
 const TAMANHO_PAGINA = 500;
-
-// Mesmo JOIN já usado em mapas.js (GET /mapas, GET /camadas/:id/download)
-// — permissão vale pro mapa inteiro, não por camada.
-async function usuarioTemPermissaoMapa(usuarioId, mapaId) {
-  const { rows } = await pool.query(
-    `SELECT 1 FROM mapas m
-     JOIN permissoes p ON p.mapa_id = m.id
-     JOIN usuarios_grupos ug ON ug.grupo_id = p.grupo_id
-     WHERE ug.usuario_id = $1 AND m.id = $2
-     LIMIT 1`,
-    [usuarioId, mapaId]
-  );
-  return rows.length > 0;
-}
 
 function mapearRegistro(r) {
   return {
