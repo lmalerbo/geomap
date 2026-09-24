@@ -14,6 +14,8 @@ export const CORES_FERRAMENTAS = {
   medicaoRelatorioContorno: "#c2410c",
   track: "#dc2626",
   temporaria: "#c026d3",
+  pinPadrao: "#16a34a",
+  pinPendente: "#f59e0b",
   // Apontamento de voo pelo mapa (ver
   // docs/INTEGRACAO_DRONEMANAGEMENT.md) — cor por tipo de voo em si é
   // fixa por nome (ORDEM_E_COR_TIPO_VOO em useApontamentoVoo.js, pedido

@@ -27,6 +27,7 @@ import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
+import { usePins } from "../hooks/usePins.js";
 import {
   linkGoogleMaps,
   linkWaze,
@@ -45,7 +46,9 @@ import LegendaCamada, {
 import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 import CartaoPonto from "../components/CartaoPonto.jsx";
+import CartaoPin from "../components/pins/CartaoPin.jsx";
 import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
+import { useJobs } from "../context/JobsContext.jsx";
 
 function IconeMenu() {
   return (
@@ -972,6 +975,9 @@ export default function Mapa() {
   // (mesma fonte da tela inicial) — usado só pra identificar o mapa nos
   // arquivos exportados pela medição (KML/PDF), em vez de "mapa-<id>".
   const [nomeMapaAtual, setNomeMapaAtual] = useState(`mapa-${mapaId}`);
+  // Vem do catálogo salvo no IndexedDB (GET /mapas.podeEditar) — funciona
+  // offline. Libera as ferramentas de anotação (pins).
+  const [podeEditar, setPodeEditar] = useState(false);
 
   // Medição, track log e importação temporária viraram hooks próprios
   // (frontend/src/hooks/) — cada um cuida do próprio state + efeitos que
@@ -998,6 +1004,12 @@ export default function Mapa() {
   // cada rodada desse efeito.
   const voosInfo = [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
+  const { adicionarToast } = useJobs();
+  const pins = usePins(mapRef, mapaPronto, mapaId, {
+    podeEditar,
+    sessao,
+    aoAviso: (mensagem) => adicionarToast({ tipo: "erro", mensagem }),
+  });
   // Nome + cor real de cada feição do arquivo importado (ver
   // resumoFeicoesTemporaria) — alimenta o swatch (cor única, faixa de cores,
   // ou o magenta padrão quando o arquivo não tem simbologia nenhuma) e a
@@ -1022,6 +1034,7 @@ export default function Mapa() {
       if (cancelado) return;
       const atual = disponiveis.find((m) => m.id === mapaId);
       if (atual?.nome) setNomeMapaAtual(atual.nome);
+      setPodeEditar(atual?.podeEditar === true);
     });
     return () => {
       cancelado = true;
@@ -1220,6 +1233,8 @@ export default function Mapa() {
         if (!cancelado && !aindaExiste) {
           navigate("/inicio", { replace: true });
         }
+        const atualizado = disponiveis.find((m) => m.id === mapaId);
+        if (!cancelado && atualizado) setPodeEditar(atualizado.podeEditar === true);
       }
     });
 
@@ -1406,6 +1421,30 @@ export default function Mapa() {
         }
       }
 
+      // Anotações (pins): modo "tocar no mapa" cria o pin ali; clique num
+      // pin existente abre o cartão dele. Checado antes das camadas para o
+      // pin (que fica por cima de tudo) ganhar do talhão embaixo dele.
+      if (pins.movendoId) return;
+      if (pins.modoAdicionar) {
+        setSelecao(null);
+        setPontoSelecionado(null);
+        pins.abrirNovo(e.lngLat);
+        return;
+      }
+      const idsCamadaPins = pins.layerIds.filter((id) => map.getLayer(id));
+      if (idsCamadaPins.length > 0) {
+        const clicados = map.queryRenderedFeatures(e.point, { layers: idsCamadaPins });
+        if (clicados.length > 0) {
+          setSelecao(null);
+          setPontoSelecionado(null);
+          setPainelCamadasAberto(false);
+          setPainelTipoVooAberto(false);
+          pins.selecionarPin(clicados[0].properties.id);
+          return;
+        }
+      }
+      pins.fecharPin();
+
       const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
@@ -1468,6 +1507,9 @@ export default function Mapa() {
     medicao.origemPontos,
     apontamento.modoApontamento,
     voosInfo,
+    pins.modoAdicionar,
+    pins.movendoId,
+    podeEditar,
   ]);
 
   // 7) highlight de grupo: destaca todas as partes do talhão/seção
@@ -2621,6 +2663,15 @@ export default function Mapa() {
           podeAnotar={false}
           aoAdicionarPin={() => {}}
           aoFechar={() => setPontoSelecionado(null)}
+        />
+
+        <CartaoPin
+          pin={pins.pinSelecionado}
+          podeEditar={podeEditar}
+          aoEditar={() => pins.abrirEdicao(pins.pinSelecionado.id)}
+          aoMover={() => pins.iniciarMover(pins.pinSelecionado.id)}
+          aoRemover={() => pins.removerPin(pins.pinSelecionado.id)}
+          aoFechar={pins.fecharPin}
         />
       </div>
     </main>
