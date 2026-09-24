@@ -34,6 +34,14 @@ const VERIFY_FLIGHT_SIZE_PRONTOS = [5, 6]; // "Verificar Porte" = Voo liberado, 
 const FINALIDADE_FALHAS_SOCA = "Falhas Soca";
 const ESTAGIOS_FALHAS_SOCA = new Set([2, 3]); // 02º Corte, 03º Corte
 
+// Falhas Soca também não voa em área de fornecedor (Propriedade =
+// layerDetails.transferProperty) — pedido do Leo (2026-09-24), mesmo
+// critério do script de limpeza _cancelar_fornecedores_soca.mjs. Precisa
+// estar aqui também porque o DroneManagement reagenda sozinho o que foi
+// cancelado. Só vale pra Falhas Soca: Falhas Plantio voa em fornecedor
+// de verdade.
+const PROPRIEDADES_FORNECEDOR = new Set(["FORNECEDOR", "FORNEC. SUBPARCERIA", "FORNECEDOR TROCA"]);
+
 const TAMANHO_PAGINA = 500;
 
 // Mesmo JOIN já usado em mapas.js (GET /mapas, GET /camadas/:id/download)
@@ -144,12 +152,16 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
       for (const dados of resultados) registrosBrutos.push(...(dados.value || []));
     }
 
-    // Falhas Soca com estágio fora de 02º/03º Corte não conta como
-    // pendente de verdade (ver ESTAGIOS_FALHAS_SOCA acima) — as outras
-    // finalidades não têm essa trava extra.
+    // Falhas Soca fora de 02º/03º Corte ou em área de fornecedor não conta
+    // como pendente de verdade (ver ESTAGIOS_FALHAS_SOCA e
+    // PROPRIEDADES_FORNECEDOR acima) — as outras finalidades não têm essas
+    // travas extras.
     const registrosFiltrados = registrosBrutos.filter((r) => {
       if (r.flightProjectDetails?.description === FINALIDADE_FALHAS_SOCA) {
-        return ESTAGIOS_FALHAS_SOCA.has(r.layerDetails?.internship);
+        return (
+          ESTAGIOS_FALHAS_SOCA.has(r.layerDetails?.internship) &&
+          !PROPRIEDADES_FORNECEDOR.has(r.layerDetails?.transferProperty)
+        );
       }
       return true;
     });
