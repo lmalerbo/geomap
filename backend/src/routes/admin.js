@@ -641,13 +641,22 @@ adminRouter.delete("/admin/usuarios/:id", async (req, res) => {
 // (grupoIds: number[] — equivale a podeEditar false), pra não quebrar um
 // cliente desatualizado.
 function lerPermissoesDoCorpo(body) {
+  let entradas;
   if (Array.isArray(body.permissoes)) {
-    return body.permissoes
+    entradas = body.permissoes
       .filter((p) => Number.isInteger(p?.grupoId))
       .map((p) => ({ grupoId: p.grupoId, podeEditar: p.podeEditar === true }));
+  } else {
+    const grupoIds = Array.isArray(body.grupoIds) ? body.grupoIds.filter(Number.isInteger) : [];
+    entradas = grupoIds.map((grupoId) => ({ grupoId, podeEditar: false }));
   }
-  const grupoIds = Array.isArray(body.grupoIds) ? body.grupoIds.filter(Number.isInteger) : [];
-  return grupoIds.map((grupoId) => ({ grupoId, podeEditar: false }));
+  // Dedupe por grupoId (mantém a última ocorrência) — um payload com o
+  // mesmo grupoId repetido faria gravarPermissoes tentar dar upsert na
+  // mesma linha duas vezes na mesma instrução, e o Postgres rejeita isso
+  // com "ON CONFLICT DO UPDATE command cannot affect row a second time".
+  const porGrupo = new Map();
+  for (const e of entradas) porGrupo.set(e.grupoId, e);
+  return [...porGrupo.values()];
 }
 
 async function gravarPermissoes(mapaId, permissoes) {

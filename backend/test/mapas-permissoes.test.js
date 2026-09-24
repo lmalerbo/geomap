@@ -44,6 +44,31 @@ test("admin grava e lê permissoes com podeEditar; grupoIds antigo continua acei
   });
 });
 
+test("admin PUT com grupoId repetido em permissoes não quebra (dedupe mantém a última ocorrência)", async () => {
+  const t = tokenPara(c.admin);
+  const put = await req(`${srv.url}/admin/mapas/${c.mapa.id}`, t, {
+    method: "PUT",
+    body: {
+      nome: `__mapa_${c.sufixo}`,
+      permissoes: [
+        { grupoId: c.grupoEditor.id, podeEditar: false },
+        { grupoId: c.grupoEditor.id, podeEditar: true },
+      ],
+    },
+  });
+  assert.equal(put.status, 200);
+  const permissaoEditor = put.corpo.permissoes.find((p) => p.grupoId === c.grupoEditor.id);
+  assert.equal(permissaoEditor.podeEditar, true);
+  const lista = await req(`${srv.url}/admin/mapas`, t);
+  const m = lista.corpo.find((x) => x.id === c.mapa.id);
+  assert.equal(m.permissoes.find((p) => p.grupoId === c.grupoEditor.id).podeEditar, true);
+  // restaura o cenário
+  await req(`${srv.url}/admin/mapas/${c.mapa.id}`, t, {
+    method: "PUT",
+    body: { nome: `__mapa_${c.sufixo}`, permissoes: [{ grupoId: c.grupoEditor.id, podeEditar: true }, { grupoId: c.grupoLeitor.id, podeEditar: false }] },
+  });
+});
+
 test("duplicar mapa copia pode_editar e não copia pins", async () => {
   const t = tokenPara(c.admin);
   const agora = new Date().toISOString();
