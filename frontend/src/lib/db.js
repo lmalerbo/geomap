@@ -4,9 +4,11 @@ const DB_NAME = "geoportal";
 const STORE_CAMADAS = "mapas_baixados";
 const STORE_MAPAS = "mapas_disponiveis";
 const STORE_ARQUIVO_IMPORTADO = "arquivo_importado_por_mapa";
+const STORE_PINS = "pins";
+const STORE_PINS_CURSOR = "pins_cursor";
 
 function abrirDb() {
-  return openDB(DB_NAME, 3, {
+  return openDB(DB_NAME, 4, {
     upgrade(db, versaoAnterior) {
       if (versaoAnterior < 1) {
         db.createObjectStore(STORE_CAMADAS, { keyPath: "id" });
@@ -23,6 +25,17 @@ function abrirDb() {
         // página. 1 registro por mapaId (o app só suporta 1 arquivo
         // importado por vez, sempre substituído por uma nova importação).
         db.createObjectStore(STORE_ARQUIVO_IMPORTADO, { keyPath: "mapaId" });
+      }
+      if (versaoAnterior < 4) {
+        // Anotações (pins) compartilhadas do mapa — ver lib/syncPins.js.
+        // Vários registros por mapa (índice porMapa); `pendente` marca o
+        // que ainda não foi enviado ao servidor (outbox offline).
+        const store = db.createObjectStore(STORE_PINS, { keyPath: "id" });
+        store.createIndex("porMapa", "mapaId");
+        // Até onde já recebemos pins de cada mapa (cursor `desde` do GET
+        // incremental) — separado do registro do mapa para não misturar
+        // com o sync de camadas.
+        db.createObjectStore(STORE_PINS_CURSOR, { keyPath: "mapaId" });
       }
     },
   });
@@ -87,7 +100,7 @@ export async function salvarMapasDisponiveis(mapas) {
   const tx = db.transaction(STORE_MAPAS, "readwrite");
   await tx.store.clear();
   for (const mapa of mapas) {
-    await tx.store.put({ id: mapa.id, nome: mapa.nome, descricao: mapa.descricao });
+    await tx.store.put({ id: mapa.id, nome: mapa.nome, descricao: mapa.descricao, podeEditar: mapa.podeEditar === true });
   }
   await tx.done;
 }
@@ -116,4 +129,43 @@ export async function buscarArquivoImportado(mapaId) {
 export async function removerArquivoImportado(mapaId) {
   const db = await abrirDb();
   await db.delete(STORE_ARQUIVO_IMPORTADO, mapaId);
+}
+
+export async function salvarPinLocal(pin) {
+  const db = await abrirDb();
+  await db.put(STORE_PINS, pin);
+}
+
+export async function buscarPinLocal(id) {
+  const db = await abrirDb();
+  return db.get(STORE_PINS, id);
+}
+
+export async function listarPinsDoMapa(mapaId) {
+  const db = await abrirDb();
+  return db.getAllFromIndex(STORE_PINS, "porMapa", mapaId);
+}
+
+export async function listarTodosPins() {
+  const db = await abrirDb();
+  return db.getAll(STORE_PINS);
+}
+
+export async function listarPinsPendentes() {
+  return (await listarTodosPins()).filter((p) => p.pendente);
+}
+
+export async function removerPinLocal(id) {
+  const db = await abrirDb();
+  await db.delete(STORE_PINS, id);
+}
+
+export async function obterCursorPins(mapaId) {
+  const db = await abrirDb();
+  return (await db.get(STORE_PINS_CURSOR, mapaId))?.desde ?? null;
+}
+
+export async function salvarCursorPins(mapaId, desde) {
+  const db = await abrirDb();
+  await db.put(STORE_PINS_CURSOR, { mapaId, desde });
 }
