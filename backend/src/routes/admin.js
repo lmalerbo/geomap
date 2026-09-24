@@ -12,7 +12,7 @@ import AdmZip from "adm-zip";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
 import { SENHA_TEMPORARIA_PADRAO } from "../lib/senhaTemporaria.js";
-import { testarLogin, chamarApi } from "../lib/dronemgmt.js";
+import { testarLogin } from "../lib/dronemgmt.js";
 import {
   salvarArquivo,
   apagarArquivo,
@@ -355,42 +355,6 @@ adminRouter.get("/admin/dronemgmt/teste-login", async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, erro: err.message });
   }
-});
-
-// Diagnóstico só-leitura: com qual usuário a sessão do backend está logada
-// no DroneManagement e quantas pendências ela enxerga — criado porque o
-// Render via ~1560 pendências enquanto uma consulta local com as mesmas
-// credenciais via 3816 (2026-09-24).
-adminRouter.get("/admin/dronemgmt/diagnostico", async (req, res) => {
-  const unitId = process.env.DRONEMGMT_UNIT_ID || "";
-  const filtro = JSON.stringify({
-    $and: [{ unitId: `UUID('${unitId}')` }, { $or: [2, 3, 4, 5, 6].map((v) => ({ verifyFlightSize: v })) }],
-  });
-  const info = await (await chamarApi("/portal/api/v1/auth/info")).json().catch(() => null);
-  async function consultar(pageNumber, pageSize, expand) {
-    const params = { pageNumber, pageSize, filter: filtro };
-    if (expand) params.expand = expand;
-    const t0 = Date.now();
-    const resp = await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", { params });
-    const texto = await resp.text();
-    let d = null;
-    try { d = JSON.parse(texto); } catch {}
-    return { pageNumber, pageSize, expand: expand || null, status: resp.status, count: d?.count ?? null, value: d?.value?.length ?? null, bytes: texto.length, ms: Date.now() - t0 };
-  }
-  const variacoes = [
-    await consultar(1, 1, null),
-    await consultar(1, 500, null),
-    await consultar(1, 1, "layer,flightProject"),
-    await consultar(1, 500, "layer,flightProject"),
-    await consultar(2, 500, "layer,flightProject"),
-    await consultar(8, 500, "layer,flightProject"),
-  ];
-  res.json({
-    usuarioDroneMgmt: info?.name ?? null,
-    unitIdConfigurado: unitId,
-    baseUrl: process.env.DRONEMGMT_BASE_URL,
-    variacoes,
-  });
 });
 
 // Ações administrativas sensíveis (criar/editar usuário, redefinir senha,
