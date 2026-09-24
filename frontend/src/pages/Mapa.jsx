@@ -1398,12 +1398,19 @@ export default function Mapa() {
       // talhão pendente da camada "voos" marca/desmarca ele pro lote em
       // andamento, em vez do fluxo normal de painel de atributos — checado
       // antes do resto pra nunca abrir os dois ao mesmo tempo.
-      if (apontamento.modoApontamento && voosInfo?.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
-        const featuresVoos = map.queryRenderedFeatures(e.point, { layers: [voosInfo.fillLayerId] });
-        if (featuresVoos.length > 0) {
-          apontamento.alternarSelecao(featuresVoos[0].properties);
-          return;
+      if (apontamento.modoApontamento) {
+        if (voosInfo?.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
+          const featuresVoos = map.queryRenderedFeatures(e.point, { layers: [voosInfo.fillLayerId] });
+          if (featuresVoos.length > 0) {
+            apontamento.alternarSelecao(featuresVoos[0].properties);
+            return;
+          }
         }
+        // Clique fora de qualquer talhão pendente, ainda em modo de
+        // apontamento: não abre CartaoPonto (nem Atributos) — spec exige
+        // que o clique nesse modo não interfira em outra ferramenta.
+        setSelecao(null);
+        return;
       }
 
       const layerIds = [...camadasCarregadasRef.current.entries()]
@@ -1634,6 +1641,7 @@ export default function Mapa() {
     // — reseta pra [] quando a fazenda buscada não tem talhão nenhum
     // (ex: um Limites sem Talhões correspondente carregado ainda).
     setSelecao(null);
+    setPontoSelecionado(null);
     setBuscaSelecionada(resultado);
     // talhoesPorDesc é indexado pelo nome cru (nomeBase), não pelo texto
     // decorado ("Nome (cód. X)") de um resultado ambíguo — sem filtrar
@@ -1660,6 +1668,7 @@ export default function Mapa() {
       map.flyTo({ center: [item.lng, item.lat], zoom: Math.max(map.getZoom(), 15), duration: 600 });
     }
     const info = camadasCarregadasRef.current.get(item.mapaId);
+    setPontoSelecionado(null);
     setSelecao({
       lngLat: { lng: item.lng, lat: item.lat },
       itens: [
@@ -2289,6 +2298,7 @@ export default function Mapa() {
                       // pedido do Leo (2026-09-22): a tela deve focar só na
                       // tarefa de apontar, sem sobra visual de outra coisa.
                       setSelecao(null);
+                      setPontoSelecionado(null);
                       fecharTalhoesFazenda();
                       apontamento.iniciarModo();
                     }}
