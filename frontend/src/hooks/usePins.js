@@ -44,10 +44,10 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
     function aoAtualizar(e) {
       if (!e.detail?.mapaIds || e.detail.mapaIds.includes(mapaId)) recarregar();
     }
+    // O toast do descarte é global (components/AvisoPinsDescartados.jsx);
+    // aqui só redesenha se o pin era deste mapa.
     function aoDescartar(e) {
-      if (e.detail.pin.mapaId !== mapaId) return;
-      aoAviso?.(e.detail.mensagem);
-      recarregar();
+      if (e.detail.pin.mapaId === mapaId) recarregar();
     }
     window.addEventListener(EVENTO_PINS_ATUALIZADOS, aoAtualizar);
     window.addEventListener(EVENTO_PIN_DESCARTADO, aoDescartar);
@@ -55,8 +55,6 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
       window.removeEventListener(EVENTO_PINS_ATUALIZADOS, aoAtualizar);
       window.removeEventListener(EVENTO_PIN_DESCARTADO, aoDescartar);
     };
-    // aoAviso muda a cada render do pai; o comportamento não depende dele.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recarregar, mapaId]);
 
   // Voltou a internet: tenta esvaziar a fila.

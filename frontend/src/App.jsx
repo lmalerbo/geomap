@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { JobsProvider } from "./context/JobsContext.jsx";
+import AvisoPinsDescartados from "./components/AvisoPinsDescartados.jsx";
 
 // Code-splitting por rota (Lighthouse apontou ~230 KiB de JS não usado no
 // primeiro load — em boa parte MapLibre GL + libs de importação de
@@ -68,6 +69,7 @@ export default function App() {
           polling de job em segundo plano, que sobrevive à troca de tela,
           pararia junto com o componente que o criou). */}
       <JobsProvider>
+        <AvisoPinsDescartados />
         {/* import.meta.env.BASE_URL vem do "base" do vite.config.js — "/" local,
             "/geomap/" no build do GitHub Pages (ver GITHUB_PAGES nesse config).
             Sem isso as rotas do React Router não batem com a URL real numa
