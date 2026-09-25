@@ -75,9 +75,53 @@ Limites. Renomeada de `mapas` na migration 006, quando o conceito de
 |---|---|---|
 | mapa_id | FK mapas | desde a migration 006, a permissão vale pro **mapa inteiro** (todas as camadas dele), não mais por camada individual |
 | grupo_id | FK grupos | |
+| pode_editar | boolean | default `false` (migration 014) — além de **ver** o mapa, o grupo também pode criar/editar/remover anotações (`pins`) nele. Toda permissão criada antes desta migration ficou só-leitura. Admin sempre pode editar, em qualquer mapa, independente de grupo (`usuarioPodeEditarMapa` em `backend/src/lib/permissoes.js`) |
 
 Define quais grupos enxergam quais mapas na tela inicial. O usuário
 nunca escolhe permissão — o sistema decide, com base no(s) grupo(s) dele.
+
+## pins
+
+Anotações (pins) do "Mapa do Preparo" — pontos com ícone, cor, título e
+nota que usuários de grupos com `pode_editar` marcam no mapa, inclusive
+offline; compartilhados com todos que veem o mapa (só leitura pra quem
+não pode editar). Migration 014. Ver
+`docs/superpowers/specs/2026-09-24-mapa-preparo-anotacoes-design.md`.
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| id | UUID PK | gerado no aparelho (`crypto.randomUUID()`), não no banco — o pin precisa existir offline antes de qualquer contato com o servidor; reenviar a mesma escrita nunca duplica (upsert por id) |
+| mapa_id | FK mapas, `ON DELETE CASCADE` | |
+| icone | text | chave do catálogo fixo de 15 ícones (`frontend/src/lib/iconesPreparo.js`, espelhado em `backend/src/lib/iconesPreparo.js` só com as chaves válidas pra validação) |
+| cor | text | `#rrggbb`, validado por regex no backend |
+| titulo | text | até 120 caracteres |
+| nota | text | default `''`, até 2000 caracteres |
+| lng, lat | double precision | graus decimais, validados (-180..180 / -90..90) |
+| criado_por, atualizado_por | FK usuarios, `ON DELETE SET NULL` | |
+| criado_em, atualizado_em | timestamptz | hora **do aparelho** no momento da ação — base da regra "última edição vence" (sem merge campo a campo; risco aceito de relógio errado do aparelho) |
+| removido_em | timestamptz nullable | remoção lógica (nunca `DELETE` de verdade) — um pin removido não ressuscita mesmo que chegue uma edição mais antiga depois |
+| recebido_em | timestamptz, default `now()` | hora do **servidor** da última escrita aceita — base do sync incremental (`GET /mapas/:id/pins?desde=`); índice em `(mapa_id, recebido_em)` |
+
+Rotas (`backend/src/routes/pins.js`, sempre autenticadas): `GET
+/mapas/:id/pins?desde=` (exige só leitura do mapa; devolve pins alterados
+desde o cursor, **incluindo removidos**, pro cliente apagar a cópia
+local; o cursor recua 1 minuto pra nunca perder uma escrita que comita
+depois da leitura — reentregar um pin de novo é inofensivo, o cliente
+faz upsert); `PUT /mapas/:id/pins/:uuid` (exige `pode_editar`; upsert
+idempotente, última edição vence, pin já removido não ressuscita, `409`
+se o UUID já pertence a outro mapa); `DELETE /mapas/:id/pins/:uuid`
+(exige `pode_editar`; idempotente, preenche `removido_em`). Toda escrita
+aplicada de fato grava um log `acao = 'anotacao'`.
+
+Sincronização offline (frontend, `frontend/src/lib/syncPins.js` +
+`lib/db.js`): fila local (outbox) no IndexedDB, `pendente:
+null|"salvar"|"remover"` por registro — criar/editar/remover grava e
+reflete no mapa na hora, mesmo sem rede, e dispara o envio em segundo
+plano assim que houver conexão (evento `online`, ou junto do sync geral
+de camadas em `sync.js`). Recebimento nunca sobrescreve um registro
+local ainda `pendente`. Ver também a entrada "Mapa do Preparo —
+anotações" na seção "Estado atual" de `CLAUDE.md` pro resumo funcional
+completo.
 
 ## logs
 
@@ -86,7 +130,7 @@ nunca escolhe permissão — o sistema decide, com base no(s) grupo(s) dele.
 | id | serial PK | |
 | usuario_id | FK usuarios | quem executou a ação (login/download do próprio usuário, ou o admin que fez a ação administrativa) |
 | camada_id | FK camadas | qual arquivo foi baixado (renomeado de `mapa_id` na migration 006 — sempre foi isso na prática); NULL pra ações que não são download |
-| acao | text | 'login' / 'download' / 'admin' (migration 007 — 'admin' cobre qualquer ação sensível feita no painel: criar/editar usuário, redefinir senha, criar/remover grupo, remover mapa) |
+| acao | text | 'login' / 'download' / 'admin' / 'anotacao' (migration 007 acrescentou 'admin' — cobre qualquer ação sensível feita no painel: criar/editar usuário, redefinir senha, criar/remover grupo, remover mapa; migration 014 acrescentou 'anotacao' — criar/editar/remover um pin, com `detalhe` descrevendo a operação: `criar\|editar\|remover pin <uuid> "<título>" (mapa <id>)`) |
 | detalhe | text | texto livre com o que aconteceu (ex: "criar_usuario: usuário 11 (fulano@...)"), só preenchido quando `acao = 'admin'` (migration 007) |
 | data_hora | timestamp | |
 | ip | text | capturado no momento da ação online |

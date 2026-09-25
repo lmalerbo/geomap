@@ -2435,6 +2435,67 @@ Estado final: automação 100% operacional no servidor geo, agendada pra
 rodar sozinha todo dia às 8:05 durante as férias do Leo (15 dias), sem
 depender do PC dele nem de ninguém logado presencialmente.
 
+**Mapa do Preparo — anotações (2026-09-24)**: grupos com permissão de
+`pode_editar` (novo nível em `permissoes`, migration 014 — admin sempre
+pode, todo mundo mais continua só-leitura por padrão) passam a marcar
+pins anotados (ícone, cor, título, nota) em qualquer mapa, **inclusive
+offline**, compartilhados com todo mundo que vê o mapa. Tabela `pins`
+nova, com `id` UUID gerado no aparelho (não no banco — precisa existir
+offline antes de qualquer contato com o servidor) e remoção **lógica**
+(`removido_em`, nunca `DELETE` de verdade — um pin removido não
+ressuscita mesmo com uma edição mais antiga chegando depois). Frontend
+grava toda escrita primeiro numa fila local (outbox) no IndexedDB
+(`frontend/src/lib/syncPins.js`, campo `pendente:
+null|"salvar"|"remover"` por registro) e só depois tenta enviar — funciona
+sem rede, esvazia sozinho ao reconectar (evento `online`, ou junto do
+sync geral de camadas em `sync.js`); recebimento nunca sobrescreve um
+registro local ainda `pendente`. Sincronização incremental por cursor
+(`GET /mapas/:id/pins?desde=`) que **recua 1 minuto** de propósito — uma
+escrita que ainda está commitando no exato instante da leitura poderia
+ficar de fora pra sempre; reentregar um pin de novo é inofensivo (o
+cliente faz upsert). De carona, clique em área vazia (fora de qualquer
+feição) em **qualquer mapa** (não só o Preparo) agora mostra um cartão
+"Ponto selecionado" com a coordenada em graus decimais + botão copiar.
+Catálogo fixo de 15 ícones em `frontend/src/lib/iconesPreparo.js`
+(espelhado em `backend/src/lib/iconesPreparo.js` só com as chaves
+válidas, pra validação no servidor). O rascunho anterior de
+`usePins.js` (anotação pessoal por aparelho, nunca publicado) foi
+**substituído por completo** — não existe mais anotação pessoal/privada,
+só a compartilhada descrita acima. Testes: backend via `cd backend &&
+DATABASE_URL="postgresql://geoportal@localhost:5432/geoportal_dev"
+PGSSL="" npm test` (Postgres local isolado, nunca produção); frontend
+via `npm run test:unit` em `frontend/`.
+
+Verificação ponta a ponta (Playwright contra build de produção real —
+`VITE_API_URL` apontando pro backend local, **não** `GITHUB_PAGES` —
+servida por um servidor estático Node mínimo com fallback de SPA, nunca
+`vite preview`, que devolve 404 pra `Sec-Fetch-Dest: script`) cobriu os
+21 passos do roteiro (dois contextos Playwright, editor e leitor, cada
+um com seu login): pin criado offline aparece no indicador "1 anotação
+aguardando envio" e só chega no banco depois de `setOffline(false)`;
+tentar sair com pendente mostra o diálogo de confirmação
+(`window.confirm`, `dismiss()` mantém logado); leitor vê o pin
+(ícone/título/autor) sem os botões Editar/Mover/Remover nem o controle
+"Anotar no mapa"; leitor offline com reload continua vendo e clicando o
+pin (veio do IndexedDB); editor remove o pin (remoção lógica no banco) e
+o leitor confirma o sumiço depois de recarregar; clique em área vazia
+mostra a coordenada com "Copiar" → "Copiado". Zero erro de console
+inesperado nas duas sessões (só os 404/CORS esperados dos `.pmtiles` do
+banco de dev local, que apontam pra chaves antigas do R2 — não têm
+relação com a mudança testada, mesma ressalva já registrada na skill
+`verify`). Nenhum bug de app encontrado — os dois ajustes feitos foram
+só no script de teste: (1) o pin é desenhado com `icon-anchor: "bottom"`
+(ver `usePins.js`), então clicar exatamente na coordenada do pin erra o
+hit-test do MapLibre por 1-2px (a ponta do ícone é fina demais); clicar
+~20px acima (dentro do "corpo" do ícone) acerta com folga; (2) ler o
+texto do botão "Copiar" logo após o clique pode capturar o estado antes
+do `navigator.clipboard.writeText` (assíncrono) resolver — precisa de um
+`waitForFunction` esperando o texto virar "Copiado". O rodapé de
+coordenada dentro do painel de atributos (clique numa feição de
+verdade, não em área vazia) não pôde ser exercitado neste ambiente — os
+`.pmtiles` do banco de dev local não carregam (mesma limitação de
+sempre), fica como não-exercitável, coberto só por leitura de código.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

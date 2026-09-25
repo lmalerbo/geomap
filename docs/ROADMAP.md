@@ -357,6 +357,47 @@ passo completo de configuração.
       serviço dedicada — ver trade-off documentado em
       `docs/INTEGRACAO_DRONEMANAGEMENT.md`)
 
+## Fase 3.12 — Mapa do Preparo — anotações compartilhadas offline
+
+- [x] Migration 014: `permissoes.pode_editar` (default `false`, todas as
+      permissões existentes ficam só-leitura), tabela `pins`, `'anotacao'`
+      em `logs.acao`. Ver `docs/SCHEMA_BANCO.md`.
+- [x] Backend: `usuarioPodeVerMapa`/`usuarioPodeEditarMapa` movidos pra
+      `backend/src/lib/permissoes.js` (compartilhado com `voos.js`);
+      `GET/PUT/DELETE /mapas/:id/pins` (leitura incremental por cursor,
+      escrita idempotente por UUID, última edição vence, remoção lógica);
+      `GET /mapas` ganhou `podeEditar` por mapa; admin (`GET/POST/PUT
+      /admin/mapas`) aceita `permissoes: [{grupoId, podeEditar}]` além do
+      `grupoIds` legado; duplicar mapa copia `pode_editar`, não copia pins.
+- [x] Frontend: fila offline (outbox) no IndexedDB (`lib/syncPins.js`,
+      `pendente`), catálogo fixo de 15 ícones (`lib/iconesPreparo.js`),
+      ferramentas do editor (tocar no mapa / GPS / editar / mover /
+      remover), cartão de leitura do pin pra todo mundo, clique em área
+      vazia mostra coordenada + copiar (todos os mapas, não só o Preparo),
+      pins no painel de camadas/legenda/busca, aviso de pendentes ao sair.
+      Anotações pessoais/locais (rascunho anterior de `usePins.js`) foram
+      **substituídas** — não existem mais.
+- [x] Testes automatizados: backend (`npm test`, Postgres local isolado) e
+      frontend (`npm run test:unit`).
+- [x] Verificação ponta a ponta (Playwright, build de produção + backend
+      local isolado): editor cria pin offline, indicador de pendente,
+      reconecta e envia; leitor vê o pin após sync, inclusive offline
+      depois de recarregar a página; leitor sem ferramentas de edição;
+      remoção lógica propagada; clique em área vazia com coordenada e
+      copiar; confirmação ao tentar sair com pendentes. Ver
+      `.superpowers/sdd/2026-09-24-mapa-preparo-anotacoes/task-12-report.md`.
+
+Fora de escopo (decidido, não revisitar sem novo pedido explícito):
+
+- [ ] Foto anexada ao pin
+- [ ] Exportar pins (KML/CSV)
+- [ ] Anotação de linha/polígono (só ponto na v1)
+- [ ] Histórico de versões de um pin (só o estado atual é guardado)
+- [ ] Envio com o app fechado (Background Sync API) — só envia com o app
+      aberto e online
+- [ ] Anotações pessoais/privadas por usuário — pins são sempre
+      compartilhados com todo mundo que vê o mapa
+
 ## Fase 4 — Ideias futuras (não compromissadas)
 
 - [ ] Exportar/imprimir área selecionada como PDF
