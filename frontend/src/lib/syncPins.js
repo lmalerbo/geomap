@@ -17,8 +17,13 @@ export function corpoParaApi(pin) {
   };
 }
 
-// 400/403/404/409 são definitivos: reenviar não vai mudar a resposta.
-const STATUS_DESCARTE = new Set([400, 403, 404, 409]);
+// Todo 4xx é definitivo (reenviar não vai mudar a resposta) — exceto
+// 401 (sessão expirada: novo login resolve), 408 (timeout) e 429 (rate
+// limit), que ficam pendentes pra próxima tentativa. 5xx/rede também.
+const STATUS_4XX_TRANSITORIOS = new Set([401, 408, 429]);
+function ehDescarteDefinitivo(status) {
+  return Number.isInteger(status) && status >= 400 && status < 500 && !STATUS_4XX_TRANSITORIOS.has(status);
+}
 
 export function criarSyncPins({ api, store, aoDescartar }) {
   let execucao = null;
@@ -35,7 +40,7 @@ export function criarSyncPins({ api, store, aoDescartar }) {
             ? await api.removerPin(token, pin.mapaId, pin.id, pin.removidoEm)
             : await api.salvarPin(token, pin.mapaId, pin.id, corpoParaApi(pin));
       } catch (erro) {
-        if (STATUS_DESCARTE.has(erro?.status)) {
+        if (ehDescarteDefinitivo(erro?.status)) {
           await store.remover(pin.id);
           // Zera o cursor do mapa: se o pin descartado já existia no
           // servidor (ex: 409 por conflito), o próximo receberPins
@@ -46,7 +51,7 @@ export function criarSyncPins({ api, store, aoDescartar }) {
           aoDescartar?.(pin, erro);
           continue;
         }
-        // Rede/5xx/401: mantém tudo e tenta na próxima oportunidade, sem
+        // Rede/5xx/401/408/429: mantém tudo e tenta na próxima oportunidade, sem
         // pular a ordem da fila.
         return { enviados, restantes: true };
       }

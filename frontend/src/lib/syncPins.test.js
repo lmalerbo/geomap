@@ -51,6 +51,48 @@ describe("enviarPendentes", () => {
     expect(aoDescartar).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), expect.objectContaining({ status: 403 }));
   });
 
+  it.each([401, 408, 429, 500, 503])("%i mantém o pin pendente e para a fila", async (status) => {
+    const store = criarStore([pin({ id: "a" }), pin({ id: "b", atualizadoEm: "2026-09-24T11:00:00.000Z" })]);
+    await store.salvarCursor(1, "2026-09-24T13:00:00.000Z");
+    const aoDescartar = vi.fn();
+    const api = { salvarPin: vi.fn(async () => { throw erroHttp(status); }) };
+    const r = await criarSyncPins({ api, store, aoDescartar }).enviarPendentes("tk");
+    expect(r.restantes).toBe(true);
+    expect(api.salvarPin).toHaveBeenCalledTimes(1);
+    expect(store.pins.get("a").pendente).toBe("salvar");
+    expect(store.pins.get("b").pendente).toBe("salvar");
+    expect(store.cursores.get(1)).toBe("2026-09-24T13:00:00.000Z");
+    expect(aoDescartar).not.toHaveBeenCalled();
+  });
+
+  it.each([400, 404, 409, 410, 422])("%i descarta o local, zera o cursor, avisa e segue a fila", async (status) => {
+    const store = criarStore([pin({ id: "a" }), pin({ id: "b", atualizadoEm: "2026-09-24T11:00:00.000Z" })]);
+    await store.salvarCursor(1, "2026-09-24T13:00:00.000Z");
+    const aoDescartar = vi.fn();
+    const api = {
+      salvarPin: vi.fn(async (_t, _m, id) => {
+        if (id === "a") throw erroHttp(status);
+        return { pin: pin({ id, pendente: undefined }) };
+      }),
+    };
+    const r = await criarSyncPins({ api, store, aoDescartar }).enviarPendentes("tk");
+    expect(r).toEqual({ enviados: 1, restantes: false });
+    expect(store.pins.has("a")).toBe(false);
+    expect(store.pins.get("b").pendente).toBeNull();
+    expect(store.cursores.get(1)).toBeNull();
+    expect(aoDescartar).toHaveBeenCalledTimes(1);
+    expect(aoDescartar).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), expect.objectContaining({ status }));
+  });
+
+  it("erro de rede (sem status) não chama aoDescartar", async () => {
+    const store = criarStore([pin()]);
+    const aoDescartar = vi.fn();
+    const api = { salvarPin: async () => { throw new TypeError("Failed to fetch"); } };
+    await criarSyncPins({ api, store, aoDescartar }).enviarPendentes("tk");
+    expect(aoDescartar).not.toHaveBeenCalled();
+    expect(store.pins.get("a").pendente).toBe("salvar");
+  });
+
   it("403 zera o cursor do mapa pra receberPins trazer a versão do servidor de volta", async () => {
     const store = criarStore([pin()]);
     await store.salvarCursor(1, "2026-09-24T13:00:00.000Z");
