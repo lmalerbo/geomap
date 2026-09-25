@@ -23,3 +23,15 @@ export function usePinsPendentes() {
   }, []);
   return quantidade;
 }
+
+// Confirmação de saída da conta quando há anotações ainda não enviadas —
+// usado por handleSair em Mapa.jsx e Inicio.jsx (extraído pra não duplicar
+// o mesmo texto/regra nos dois lugares, achado de revisão 2026-09-25).
+// Retorna true quando pode seguir com o logout (sem pendentes, ou o usuário
+// confirmou mesmo assim).
+export function confirmarSaidaComPendentes(quantidade) {
+  if (quantidade <= 0) return true;
+  return window.confirm(
+    `Você tem ${quantidade} anotação(ões) ainda não enviada(s). Sair agora vai descartá-las. Sair mesmo assim?`
+  );
+}

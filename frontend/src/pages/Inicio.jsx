@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { listarMapasDisponiveis, listarMapasBaixados } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import { usePinsPendentes } from "../hooks/usePinsPendentes.js";
+import { usePinsPendentes, confirmarSaidaComPendentes } from "../hooks/usePinsPendentes.js";
 import MenuLateral from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
@@ -79,14 +79,7 @@ export default function Inicio() {
   }, [sessao.token]);
 
   function handleSair() {
-    if (
-      pinsPendentes > 0 &&
-      !window.confirm(
-        `Você tem ${pinsPendentes} anotação(ões) ainda não enviada(s). Sair agora vai descartá-las. Sair mesmo assim?`
-      )
-    ) {
-      return;
-    }
+    if (!confirmarSaidaComPendentes(pinsPendentes)) return;
     sair();
     navigate("/login");
   }

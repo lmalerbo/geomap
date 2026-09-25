@@ -28,7 +28,7 @@ import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
 import { usePins } from "../hooks/usePins.js";
-import { usePinsPendentes } from "../hooks/usePinsPendentes.js";
+import { usePinsPendentes, confirmarSaidaComPendentes } from "../hooks/usePinsPendentes.js";
 import { ICONES_PREPARO, urlSvgPin } from "../lib/iconesPreparo.js";
 import {
   linkGoogleMaps,
@@ -1706,14 +1706,7 @@ export default function Mapa() {
   }
 
   function handleSair() {
-    if (
-      pinsPendentes > 0 &&
-      !window.confirm(
-        `Você tem ${pinsPendentes} anotação(ões) ainda não enviada(s). Sair agora vai descartá-las. Sair mesmo assim?`
-      )
-    ) {
-      return;
-    }
+    if (!confirmarSaidaComPendentes(pinsPendentes)) return;
     sair();
     navigate("/login");
   }
@@ -1850,6 +1843,12 @@ export default function Mapa() {
             return termosBusca.some((t) => alvo.includes(t));
           })
           .slice(0, 8);
+  // Busca fica disponível se houver índice de fazenda OU pelo menos 1
+  // anotação neste mapa — antes o campo ficava travado (disabled) em mapas
+  // sem índice de fazenda mesmo com anotações buscáveis (achado de revisão,
+  // 2026-09-25).
+  const buscaDeAnotacaoDisponivel = pins.pins.length > 0;
+  const buscaHabilitada = indiceBusca.length > 0 || buscaDeAnotacaoDisponivel;
   // A lista é recalculada a cada tecla — se encolher, o índice destacado
   // de uma busca anterior pode ficar fora dos limites.
   const indiceDestacadoValido = Math.min(indiceDestacadoBusca, Math.max(resultadosBusca.length - 1, 0));
@@ -1929,18 +1928,27 @@ export default function Mapa() {
               // Placeholder mais curto (2026-09-22) — a dica de buscar
               // várias fazendas separando com ";" ficava "poluído" na
               // barra; a funcionalidade continua igual, só não é mais
-              // anunciada no texto do campo.
-              placeholder={indiceBusca.length > 0 ? "Buscar fazenda…" : "Busca não disponível para este mapa"}
+              // anunciada no texto do campo. Busca de anotação (2026-09-25)
+              // usa o mesmo campo — o índice de fazenda pode não existir
+              // (mapa sem `.pmtiles` com esse suporte), mas anotações
+              // continuam buscáveis nele.
+              placeholder={
+                indiceBusca.length > 0
+                  ? "Buscar fazenda…"
+                  : buscaDeAnotacaoDisponivel
+                    ? "Buscar anotação…"
+                    : "Busca não disponível para este mapa"
+              }
               value={buscaTexto}
               onChange={(e) => {
                 setBuscaTexto(e.target.value);
                 setIndiceDestacadoBusca(0);
               }}
               onKeyDown={(e) => aoTeclarBusca(e, resultadosBusca, indiceDestacadoValido)}
-              disabled={indiceBusca.length === 0}
-              aria-disabled={indiceBusca.length === 0}
+              disabled={!buscaHabilitada}
+              aria-disabled={!buscaHabilitada}
             />
-            {indiceBusca.length === 0 ? (
+            {!buscaHabilitada ? (
               <p className="ajuda-busca">
                 A busca não está disponível para o mapa carregado. Use o clique no mapa para ver atributos.
               </p>
