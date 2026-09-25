@@ -3,6 +3,7 @@ import maplibregl from "maplibre-gl";
 import { garantirImagensPins, idImagemPin, ICONE_PADRAO, nomeIcone } from "../lib/iconesPreparo.js";
 import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import { salvarPinLocal, listarPinsDoMapa, buscarPinLocal } from "../lib/db.js";
+import { manterNoTopo } from "../lib/ordemCamadas.js";
 import { enviarPinsPendentes, avisarPinsAtualizados, EVENTO_PINS_ATUALIZADOS, EVENTO_PIN_DESCARTADO } from "../lib/syncPinsApp.js";
 
 const FONTE_PINS = "fonte-pins";
@@ -70,7 +71,8 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
   }, [sessao.token]);
 
   // Camadas do MapLibre: cria na primeira vez, depois só setData (mesmo
-  // idioma da medição/track). Sem beforeId: anotação fica por cima de tudo.
+  // idioma da medição/track). Sem beforeId + manterNoTopo: anotação fica por
+  // cima de tudo.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapaPronto) return;
@@ -123,11 +125,23 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
       const vis = visivel ? "visible" : "none";
       map.setLayoutProperty(CAMADA_PINS, "visibility", vis);
       map.setLayoutProperty(CAMADA_PINS_PENDENTES, "visibility", vis);
+      manterNoTopo(map, [CAMADA_PINS, CAMADA_PINS_PENDENTES]);
     })();
     return () => {
       cancelado = true;
     };
   }, [pins, visivel, mapaPronto, mapRef]);
+
+  // Anotação fica acima de qualquer outra camada, inclusive das que entram
+  // depois dela (rótulos das camadas carregadas depois, satélite,
+  // medição/track, apontamento) — recoloca no topo a cada mudança de estilo.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto) return;
+    const aoMudarEstilo = () => manterNoTopo(map, [CAMADA_PINS, CAMADA_PINS_PENDENTES]);
+    map.on("styledata", aoMudarEstilo);
+    return () => map.off("styledata", aoMudarEstilo);
+  }, [mapaPronto, mapRef]);
 
   // Cursor mira enquanto "tocar no mapa" está ativo.
   useEffect(() => {
