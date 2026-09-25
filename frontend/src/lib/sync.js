@@ -6,6 +6,7 @@ import {
   atualizarMetadadosMapa,
   salvarMapasDisponiveis,
 } from "./db.js";
+import { syncPins, enviarPinsPendentes, avisarPinsAtualizados } from "./syncPinsApp.js";
 
 // Sincroniza TODOS os mapas (projetos) permitidos em segundo plano — não
 // só o que o usuário tem aberto no momento — baixando as camadas que ainda
@@ -76,6 +77,19 @@ export async function sincronizarMapas(token) {
     }),
     ...removidas.map((c) => removerMapaBaixado(c.id)),
   ]);
+
+  // Anotações (pins): envia a fila offline ANTES de receber (o recebimento
+  // nunca sobrescreve pendentes, mas enviar primeiro deixa o estado local
+  // já alinhado). Falha aqui nunca derruba o sync de camadas.
+  try {
+    await enviarPinsPendentes(token);
+    const idsMapas = catalogo.map((m) => m.id);
+    await syncPins.limparMapasSemPermissao(idsMapas);
+    await Promise.allSettled(idsMapas.map((id) => syncPins.receberPins(token, id)));
+    avisarPinsAtualizados(idsMapas);
+  } catch (erro) {
+    console.warn("Falha ao sincronizar anotações:", erro);
+  }
 
   const atualizadas = await listarMapasBaixados();
   return { online: true, mapas: atualizadas, sincronizadoEm: new Date() };

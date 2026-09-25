@@ -431,6 +431,12 @@ input[type="file"]::file-selector-button:hover {
   font-weight: 600;
 }
 
+.status-pins-pendentes {
+  font-size: 12px;
+  color: #b45309;
+  white-space: nowrap;
+}
+
 .botao-sair {
   padding: 8px 14px;
   min-height: 40px;
@@ -1283,6 +1289,24 @@ input[type="file"]::file-selector-button:hover {
   flex-direction: column;
 }
 
+.swatch-pin {
+  flex: none;
+}
+
+.legenda-pins {
+  list-style: none;
+  margin: 2px 0 6px 28px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.legenda-pins li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
 .botao-expandir-legenda {
   flex-shrink: 0;
   min-height: 28px;
@@ -1454,6 +1478,10 @@ input[type="file"]::file-selector-button:hover {
 .resultados-busca button.resultado-busca--destacado {
   background: var(--accent);
   color: #fff;
+}
+
+.resultados-busca-pins img {
+  vertical-align: -3px;
 }
 
 .sem-resultados-busca {
@@ -2581,4 +2609,187 @@ input[type="file"]::file-selector-button:hover {
      linha sozinho e vazava pra fora da coluna — mais visível ainda com 3
      colunas em desktop (colunas mais estreitas que o texto). */
   overflow-wrap: break-word;
+}
+
+/* Coordenada do ponto clicado (CartaoPonto / rodapé dos atributos) */
+.linha-coordenada {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border, #e2e8f0);
+  font-size: 13px;
+}
+.texto-coordenada {
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+.botao-copiar-coordenada {
+  padding: 2px 10px;
+  font-size: 12px;
+}
+.painel-ponto h2 {
+  margin: 0 28px 0 0;
+  font-size: 15px;
+}
+.botao-adicionar-pin {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.titulo-pin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 28px 0 0;
+  font-size: 15px;
+}
+.tipo-pin {
+  margin: 2px 0 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+.nota-pin {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+.autoria-pin {
+  margin: 8px 0 0;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.pendente-pin {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #b45309;
+}
+.acoes-pin {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.acoes-pin button {
+  flex: 1;
+}
+
+.barra-anotar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  max-width: calc(100vw - 32px);
+  flex-wrap: wrap;
+}
+.barra-anotar .ativo {
+  outline: 2px solid var(--accent);
+}
+.barra-anotar .fechar {
+  background: none;
+  color: inherit;
+  padding: 0 6px;
+  font-size: 18px;
+}
+.painel-formulario-pin {
+  right: 16px;
+  bottom: 16px;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(80vh, calc(100% - 32px));
+  overflow-y: auto;
+}
+.painel-formulario-pin h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.coordenada-formulario-pin {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.grade-icones-pin,
+.paleta-pin {
+  border: none;
+  padding: 0;
+  margin: 8px 0;
+}
+.grade-icones-pin {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+}
+.grade-icones-pin legend,
+.paleta-pin legend {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.opcao-icone-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 10.5px;
+  line-height: 1.15;
+}
+.opcao-icone-pin.selecionado {
+  border-color: var(--accent);
+  background: rgb(0 0 0 / 0.04);
+}
+.paleta-pin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.amostra-cor-pin {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
+}
+.amostra-cor-pin.selecionado {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.campo-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.campo-pin input,
+.campo-pin textarea {
+  font: inherit;
+  font-weight: 400;
+  font-size: 14px;
+}
+
+/* Linha de um grupo em "Grupos com permissão" (Gerenciar mapas) — o
+   checkbox do grupo em si + a caixa "pode anotar" que só aparece quando
+   o grupo já está marcado (Task 11, mapa-preparo-anotacoes). */
+.linha-grupo-permissao {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.caixa-pode-anotar {
+  font-size: 12px;
+  opacity: 0.85;
 }

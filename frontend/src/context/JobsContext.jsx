@@ -132,7 +132,7 @@ export function JobsProvider({ children }) {
   }, [sessao?.token]);
 
   return (
-    <JobsContext.Provider value={{ jobsPendentes, resultadosRecentes, adicionarJob }}>
+    <JobsContext.Provider value={{ jobsPendentes, resultadosRecentes, adicionarJob, adicionarToast }}>
       {children}
       {toasts.length > 0 && (
         <div className="pilha-toasts" role="status" aria-live="polite">

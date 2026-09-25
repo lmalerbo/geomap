@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { listarMapasDisponiveis, listarMapasBaixados } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
 import MenuLateral from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
@@ -20,6 +21,7 @@ function IconeMenu() {
 export default function Inicio() {
   const { sessao, sair } = useAuth();
   const navigate = useNavigate();
+  const pinsPendentes = usePinsPendentes();
   const [mapas, setMapas] = useState([]);
   const [contagemCamadas, setContagemCamadas] = useState(new Map());
   const [sincronizando, setSincronizando] = useState(true);
@@ -76,9 +78,8 @@ export default function Inicio() {
     };
   }, [sessao.token]);
 
-  function handleSair() {
-    sair();
-    navigate("/login");
+  async function handleSair() {
+    if (await sairDescartandoPins(pinsPendentes, sair)) navigate("/login");
   }
 
   return (

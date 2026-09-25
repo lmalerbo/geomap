@@ -27,6 +27,9 @@ import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
+import { usePins } from "../hooks/usePins.js";
+import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
+import { ICONES_PREPARO, urlSvgPin } from "../lib/iconesPreparo.js";
 import {
   linkGoogleMaps,
   linkWaze,
@@ -44,6 +47,12 @@ import LegendaCamada, {
 } from "../components/LegendaCamada.jsx";
 import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
+import CartaoPonto from "../components/CartaoPonto.jsx";
+import CartaoPin from "../components/pins/CartaoPin.jsx";
+import BarraAnotar from "../components/pins/BarraAnotar.jsx";
+import FormularioPin from "../components/pins/FormularioPin.jsx";
+import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
+import { useJobs } from "../context/JobsContext.jsx";
 
 function IconeMenu() {
   return (
@@ -127,6 +136,30 @@ class MedicaoControl {
     botao.setAttribute("aria-label", "Medir distância/área");
     botao.innerHTML =
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M21.3 8.7 8.7 21.3a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4L15.3 2.7a1 1 0 0 1 1.4 0l4.6 4.6a1 1 0 0 1 0 1.4Z"/><path d="m14.5 5.5 2 2M11.5 8.5l2 2M8.5 11.5l2 2M5.5 14.5l2 2"/></svg>';
+    botao.onclick = () => this._aoClicar();
+    this._container.appendChild(botao);
+    return this._container;
+  }
+  onRemove() {
+    this._container.parentNode?.removeChild(this._container);
+  }
+}
+
+// Botão "Anotar" — só existe em mapa onde o usuário pode anotar (pins);
+// adicionado/removido por efeito quando `podeEditar` muda.
+class AnotarControl {
+  constructor(aoClicar) {
+    this._aoClicar = aoClicar;
+  }
+  onAdd() {
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.title = "Anotar no mapa";
+    botao.setAttribute("aria-label", "Anotar no mapa");
+    botao.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M12 22s-7-7.5-7-13a7 7 0 0 1 14 0c0 5.5-7 13-7 13z"/><path d="M12 6v6M9 9h6"/></svg>';
     botao.onclick = () => this._aoClicar();
     this._container.appendChild(botao);
     return this._container;
@@ -920,6 +953,10 @@ export default function Mapa() {
   const [semCamadasLocais, setSemCamadasLocais] = useState(false);
   const [avisoSincronizacaoFechado, setAvisoSincronizacaoFechado] = useState(false);
   const [selecao, setSelecao] = useState(null);
+  // Clique fora de qualquer feição consultável: mostra a coordenada
+  // (CartaoPonto). Mutuamente exclusivo com `selecao` — no máximo 1 card
+  // de informação aberto por vez.
+  const [pontoSelecionado, setPontoSelecionado] = useState(null);
   const [mostrarMenuCompartilhar, setMostrarMenuCompartilhar] = useState(false);
   // Recolhido por padrão em qualquer tamanho de tela — antes só recolhia
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
@@ -966,13 +1003,28 @@ export default function Mapa() {
   // (mesma fonte da tela inicial) — usado só pra identificar o mapa nos
   // arquivos exportados pela medição (KML/PDF), em vez de "mapa-<id>".
   const [nomeMapaAtual, setNomeMapaAtual] = useState(`mapa-${mapaId}`);
+  // Vem do catálogo salvo no IndexedDB (GET /mapas.podeEditar) — funciona
+  // offline. Libera as ferramentas de anotação (pins).
+  const [podeEditar, setPodeEditar] = useState(false);
+  // Barra de ferramentas "Anotar" (tocar no mapa / GPS) — aberta/fechada
+  // pelo AnotarControl no canto superior-direito.
+  const [barraAnotarAberta, setBarraAnotarAberta] = useState(false);
 
   // Medição, track log e importação temporária viraram hooks próprios
   // (frontend/src/hooks/) — cada um cuida do próprio state + efeitos que
   // criam/destroem source/layers no mapa. `mapRef`/`mapaPronto` são
   // repassados porque o mapa em si é criado uma vez só, aqui embaixo (efeito
   // 1) — os hooks não criam mapa nenhum, só desenham em cima do existente.
-  const medicao = useMedicao(mapRef, mapaPronto, () => setSelecao(null), nomeMapaAtual);
+  const medicao = useMedicao(
+    mapRef,
+    mapaPronto,
+    () => {
+      setSelecao(null);
+      setPontoSelecionado(null);
+      pins.fecharPin();
+    },
+    nomeMapaAtual
+  );
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto, mapaId);
   // A camada com tipoCamada:"voos" (réplica de Talhões pra apontamento,
@@ -984,6 +1036,13 @@ export default function Mapa() {
   // cada rodada desse efeito.
   const voosInfo = [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
+  const { adicionarToast } = useJobs();
+  const pins = usePins(mapRef, mapaPronto, mapaId, {
+    podeEditar,
+    sessao,
+    aoAviso: (mensagem) => adicionarToast({ tipo: "erro", mensagem }),
+  });
+  const pinsPendentes = usePinsPendentes();
   // Nome + cor real de cada feição do arquivo importado (ver
   // resumoFeicoesTemporaria) — alimenta o swatch (cor única, faixa de cores,
   // ou o magenta padrão quando o arquivo não tem simbologia nenhuma) e a
@@ -1008,6 +1067,7 @@ export default function Mapa() {
       if (cancelado) return;
       const atual = disponiveis.find((m) => m.id === mapaId);
       if (atual?.nome) setNomeMapaAtual(atual.nome);
+      setPodeEditar(atual?.podeEditar === true);
     });
     return () => {
       cancelado = true;
@@ -1118,6 +1178,51 @@ export default function Mapa() {
     };
   }, []);
 
+  // Controle "Anotar" só para quem pode anotar neste mapa.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto || !podeEditar) return;
+    const controle = new AnotarControl(() => setBarraAnotarAberta((a) => !a));
+    map.addControl(controle, "top-right");
+    return () => {
+      map.removeControl(controle);
+      setBarraAnotarAberta(false);
+    };
+  }, [mapaPronto, podeEditar]);
+
+  // Medição e anotação disputariam o mesmo clique — ligar uma desliga a outra.
+  useEffect(() => {
+    if (medicao.medindo) {
+      setBarraAnotarAberta(false);
+      pins.setModoAdicionar(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [medicao.medindo]);
+  useEffect(() => {
+    if (barraAnotarAberta && medicao.medindo) medicao.setMedindo(false);
+    // Anotar e apontamento de voo também disputam o clique: abrir a barra
+    // encerra o apontamento (pedindo confirmação se já há talhões marcados,
+    // pra não jogar fora um lote montado pela metade).
+    if (barraAnotarAberta && apontamento.modoApontamento) {
+      const podeEncerrar =
+        apontamento.selecionados.size === 0 ||
+        window.confirm("Encerrar o apontamento de voo para anotar? Os talhões marcados serão desmarcados.");
+      if (podeEncerrar) apontamento.cancelarModo();
+      else setBarraAnotarAberta(false);
+    }
+    if (!barraAnotarAberta) pins.setModoAdicionar(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barraAnotarAberta]);
+  // Entrar no apontamento de voo fecha a barra/modo de anotar e o cartão
+  // do pin (no máximo 1 ferramenta de clique e 1 card por vez).
+  useEffect(() => {
+    if (!apontamento.modoApontamento) return;
+    setBarraAnotarAberta(false);
+    pins.setModoAdicionar(false);
+    pins.fecharPin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apontamento.modoApontamento]);
+
   // 1b) mantém o botão de fundo satélite em sincronia com o estado (ícone
   // ativo/inativo, bloqueado quando offline) e persiste a preferência.
   useEffect(() => {
@@ -1206,6 +1311,8 @@ export default function Mapa() {
         if (!cancelado && !aindaExiste) {
           navigate("/inicio", { replace: true });
         }
+        const atualizado = disponiveis.find((m) => m.id === mapaId);
+        if (!cancelado && atualizado) setPodeEditar(atualizado.podeEditar === true);
       }
     });
 
@@ -1380,6 +1487,11 @@ export default function Mapa() {
         return;
       }
 
+      // Formulário de anotação aberto: o clique no mapa não faz nada — nem
+      // abre outro card por baixo do formulário, nem troca/descarta o
+      // rascunho meio preenchido ao tocar num pin existente.
+      if (pins.rascunho) return;
+
       // Modo de apontamento de voo (ver useApontamentoVoo.js): clique num
       // talhão pendente da camada "voos" marca/desmarca ele pro lote em
       // andamento, em vez do fluxo normal de painel de atributos — checado
@@ -1392,20 +1504,50 @@ export default function Mapa() {
         }
       }
 
+      // Anotações (pins): modo "tocar no mapa" cria o pin ali; clique num
+      // pin existente abre o cartão dele. Checado antes das camadas para o
+      // pin (que fica por cima de tudo) ganhar do talhão embaixo dele.
+      if (pins.movendoId) return;
+      if (pins.modoAdicionar) {
+        setSelecao(null);
+        setPontoSelecionado(null);
+        pins.abrirNovo(e.lngLat);
+        return;
+      }
+      const idsCamadaPins = pins.layerIds.filter((id) => map.getLayer(id));
+      if (idsCamadaPins.length > 0) {
+        const clicados = map.queryRenderedFeatures(e.point, { layers: idsCamadaPins });
+        if (clicados.length > 0) {
+          setSelecao(null);
+          setPontoSelecionado(null);
+          setPainelCamadasAberto(false);
+          setPainelTipoVooAberto(false);
+          pins.selecionarPin(clicados[0].properties.id);
+          return;
+        }
+      }
+      pins.fecharPin();
+
       const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
         .filter((id) => map.getLayer(id));
-      if (layerIds.length === 0) {
-        setSelecao(null);
-        return;
-      }
-
-      const features = map.queryRenderedFeatures(e.point, { layers: layerIds });
+      const features = layerIds.length > 0 ? map.queryRenderedFeatures(e.point, { layers: layerIds }) : [];
       if (features.length === 0) {
         setSelecao(null);
+        // Em modo de apontamento, um clique vazio (fora de qualquer
+        // talhão pendente ou feição consultável) não deve abrir o
+        // CartaoPonto — spec exige que o clique nesse modo não
+        // interfira em outra ferramenta (comportamento de antes da
+        // Task 7, preservado aqui).
+        if (!apontamento.modoApontamento) {
+          setPainelCamadasAberto(false);
+          setPainelTipoVooAberto(false);
+          setPontoSelecionado({ lngLat: e.lngLat });
+        }
         return;
       }
+      setPontoSelecionado(null);
 
       // Tiles vizinhos podem repetir a mesma feição na borda — deduplica.
       const vistos = new Set();
@@ -1448,6 +1590,10 @@ export default function Mapa() {
     medicao.origemPontos,
     apontamento.modoApontamento,
     voosInfo,
+    pins.modoAdicionar,
+    pins.movendoId,
+    pins.rascunho,
+    podeEditar,
   ]);
 
   // 7) highlight de grupo: destaca todas as partes do talhão/seção
@@ -1555,16 +1701,17 @@ export default function Mapa() {
     if (!map) return;
     marcadorRef.current?.remove();
     marcadorRef.current = null;
-    if (selecao) {
+    const alvo = selecao?.lngLat || pontoSelecionado?.lngLat;
+    if (alvo) {
       marcadorRef.current = new maplibregl.Marker({ color: CORES_FERRAMENTAS.marcadorSelecao })
-        .setLngLat(selecao.lngLat)
+        .setLngLat(alvo)
         .addTo(map);
     }
     return () => {
       marcadorRef.current?.remove();
       marcadorRef.current = null;
     };
-  }, [selecao]);
+  }, [selecao, pontoSelecionado]);
 
   function alternarCamada(id) {
     setCamadasVisiveis((atual) => {
@@ -1584,9 +1731,8 @@ export default function Mapa() {
     });
   }
 
-  function handleSair() {
-    sair();
-    navigate("/login");
+  async function handleSair() {
+    if (await sairDescartandoPins(pinsPendentes, sair)) navigate("/login");
   }
 
   function selecionarResultadoBusca(resultado) {
@@ -1620,6 +1766,8 @@ export default function Mapa() {
     // — reseta pra [] quando a fazenda buscada não tem talhão nenhum
     // (ex: um Limites sem Talhões correspondente carregado ainda).
     setSelecao(null);
+    setPontoSelecionado(null);
+    pins.fecharPin();
     setBuscaSelecionada(resultado);
     // talhoesPorDesc é indexado pelo nome cru (nomeBase), não pelo texto
     // decorado ("Nome (cód. X)") de um resultado ambíguo — sem filtrar
@@ -1646,6 +1794,8 @@ export default function Mapa() {
       map.flyTo({ center: [item.lng, item.lat], zoom: Math.max(map.getZoom(), 15), duration: 600 });
     }
     const info = camadasCarregadasRef.current.get(item.mapaId);
+    setPontoSelecionado(null);
+    pins.fecharPin();
     setSelecao({
       lngLat: { lng: item.lng, lat: item.lat },
       itens: [
@@ -1708,6 +1858,23 @@ export default function Mapa() {
     }
     return resultados;
   })();
+  // Anotações entram na busca por título/nota (só neste mapa) — mesma
+  // normalização (sem acento, minúsculo) de termosBusca acima.
+  const resultadosPins =
+    termosBusca.length === 0
+      ? []
+      : pins.pins
+          .filter((p) => {
+            const alvo = normalizarTexto(`${p.titulo} ${p.nota}`);
+            return termosBusca.some((t) => alvo.includes(t));
+          })
+          .slice(0, 8);
+  // Busca fica disponível se houver índice de fazenda OU pelo menos 1
+  // anotação neste mapa — antes o campo ficava travado (disabled) em mapas
+  // sem índice de fazenda mesmo com anotações buscáveis (achado de revisão,
+  // 2026-09-25).
+  const buscaDeAnotacaoDisponivel = pins.pins.length > 0;
+  const buscaHabilitada = indiceBusca.length > 0 || buscaDeAnotacaoDisponivel;
   // A lista é recalculada a cada tecla — se encolher, o índice destacado
   // de uma busca anterior pode ficar fora dos limites.
   const indiceDestacadoValido = Math.min(indiceDestacadoBusca, Math.max(resultadosBusca.length - 1, 0));
@@ -1731,6 +1898,11 @@ export default function Mapa() {
                   })}`
                 : null}
         </span>
+        {pinsPendentes > 0 && (
+          <span className="status-pins-pendentes" aria-live="polite">
+            {pinsPendentes === 1 ? "1 anotação aguardando envio" : `${pinsPendentes} anotações aguardando envio`}
+          </span>
+        )}
         {medicao.medindo && (
           <span className="status-medicao" aria-live="polite">
             Medição ativa: {medicao.modoMedicao === "area" ? "área" : "distância"}
@@ -1782,23 +1954,51 @@ export default function Mapa() {
               // Placeholder mais curto (2026-09-22) — a dica de buscar
               // várias fazendas separando com ";" ficava "poluído" na
               // barra; a funcionalidade continua igual, só não é mais
-              // anunciada no texto do campo.
-              placeholder={indiceBusca.length > 0 ? "Buscar fazenda…" : "Busca não disponível para este mapa"}
+              // anunciada no texto do campo. Busca de anotação (2026-09-25)
+              // usa o mesmo campo — o índice de fazenda pode não existir
+              // (mapa sem `.pmtiles` com esse suporte), mas anotações
+              // continuam buscáveis nele.
+              placeholder={
+                indiceBusca.length > 0
+                  ? "Buscar fazenda…"
+                  : buscaDeAnotacaoDisponivel
+                    ? "Buscar anotação…"
+                    : "Busca não disponível para este mapa"
+              }
               value={buscaTexto}
               onChange={(e) => {
                 setBuscaTexto(e.target.value);
                 setIndiceDestacadoBusca(0);
               }}
               onKeyDown={(e) => aoTeclarBusca(e, resultadosBusca, indiceDestacadoValido)}
-              disabled={indiceBusca.length === 0}
-              aria-disabled={indiceBusca.length === 0}
+              disabled={!buscaHabilitada}
+              aria-disabled={!buscaHabilitada}
             />
-            {indiceBusca.length === 0 ? (
+            {!buscaHabilitada ? (
               <p className="ajuda-busca">
                 A busca não está disponível para o mapa carregado. Use o clique no mapa para ver atributos.
               </p>
             ) : (
               <>
+                {resultadosPins.length > 0 && (
+                  <ul className="resultados-busca resultados-busca-pins">
+                    {resultadosPins.map((p) => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBuscaTexto("");
+                            setSelecao(null);
+                            setPontoSelecionado(null);
+                            pins.voarParaPin(p.id);
+                          }}
+                        >
+                          <img src={urlSvgPin(p.icone, p.cor)} alt="" width="12" height="16" /> {p.titulo}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {resultadosBusca.length > 0 && (
                   <ul className="resultados-busca">
                     {resultadosBusca.map((r, i) => (
@@ -1815,7 +2015,7 @@ export default function Mapa() {
                     ))}
                   </ul>
                 )}
-                {termosBusca.length > 0 && resultadosBusca.length === 0 && (
+                {termosBusca.length > 0 && resultadosBusca.length === 0 && resultadosPins.length === 0 && (
                   <p className="sem-resultados-busca">
                     <IconeEstadoVazio tamanho={16} /> Nada encontrado.
                   </p>
@@ -1834,6 +2034,8 @@ export default function Mapa() {
               setPainelCamadasAberto(true);
               setPainelTipoVooAberto(false); // mutuamente exclusivos (pedido do Leo, 2026-08-21) — dois cards abertos juntos na mesma pilha poluíam a tela
               setSelecao(null); // fecha Atributos também (2026-09-22) — no máximo 1 card de informação aberto por vez
+              setPontoSelecionado(null);
+              pins.fecharPin();
             }}
             aria-label="Abrir painel de camadas"
             title="Camadas"
@@ -1954,6 +2156,26 @@ export default function Mapa() {
                     </div>
                   );
                 })}
+
+                {(pins.pins.length > 0 || podeEditar) && (
+                  <div className="linha-camada-bloco">
+                    <label className="linha-camada">
+                      <input type="checkbox" checked={pins.visivel} onChange={() => pins.setVisivel((v) => !v)} />
+                      <img className="swatch-pin" src={urlSvgPin("observacao", CORES_FERRAMENTAS.pinPadrao)} alt="" width="14" height="18" />
+                      <span className="nome-camada">Anotações ({pins.pins.length})</span>
+                    </label>
+                    {pins.pins.length > 0 && (
+                      <ul className="legenda-pins">
+                        {ICONES_PREPARO.filter((i) => pins.pins.some((p) => p.icone === i.chave)).map((i) => (
+                          <li key={i.chave}>
+                            <img src={urlSvgPin(i.chave, "#475569")} alt="" width="12" height="16" />
+                            {i.nome} ({pins.pins.filter((p) => p.icone === i.chave).length})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
 
                 {temporaria.arquivoTemporario && (
                   <div className="linha-camada-bloco">
@@ -2082,6 +2304,8 @@ export default function Mapa() {
                 setPainelTipoVooAberto(true);
                 setPainelCamadasAberto(false); // mutuamente exclusivos, ver comentário em Camadas
                 setSelecao(null); // fecha Atributos também (2026-09-22)
+                setPontoSelecionado(null);
+                pins.fecharPin();
               }}
               aria-label="Abrir legenda de tipos de voo"
               title="Tipo de voo"
@@ -2273,7 +2497,11 @@ export default function Mapa() {
                       // pedido do Leo (2026-09-22): a tela deve focar só na
                       // tarefa de apontar, sem sobra visual de outra coisa.
                       setSelecao(null);
+                      setPontoSelecionado(null);
                       fecharTalhoesFazenda();
+                      pins.fecharPin();
+                      setBarraAnotarAberta(false);
+                      pins.setModoAdicionar(false);
                       apontamento.iniciarModo();
                     }}
                     disabled={apontamento.carregandoPendentes}
@@ -2572,6 +2800,7 @@ export default function Mapa() {
                   </div>
                 ))}
               </dl>
+              <LinhaCoordenada lngLat={selecao.lngLat} />
               {selecao.itens.length > 1 && (
                 <div className="paginacao-atributos">
                   <button type="button" onClick={() => irParaItem(-1)} aria-label="Feição anterior">
@@ -2588,6 +2817,50 @@ export default function Mapa() {
             </>
           )}
         </aside>
+
+        <CartaoPonto
+          lngLat={pontoSelecionado?.lngLat || null}
+          podeAnotar={podeEditar}
+          aoAdicionarPin={() => {
+            const lngLat = pontoSelecionado.lngLat;
+            setPontoSelecionado(null);
+            pins.abrirNovo(lngLat);
+          }}
+          aoFechar={() => setPontoSelecionado(null)}
+        />
+
+        <CartaoPin
+          pin={pins.pinSelecionado}
+          podeEditar={podeEditar}
+          aoEditar={() => pins.abrirEdicao(pins.pinSelecionado.id)}
+          aoMover={() => {
+            const id = pins.pinSelecionado.id;
+            pins.fecharPin();
+            pins.iniciarMover(id);
+          }}
+          aoRemover={() => pins.removerPin(pins.pinSelecionado.id)}
+          aoFechar={pins.fecharPin}
+        />
+
+        <BarraAnotar
+          aberta={barraAnotarAberta}
+          modoAdicionar={pins.modoAdicionar}
+          obtendoGps={pins.obtendoGps}
+          movendo={Boolean(pins.movendoId)}
+          aoTocarNoMapa={() => pins.setModoAdicionar((m) => !m)}
+          aoMinhaLocalizacao={pins.adicionarNaMinhaLocalizacao}
+          aoConfirmarMover={pins.confirmarMover}
+          aoCancelarMover={pins.cancelarMover}
+          aoFechar={() => setBarraAnotarAberta(false)}
+        />
+        {pins.rascunho && (
+          <FormularioPin
+            key={pins.rascunho.id || "novo"}
+            rascunho={pins.rascunho}
+            aoSalvar={pins.salvarRascunho}
+            aoCancelar={pins.cancelarRascunho}
+          />
+        )}
       </div>
     </main>
   );

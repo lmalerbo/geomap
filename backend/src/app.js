@@ -17,6 +17,7 @@ import { authRouter } from "./routes/auth.js";
 import { mapasRouter } from "./routes/mapas.js";
 import { adminRouter } from "./routes/admin.js";
 import { voosRouter } from "./routes/voos.js";
+import { pinsRouter } from "./routes/pins.js";
 
 export const app = express();
 
@@ -44,6 +45,7 @@ app.use(mapasRouter);
 // /voos/* mesmo a rota existindo em voosRouter — só não apareceu antes
 // porque só foi testado logado como admin.
 app.use(voosRouter);
+app.use(pinsRouter);
 app.use(adminRouter);
 
 // Rede de segurança final — sem isso, o erro capturado por

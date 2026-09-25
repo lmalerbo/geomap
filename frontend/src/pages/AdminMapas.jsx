@@ -11,7 +11,17 @@ import {
 import { useAuth } from "../context/AuthContext.jsx";
 import IconeLordicon from "../components/IconeLordicon.jsx";
 
-const FORM_VAZIO = { nome: "", descricao: "", grupoIds: [] };
+const FORM_VAZIO = { nome: "", descricao: "", permissoes: [] };
+
+function alternarGrupoEm(permissoes, grupoId) {
+  return permissoes.some((p) => p.grupoId === grupoId)
+    ? permissoes.filter((p) => p.grupoId !== grupoId)
+    : [...permissoes, { grupoId, podeEditar: false }];
+}
+
+function alternarAnotarEm(permissoes, grupoId) {
+  return permissoes.map((p) => (p.grupoId === grupoId ? { ...p, podeEditar: !p.podeEditar } : p));
+}
 
 export default function AdminMapas() {
   const { sessao } = useAuth();
@@ -47,13 +57,11 @@ export default function AdminMapas() {
   }
 
   function alternarGrupo(grupoId) {
-    setForm((atual) => {
-      const jaTem = atual.grupoIds.includes(grupoId);
-      return {
-        ...atual,
-        grupoIds: jaTem ? atual.grupoIds.filter((g) => g !== grupoId) : [...atual.grupoIds, grupoId],
-      };
-    });
+    setForm((atual) => ({ ...atual, permissoes: alternarGrupoEm(atual.permissoes, grupoId) }));
+  }
+
+  function alternarAnotar(grupoId) {
+    setForm((atual) => ({ ...atual, permissoes: alternarAnotarEm(atual.permissoes, grupoId) }));
   }
 
   async function criar(e) {
@@ -73,7 +81,7 @@ export default function AdminMapas() {
 
   function abrirEdicao(mapa) {
     setEditandoId(mapa.id);
-    setFormEdicao({ nome: mapa.nome, descricao: mapa.descricao || "", grupoIds: mapa.grupoIds || [] });
+    setFormEdicao({ nome: mapa.nome, descricao: mapa.descricao || "", permissoes: mapa.permissoes || [] });
     setErro(null);
   }
 
@@ -82,13 +90,11 @@ export default function AdminMapas() {
   }
 
   function alternarGrupoEdicao(grupoId) {
-    setFormEdicao((atual) => {
-      const jaTem = atual.grupoIds.includes(grupoId);
-      return {
-        ...atual,
-        grupoIds: jaTem ? atual.grupoIds.filter((g) => g !== grupoId) : [...atual.grupoIds, grupoId],
-      };
-    });
+    setFormEdicao((atual) => ({ ...atual, permissoes: alternarGrupoEm(atual.permissoes, grupoId) }));
+  }
+
+  function alternarAnotarEdicao(grupoId) {
+    setFormEdicao((atual) => ({ ...atual, permissoes: alternarAnotarEm(atual.permissoes, grupoId) }));
   }
 
   async function salvarEdicao(e, mapaId) {
@@ -182,14 +188,26 @@ export default function AdminMapas() {
             Grupos com permissão
             <div className="lista-grupos-checkbox">
               {grupos.map((g) => (
-                <label key={g.id} className="opcao-grupo">
-                  <input
-                    type="checkbox"
-                    checked={form.grupoIds.includes(g.id)}
-                    onChange={() => alternarGrupo(g.id)}
-                  />
-                  {g.nome}
-                </label>
+                <div key={g.id} className="linha-grupo-permissao">
+                  <label className="opcao-grupo">
+                    <input
+                      type="checkbox"
+                      checked={form.permissoes.some((p) => p.grupoId === g.id)}
+                      onChange={() => alternarGrupo(g.id)}
+                    />
+                    {g.nome}
+                  </label>
+                  {form.permissoes.some((p) => p.grupoId === g.id) && (
+                    <label className="caixa-pode-anotar">
+                      <input
+                        type="checkbox"
+                        checked={form.permissoes.find((p) => p.grupoId === g.id)?.podeEditar === true}
+                        onChange={() => alternarAnotar(g.id)}
+                      />
+                      pode anotar
+                    </label>
+                  )}
+                </div>
               ))}
             </div>
           </div>
@@ -212,9 +230,11 @@ export default function AdminMapas() {
                       ? `${m.camadaCount} camada${m.camadaCount > 1 ? "s" : ""}`
                       : "nenhuma camada ainda"}{" "}
                     · {m.descricao || "sem descrição"} ·{" "}
-                    {(m.grupoIds || [])
-                      .map((id) => grupos.find((g) => g.id === id)?.nome)
-                      .filter(Boolean)
+                    {(m.permissoes || [])
+                      .map((p) => {
+                        const nome = grupos.find((g) => g.id === p.grupoId)?.nome ?? p.grupoId;
+                        return `${nome}${p.podeEditar ? " (anota)" : ""}`;
+                      })
                       .join(", ") || "nenhum grupo com acesso"}
                   </span>
                 </div>
@@ -271,14 +291,28 @@ export default function AdminMapas() {
                   />
                   <div className="lista-grupos-checkbox">
                     {grupos.map((g) => (
-                      <label key={g.id} className="opcao-grupo">
-                        <input
-                          type="checkbox"
-                          checked={formEdicao.grupoIds.includes(g.id)}
-                          onChange={() => alternarGrupoEdicao(g.id)}
-                        />
-                        {g.nome}
-                      </label>
+                      <div key={g.id} className="linha-grupo-permissao">
+                        <label className="opcao-grupo">
+                          <input
+                            type="checkbox"
+                            checked={formEdicao.permissoes.some((p) => p.grupoId === g.id)}
+                            onChange={() => alternarGrupoEdicao(g.id)}
+                          />
+                          {g.nome}
+                        </label>
+                        {formEdicao.permissoes.some((p) => p.grupoId === g.id) && (
+                          <label className="caixa-pode-anotar">
+                            <input
+                              type="checkbox"
+                              checked={
+                                formEdicao.permissoes.find((p) => p.grupoId === g.id)?.podeEditar === true
+                              }
+                              onChange={() => alternarAnotarEdicao(g.id)}
+                            />
+                            pode anotar
+                          </label>
+                        )}
+                      </div>
                     ))}
                   </div>
                   <button type="submit" disabled={salvandoEdicaoId === m.id}>
