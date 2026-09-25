@@ -3,7 +3,7 @@ import maplibregl from "maplibre-gl";
 import { garantirImagensPins, idImagemPin, ICONE_PADRAO, nomeIcone } from "../lib/iconesPreparo.js";
 import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import { salvarPinLocal, listarPinsDoMapa, buscarPinLocal } from "../lib/db.js";
-import { enviarPinsPendentes, EVENTO_PINS_ATUALIZADOS, EVENTO_PIN_DESCARTADO } from "../lib/syncPinsApp.js";
+import { enviarPinsPendentes, avisarPinsAtualizados, EVENTO_PINS_ATUALIZADOS, EVENTO_PIN_DESCARTADO } from "../lib/syncPinsApp.js";
 
 const FONTE_PINS = "fonte-pins";
 const CAMADA_PINS = "camada-pins";
@@ -144,6 +144,7 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
   async function gravar(pin) {
     await salvarPinLocal(pin);
     await recarregar();
+    avisarPinsAtualizados([mapaId]);
     enviarPinsPendentes(sessao.token);
   }
 

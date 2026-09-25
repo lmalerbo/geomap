@@ -28,6 +28,8 @@ import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
 import { usePins } from "../hooks/usePins.js";
+import { usePinsPendentes } from "../hooks/usePinsPendentes.js";
+import { ICONES_PREPARO, urlSvgPin } from "../lib/iconesPreparo.js";
 import {
   linkGoogleMaps,
   linkWaze,
@@ -1039,6 +1041,7 @@ export default function Mapa() {
     sessao,
     aoAviso: (mensagem) => adicionarToast({ tipo: "erro", mensagem }),
   });
+  const pinsPendentes = usePinsPendentes();
   // Nome + cor real de cada feição do arquivo importado (ver
   // resumoFeicoesTemporaria) — alimenta o swatch (cor única, faixa de cores,
   // ou o magenta padrão quando o arquivo não tem simbologia nenhuma) e a
@@ -1703,6 +1706,14 @@ export default function Mapa() {
   }
 
   function handleSair() {
+    if (
+      pinsPendentes > 0 &&
+      !window.confirm(
+        `Você tem ${pinsPendentes} anotação(ões) ainda não enviada(s). Sair agora vai descartá-las. Sair mesmo assim?`
+      )
+    ) {
+      return;
+    }
     sair();
     navigate("/login");
   }
@@ -1828,6 +1839,17 @@ export default function Mapa() {
     }
     return resultados;
   })();
+  // Anotações entram na busca por título/nota (só neste mapa) — mesma
+  // normalização (sem acento, minúsculo) de termosBusca acima.
+  const resultadosPins =
+    termosBusca.length === 0
+      ? []
+      : pins.pins
+          .filter((p) => {
+            const alvo = normalizarTexto(`${p.titulo} ${p.nota}`);
+            return termosBusca.some((t) => alvo.includes(t));
+          })
+          .slice(0, 8);
   // A lista é recalculada a cada tecla — se encolher, o índice destacado
   // de uma busca anterior pode ficar fora dos limites.
   const indiceDestacadoValido = Math.min(indiceDestacadoBusca, Math.max(resultadosBusca.length - 1, 0));
@@ -1851,6 +1873,11 @@ export default function Mapa() {
                   })}`
                 : null}
         </span>
+        {pinsPendentes > 0 && (
+          <span className="status-pins-pendentes" aria-live="polite">
+            {pinsPendentes === 1 ? "1 anotação aguardando envio" : `${pinsPendentes} anotações aguardando envio`}
+          </span>
+        )}
         {medicao.medindo && (
           <span className="status-medicao" aria-live="polite">
             Medição ativa: {medicao.modoMedicao === "area" ? "área" : "distância"}
@@ -1919,6 +1946,25 @@ export default function Mapa() {
               </p>
             ) : (
               <>
+                {resultadosPins.length > 0 && (
+                  <ul className="resultados-busca resultados-busca-pins">
+                    {resultadosPins.map((p) => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBuscaTexto("");
+                            setSelecao(null);
+                            setPontoSelecionado(null);
+                            pins.voarParaPin(p.id);
+                          }}
+                        >
+                          <img src={urlSvgPin(p.icone, p.cor)} alt="" width="12" height="16" /> {p.titulo}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {resultadosBusca.length > 0 && (
                   <ul className="resultados-busca">
                     {resultadosBusca.map((r, i) => (
@@ -1935,7 +1981,7 @@ export default function Mapa() {
                     ))}
                   </ul>
                 )}
-                {termosBusca.length > 0 && resultadosBusca.length === 0 && (
+                {termosBusca.length > 0 && resultadosBusca.length === 0 && resultadosPins.length === 0 && (
                   <p className="sem-resultados-busca">
                     <IconeEstadoVazio tamanho={16} /> Nada encontrado.
                   </p>
@@ -2075,6 +2121,26 @@ export default function Mapa() {
                     </div>
                   );
                 })}
+
+                {(pins.pins.length > 0 || podeEditar) && (
+                  <div className="linha-camada-bloco">
+                    <label className="linha-camada">
+                      <input type="checkbox" checked={pins.visivel} onChange={() => pins.setVisivel((v) => !v)} />
+                      <img className="swatch-pin" src={urlSvgPin("observacao", CORES_FERRAMENTAS.pinPadrao)} alt="" width="14" height="18" />
+                      <span className="nome-camada">Anotações ({pins.pins.length})</span>
+                    </label>
+                    {pins.pins.length > 0 && (
+                      <ul className="legenda-pins">
+                        {ICONES_PREPARO.filter((i) => pins.pins.some((p) => p.icone === i.chave)).map((i) => (
+                          <li key={i.chave}>
+                            <img src={urlSvgPin(i.chave, "#475569")} alt="" width="12" height="16" />
+                            {i.nome} ({pins.pins.filter((p) => p.icone === i.chave).length})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
 
                 {temporaria.arquivoTemporario && (
                   <div className="linha-camada-bloco">

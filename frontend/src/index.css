@@ -431,6 +431,12 @@ input[type="file"]::file-selector-button:hover {
   font-weight: 600;
 }
 
+.status-pins-pendentes {
+  font-size: 12px;
+  color: #b45309;
+  white-space: nowrap;
+}
+
 .botao-sair {
   padding: 8px 14px;
   min-height: 40px;
@@ -1283,6 +1289,24 @@ input[type="file"]::file-selector-button:hover {
   flex-direction: column;
 }
 
+.swatch-pin {
+  flex: none;
+}
+
+.legenda-pins {
+  list-style: none;
+  margin: 2px 0 6px 28px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.legenda-pins li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
 .botao-expandir-legenda {
   flex-shrink: 0;
   min-height: 28px;
@@ -1454,6 +1478,10 @@ input[type="file"]::file-selector-button:hover {
 .resultados-busca button.resultado-busca--destacado {
   background: var(--accent);
   color: #fff;
+}
+
+.resultados-busca-pins img {
+  vertical-align: -3px;
 }
 
 .sem-resultados-busca {
