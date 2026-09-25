@@ -169,3 +169,14 @@ export async function salvarCursorPins(mapaId, desde) {
   const db = await abrirDb();
   await db.put(STORE_PINS_CURSOR, { mapaId, desde });
 }
+
+// Apaga todos os pins e cursores locais numa transação só — usado ao sair
+// da conta: senão os pendentes do usuário que saiu seriam enviados (e
+// auditados) com o token do próximo que entrar neste aparelho. Apagar tudo
+// (não só os pendentes) é de propósito: o próximo usuário baixa de novo só
+// o que ele pode ver.
+export async function limparPinsLocais() {
+  const db = await abrirDb();
+  const tx = db.transaction([STORE_PINS, STORE_PINS_CURSOR], "readwrite");
+  await Promise.all([tx.objectStore(STORE_PINS).clear(), tx.objectStore(STORE_PINS_CURSOR).clear(), tx.done]);
+}

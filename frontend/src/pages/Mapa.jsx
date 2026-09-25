@@ -28,7 +28,7 @@ import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
 import { usePins } from "../hooks/usePins.js";
-import { usePinsPendentes, confirmarSaidaComPendentes } from "../hooks/usePinsPendentes.js";
+import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
 import { ICONES_PREPARO, urlSvgPin } from "../lib/iconesPreparo.js";
 import {
   linkGoogleMaps,
@@ -1705,10 +1705,8 @@ export default function Mapa() {
     });
   }
 
-  function handleSair() {
-    if (!confirmarSaidaComPendentes(pinsPendentes)) return;
-    sair();
-    navigate("/login");
+  async function handleSair() {
+    if (await sairDescartandoPins(pinsPendentes, sair)) navigate("/login");
   }
 
   function selecionarResultadoBusca(resultado) {

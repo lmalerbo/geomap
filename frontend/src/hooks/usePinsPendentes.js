@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listarPinsPendentes } from "../lib/db.js";
+import { listarPinsPendentes, limparPinsLocais } from "../lib/db.js";
 import { EVENTO_PINS_ATUALIZADOS } from "../lib/syncPinsApp.js";
 
 // Quantas anotações ainda não foram enviadas (todos os mapas) — usado no
@@ -34,4 +34,22 @@ export function confirmarSaidaComPendentes(quantidade) {
   return window.confirm(
     `Você tem ${quantidade} anotação(ões) ainda não enviada(s). Sair agora vai descartá-las. Sair mesmo assim?`
   );
+}
+
+// Logout compartilhado de Mapa.jsx/Inicio.jsx: confirma (se houver
+// pendentes), apaga os pins locais e só então chama `sair` do AuthContext.
+// Se não der pra apagar, não sai — senão os pendentes iriam pro servidor
+// com a identidade do próximo usuário (achado de revisão final 2026-09-25).
+// Devolve true quando saiu de fato (quem chama só navega nesse caso).
+export async function sairDescartandoPins(quantidadePendentes, sair, limpar = limparPinsLocais) {
+  if (!confirmarSaidaComPendentes(quantidadePendentes)) return false;
+  try {
+    await limpar();
+  } catch (erro) {
+    console.error("Falha ao apagar anotações locais antes de sair", erro);
+    window.alert("Não foi possível apagar as anotações deste aparelho. Tente sair de novo.");
+    return false;
+  }
+  sair();
+  return true;
 }
