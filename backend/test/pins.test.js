@@ -115,3 +115,31 @@ test("?desde= devolve só alterados, inclui removidos, e o cursor fica no passad
   assert.ok(achado && achado.removidoEm);
   assert.equal((await req(`${url(c.mapa.id)}?desde=abc`, tLeitor)).status, 400);
 });
+
+test("relógio adiantado do aparelho não congela o pin: datas futuras são limitadas a agora + 5 min", async () => {
+  const id = randomUUID();
+  const doisDias = new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString();
+  const r = await req(url(c.mapa.id, id), tEditor, { method: "PUT", body: corpo({ criadoEm: doisDias, atualizadoEm: doisDias, titulo: "Futuro" }) });
+  assert.equal(r.status, 200);
+  const { rows } = await pool.query(
+    `SELECT criado_em <= now() + interval '5 minutes 1 second' AS criado_ok,
+            atualizado_em <= now() + interval '5 minutes 1 second' AS atualizado_ok
+     FROM pins WHERE id = $1`,
+    [id]
+  );
+  assert.ok(rows[0].criado_ok, "criado_em limitado");
+  assert.ok(rows[0].atualizado_ok, "atualizado_em limitado");
+  // Uma edição real feita depois (relógio certo, só além da janela de 5 min
+  // do servidor) ainda vence — antes da limitação, a data de +2 dias
+  // bloqueava qualquer edição de todo mundo até lá.
+  await new Promise((ok) => setTimeout(ok, 20));
+  const depois = new Date(Date.now() + 6 * 60 * 1000).toISOString();
+  const ed = await req(url(c.mapa.id, id), tEditor, { method: "PUT", body: corpo({ criadoEm: doisDias, atualizadoEm: depois, titulo: "Corrigido" }) });
+  assert.equal(ed.status, 200);
+  assert.equal(ed.corpo.pin.titulo, "Corrigido");
+
+  const del = await req(`${url(c.mapa.id, id)}?removidoEm=${encodeURIComponent(doisDias)}`, tEditor, { method: "DELETE" });
+  assert.equal(del.status, 200);
+  const rem = await pool.query(`SELECT removido_em <= now() + interval '5 minutes 1 second' AS ok FROM pins WHERE id = $1`, [id]);
+  assert.ok(rem.rows[0].ok, "removido_em limitado");
+});

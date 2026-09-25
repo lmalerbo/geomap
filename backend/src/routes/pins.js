@@ -46,6 +46,15 @@ function dataValida(valor) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+// Relógio do aparelho adiantado não pode "congelar" um pin: com
+// última-edição-vence, um atualizadoEm de daqui a 2 dias bloquearia toda
+// edição real até lá. Datas vindas do cliente são limitadas a agora + 5 min.
+const FOLGA_RELOGIO_MS = 5 * 60 * 1000;
+function limitarAoFuturoProximo(data) {
+  const limite = new Date(Date.now() + FOLGA_RELOGIO_MS);
+  return data > limite ? limite : data;
+}
+
 function validarPin(body) {
   const icone = body?.icone;
   const cor = body?.cor;
@@ -63,7 +72,9 @@ function validarPin(body) {
   if (typeof lng !== "number" || !Number.isFinite(lng) || lng < -180 || lng > 180) return { erro: "longitude inválida" };
   if (typeof lat !== "number" || !Number.isFinite(lat) || lat < -90 || lat > 90) return { erro: "latitude inválida" };
   if (!criadoEm || !atualizadoEm) return { erro: "datas inválidas" };
-  return { dados: { icone, cor, titulo, nota, lng, lat, criadoEm, atualizadoEm } };
+  return {
+    dados: { icone, cor, titulo, nota, lng, lat, criadoEm: limitarAoFuturoProximo(criadoEm), atualizadoEm: limitarAoFuturoProximo(atualizadoEm) },
+  };
 }
 
 // Valida parâmetros e permissão de escrita; responde o erro e devolve null
@@ -173,7 +184,7 @@ pinsRouter.put("/mapas/:id/pins/:uuid", async (req, res) => {
 pinsRouter.delete("/mapas/:id/pins/:uuid", async (req, res) => {
   const alvo = await prepararEscrita(req, res);
   if (!alvo) return;
-  const removidoEm = dataValida(req.query.removidoEm) || new Date();
+  const removidoEm = limitarAoFuturoProximo(dataValida(req.query.removidoEm) || new Date());
 
   const cliente = await pool.connect();
   try {
