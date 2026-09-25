@@ -11,6 +11,12 @@ export default function FormularioPin({ rascunho, aoSalvar, aoCancelar }) {
   // nome do ícone escolhido.
   const [tituloEditado, setTituloEditado] = useState(Boolean(rascunho.id));
   const [salvando, setSalvando] = useState(false);
+  // aoSalvar grava no IndexedDB antes de tentar enviar — pode rejeitar (ex:
+  // quota do navegador estourada, modo privado que bloqueia storage). Sem
+  // capturar isso, `salvando` ficava true pra sempre (Salvar/Cancelar
+  // travados) e o usuário não tinha como saber o que aconteceu nem sair do
+  // formulário.
+  const [erro, setErro] = useState(null);
 
   function escolherIcone(chave) {
     setIcone(chave);
@@ -22,8 +28,14 @@ export default function FormularioPin({ rascunho, aoSalvar, aoCancelar }) {
     const t = titulo.trim();
     if (!t) return;
     setSalvando(true);
-    await aoSalvar({ icone, cor, titulo: t.slice(0, 120), nota: nota.slice(0, 2000) });
-    setSalvando(false);
+    setErro(null);
+    try {
+      await aoSalvar({ icone, cor, titulo: t.slice(0, 120), nota: nota.slice(0, 2000) });
+    } catch {
+      setErro("Não foi possível salvar a anotação neste aparelho. Tente de novo.");
+    } finally {
+      setSalvando(false);
+    }
   }
 
   return (
@@ -84,6 +96,8 @@ export default function FormularioPin({ rascunho, aoSalvar, aoCancelar }) {
           Nota
           <textarea value={nota} maxLength={2000} rows={4} onChange={(e) => setNota(e.target.value)} />
         </label>
+
+        {erro && <p className="erro">{erro}</p>}
 
         <div className="acoes-pin">
           <button type="button" onClick={aoCancelar} disabled={salvando}>
