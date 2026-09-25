@@ -47,6 +47,8 @@ import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 import CartaoPonto from "../components/CartaoPonto.jsx";
 import CartaoPin from "../components/pins/CartaoPin.jsx";
+import BarraAnotar from "../components/pins/BarraAnotar.jsx";
+import FormularioPin from "../components/pins/FormularioPin.jsx";
 import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
 import { useJobs } from "../context/JobsContext.jsx";
 
@@ -132,6 +134,30 @@ class MedicaoControl {
     botao.setAttribute("aria-label", "Medir distância/área");
     botao.innerHTML =
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M21.3 8.7 8.7 21.3a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4L15.3 2.7a1 1 0 0 1 1.4 0l4.6 4.6a1 1 0 0 1 0 1.4Z"/><path d="m14.5 5.5 2 2M11.5 8.5l2 2M8.5 11.5l2 2M5.5 14.5l2 2"/></svg>';
+    botao.onclick = () => this._aoClicar();
+    this._container.appendChild(botao);
+    return this._container;
+  }
+  onRemove() {
+    this._container.parentNode?.removeChild(this._container);
+  }
+}
+
+// Botão "Anotar" — só existe em mapa onde o usuário pode anotar (pins);
+// adicionado/removido por efeito quando `podeEditar` muda.
+class AnotarControl {
+  constructor(aoClicar) {
+    this._aoClicar = aoClicar;
+  }
+  onAdd() {
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.title = "Anotar no mapa";
+    botao.setAttribute("aria-label", "Anotar no mapa");
+    botao.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M12 22s-7-7.5-7-13a7 7 0 0 1 14 0c0 5.5-7 13-7 13z"/><path d="M12 6v6M9 9h6"/></svg>';
     botao.onclick = () => this._aoClicar();
     this._container.appendChild(botao);
     return this._container;
@@ -978,6 +1004,9 @@ export default function Mapa() {
   // Vem do catálogo salvo no IndexedDB (GET /mapas.podeEditar) — funciona
   // offline. Libera as ferramentas de anotação (pins).
   const [podeEditar, setPodeEditar] = useState(false);
+  // Barra de ferramentas "Anotar" (tocar no mapa / GPS) — aberta/fechada
+  // pelo AnotarControl no canto superior-direito.
+  const [barraAnotarAberta, setBarraAnotarAberta] = useState(false);
 
   // Medição, track log e importação temporária viraram hooks próprios
   // (frontend/src/hooks/) — cada um cuida do próprio state + efeitos que
@@ -1144,6 +1173,32 @@ export default function Mapa() {
       maplibregl.removeProtocol("pmtiles");
     };
   }, []);
+
+  // Controle "Anotar" só para quem pode anotar neste mapa.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto || !podeEditar) return;
+    const controle = new AnotarControl(() => setBarraAnotarAberta((a) => !a));
+    map.addControl(controle, "top-right");
+    return () => {
+      map.removeControl(controle);
+      setBarraAnotarAberta(false);
+    };
+  }, [mapaPronto, podeEditar]);
+
+  // Medição e anotação disputariam o mesmo clique — ligar uma desliga a outra.
+  useEffect(() => {
+    if (medicao.medindo) {
+      setBarraAnotarAberta(false);
+      pins.setModoAdicionar(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [medicao.medindo]);
+  useEffect(() => {
+    if (barraAnotarAberta && medicao.medindo) medicao.setMedindo(false);
+    if (!barraAnotarAberta) pins.setModoAdicionar(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barraAnotarAberta]);
 
   // 1b) mantém o botão de fundo satélite em sincronia com o estado (ícone
   // ativo/inativo, bloqueado quando offline) e persiste a preferência.
@@ -2660,8 +2715,12 @@ export default function Mapa() {
 
         <CartaoPonto
           lngLat={pontoSelecionado?.lngLat || null}
-          podeAnotar={false}
-          aoAdicionarPin={() => {}}
+          podeAnotar={podeEditar}
+          aoAdicionarPin={() => {
+            const lngLat = pontoSelecionado.lngLat;
+            setPontoSelecionado(null);
+            pins.abrirNovo(lngLat);
+          }}
           aoFechar={() => setPontoSelecionado(null)}
         />
 
@@ -2669,10 +2728,34 @@ export default function Mapa() {
           pin={pins.pinSelecionado}
           podeEditar={podeEditar}
           aoEditar={() => pins.abrirEdicao(pins.pinSelecionado.id)}
-          aoMover={() => pins.iniciarMover(pins.pinSelecionado.id)}
+          aoMover={() => {
+            const id = pins.pinSelecionado.id;
+            pins.fecharPin();
+            pins.iniciarMover(id);
+          }}
           aoRemover={() => pins.removerPin(pins.pinSelecionado.id)}
           aoFechar={pins.fecharPin}
         />
+
+        <BarraAnotar
+          aberta={barraAnotarAberta}
+          modoAdicionar={pins.modoAdicionar}
+          obtendoGps={pins.obtendoGps}
+          movendo={Boolean(pins.movendoId)}
+          aoTocarNoMapa={() => pins.setModoAdicionar((m) => !m)}
+          aoMinhaLocalizacao={pins.adicionarNaMinhaLocalizacao}
+          aoConfirmarMover={pins.confirmarMover}
+          aoCancelarMover={pins.cancelarMover}
+          aoFechar={() => setBarraAnotarAberta(false)}
+        />
+        {pins.rascunho && (
+          <FormularioPin
+            key={pins.rascunho.id || "novo"}
+            rascunho={pins.rascunho}
+            aoSalvar={pins.salvarRascunho}
+            aoCancelar={pins.cancelarRascunho}
+          />
+        )}
       </div>
     </main>
   );

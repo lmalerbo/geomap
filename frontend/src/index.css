@@ -2645,3 +2645,110 @@ input[type="file"]::file-selector-button:hover {
 .acoes-pin button {
   flex: 1;
 }
+
+.barra-anotar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  max-width: calc(100vw - 32px);
+  flex-wrap: wrap;
+}
+.barra-anotar .ativo {
+  outline: 2px solid var(--accent);
+}
+.barra-anotar .fechar {
+  background: none;
+  color: inherit;
+  padding: 0 6px;
+  font-size: 18px;
+}
+.painel-formulario-pin {
+  right: 16px;
+  bottom: 16px;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(80vh, calc(100% - 32px));
+  overflow-y: auto;
+}
+.painel-formulario-pin h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.coordenada-formulario-pin {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.grade-icones-pin,
+.paleta-pin {
+  border: none;
+  padding: 0;
+  margin: 8px 0;
+}
+.grade-icones-pin {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+}
+.grade-icones-pin legend,
+.paleta-pin legend {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.opcao-icone-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 10.5px;
+  line-height: 1.15;
+}
+.opcao-icone-pin.selecionado {
+  border-color: var(--accent);
+  background: rgb(0 0 0 / 0.04);
+}
+.paleta-pin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.amostra-cor-pin {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
+}
+.amostra-cor-pin.selecionado {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.campo-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.campo-pin input,
+.campo-pin textarea {
+  font: inherit;
+  font-weight: 400;
+  font-size: 14px;
+}
