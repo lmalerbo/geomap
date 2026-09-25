@@ -2780,3 +2780,16 @@ input[type="file"]::file-selector-button:hover {
   font-weight: 400;
   font-size: 14px;
 }
+
+/* Linha de um grupo em "Grupos com permissão" (Gerenciar mapas) — o
+   checkbox do grupo em si + a caixa "pode anotar" que só aparece quando
+   o grupo já está marcado (Task 11, mapa-preparo-anotacoes). */
+.linha-grupo-permissao {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.caixa-pode-anotar {
+  font-size: 12px;
+  opacity: 0.85;
+}
