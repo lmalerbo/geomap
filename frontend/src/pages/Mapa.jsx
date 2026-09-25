@@ -1021,6 +1021,7 @@ export default function Mapa() {
     () => {
       setSelecao(null);
       setPontoSelecionado(null);
+      pins.fecharPin();
     },
     nomeMapaAtual
   );
@@ -1199,9 +1200,28 @@ export default function Mapa() {
   }, [medicao.medindo]);
   useEffect(() => {
     if (barraAnotarAberta && medicao.medindo) medicao.setMedindo(false);
+    // Anotar e apontamento de voo também disputam o clique: abrir a barra
+    // encerra o apontamento (pedindo confirmação se já há talhões marcados,
+    // pra não jogar fora um lote montado pela metade).
+    if (barraAnotarAberta && apontamento.modoApontamento) {
+      const podeEncerrar =
+        apontamento.selecionados.size === 0 ||
+        window.confirm("Encerrar o apontamento de voo para anotar? Os talhões marcados serão desmarcados.");
+      if (podeEncerrar) apontamento.cancelarModo();
+      else setBarraAnotarAberta(false);
+    }
     if (!barraAnotarAberta) pins.setModoAdicionar(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [barraAnotarAberta]);
+  // Entrar no apontamento de voo fecha a barra/modo de anotar e o cartão
+  // do pin (no máximo 1 ferramenta de clique e 1 card por vez).
+  useEffect(() => {
+    if (!apontamento.modoApontamento) return;
+    setBarraAnotarAberta(false);
+    pins.setModoAdicionar(false);
+    pins.fecharPin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apontamento.modoApontamento]);
 
   // 1b) mantém o botão de fundo satélite em sincronia com o estado (ícone
   // ativo/inativo, bloqueado quando offline) e persiste a preferência.
@@ -1467,6 +1487,11 @@ export default function Mapa() {
         return;
       }
 
+      // Formulário de anotação aberto: o clique no mapa não faz nada — nem
+      // abre outro card por baixo do formulário, nem troca/descarta o
+      // rascunho meio preenchido ao tocar num pin existente.
+      if (pins.rascunho) return;
+
       // Modo de apontamento de voo (ver useApontamentoVoo.js): clique num
       // talhão pendente da camada "voos" marca/desmarca ele pro lote em
       // andamento, em vez do fluxo normal de painel de atributos — checado
@@ -1567,6 +1592,7 @@ export default function Mapa() {
     voosInfo,
     pins.modoAdicionar,
     pins.movendoId,
+    pins.rascunho,
     podeEditar,
   ]);
 
@@ -1741,6 +1767,7 @@ export default function Mapa() {
     // (ex: um Limites sem Talhões correspondente carregado ainda).
     setSelecao(null);
     setPontoSelecionado(null);
+    pins.fecharPin();
     setBuscaSelecionada(resultado);
     // talhoesPorDesc é indexado pelo nome cru (nomeBase), não pelo texto
     // decorado ("Nome (cód. X)") de um resultado ambíguo — sem filtrar
@@ -1768,6 +1795,7 @@ export default function Mapa() {
     }
     const info = camadasCarregadasRef.current.get(item.mapaId);
     setPontoSelecionado(null);
+    pins.fecharPin();
     setSelecao({
       lngLat: { lng: item.lng, lat: item.lat },
       itens: [
@@ -2007,6 +2035,7 @@ export default function Mapa() {
               setPainelTipoVooAberto(false); // mutuamente exclusivos (pedido do Leo, 2026-08-21) — dois cards abertos juntos na mesma pilha poluíam a tela
               setSelecao(null); // fecha Atributos também (2026-09-22) — no máximo 1 card de informação aberto por vez
               setPontoSelecionado(null);
+              pins.fecharPin();
             }}
             aria-label="Abrir painel de camadas"
             title="Camadas"
@@ -2276,6 +2305,7 @@ export default function Mapa() {
                 setPainelCamadasAberto(false); // mutuamente exclusivos, ver comentário em Camadas
                 setSelecao(null); // fecha Atributos também (2026-09-22)
                 setPontoSelecionado(null);
+                pins.fecharPin();
               }}
               aria-label="Abrir legenda de tipos de voo"
               title="Tipo de voo"
@@ -2469,6 +2499,9 @@ export default function Mapa() {
                       setSelecao(null);
                       setPontoSelecionado(null);
                       fecharTalhoesFazenda();
+                      pins.fecharPin();
+                      setBarraAnotarAberta(false);
+                      pins.setModoAdicionar(false);
                       apontamento.iniciarModo();
                     }}
                     disabled={apontamento.carregandoPendentes}
