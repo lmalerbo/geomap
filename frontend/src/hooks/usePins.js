@@ -9,6 +9,9 @@ const FONTE_PINS = "fonte-pins";
 const CAMADA_PINS = "camada-pins";
 const CAMADA_PINS_PENDENTES = "camada-pins-pendentes";
 const PRECISAO_MAXIMA_GPS = 30; // metros — acima disso pede confirmação
+// Edição/mover de um pin que o sync apagou enquanto o formulário estava
+// aberto (removido por outro usuário ou descartado pelo servidor).
+const AVISO_PIN_REMOVIDO = "Esta anotação foi removida e não pode mais ser editada.";
 
 function pinParaFeature(pin) {
   return {
@@ -183,7 +186,10 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
     const usuario = sessao.usuario;
     if (rascunho.id) {
       const atual = await buscarPinLocal(rascunho.id);
-      if (!atual) return setRascunho(null);
+      if (!atual) {
+        aoAviso?.(AVISO_PIN_REMOVIDO);
+        return setRascunho(null);
+      }
       await gravar({ ...atual, ...campos, atualizadoEm: agora, atualizadoPor: usuario.id, atualizadoPorNome: usuario.nome, pendente: "salvar" });
       setPinSelecionadoId(rascunho.id);
     } else {
@@ -255,7 +261,10 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
     const { lng, lat } = marcador.getLngLat();
     marcador.remove();
     const atual = await buscarPinLocal(id);
-    if (!atual) return;
+    if (!atual) {
+      aoAviso?.(AVISO_PIN_REMOVIDO);
+      return;
+    }
     const usuario = sessao.usuario;
     await gravar({ ...atual, lng, lat, atualizadoEm: new Date().toISOString(), atualizadoPor: usuario.id, atualizadoPorNome: usuario.nome, pendente: "salvar" });
   }
