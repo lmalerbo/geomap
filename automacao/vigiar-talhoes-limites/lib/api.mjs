@@ -77,6 +77,23 @@ export function criarClienteApi({ baseUrl, email, senha }) {
     return jobId;
   }
 
+  // `.pmtiles` já convertido no servidor geo (ver vigiar.mjs) — campo
+  // "arquivo", o mesmo do upload de .pmtiles pronto pela tela de admin. O
+  // backend só valida e grava no R2, sem converter nada (sem pico de
+  // memória no Render).
+  async function enviarPmtilesCamada(camadaId, bufferPmtiles, versao) {
+    const form = new FormData();
+    form.set("versao", versao);
+    form.append("arquivo", new Blob([bufferPmtiles]), "camada.pmtiles");
+    const resp = await chamar(`/admin/camadas/${camadaId}/arquivo`, { method: "PUT", body: form });
+    if (resp.status !== 202) {
+      const corpo = await resp.text().catch(() => "");
+      throw new ErroApi(`PUT .../camadas/${camadaId}/arquivo falhou (HTTP ${resp.status}): ${corpo}`, resp.status);
+    }
+    const { jobId } = await resp.json();
+    return jobId;
+  }
+
   async function consultarJob(jobId) {
     const resp = await chamar(`/admin/jobs/${jobId}`);
     const corpo = await resp.text();
@@ -94,7 +111,7 @@ export function criarClienteApi({ baseUrl, email, senha }) {
     }
   }
 
-  return { login, listarMapas, listarCamadas, enviarArquivoCamada, consultarJob };
+  return { login, listarMapas, listarCamadas, enviarArquivoCamada, enviarPmtilesCamada, consultarJob };
 }
 
 // Poll ate o job sair de "processando" -- Talhoes grande já levou 8-12min

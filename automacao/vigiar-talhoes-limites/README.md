@@ -18,14 +18,17 @@ processadas ainda — ver `docs/ROADMAP.md`.
    acha o arquivo **mais recente** de cada tipo (Talhões/Limites) e
    confere se a data é mais nova que a última já processada
    (`estado.json`).
-3. Se for, envia os arquivos pra API do GeoMap (`PUT
+3. Se for, **converte o `.shp` em `.pmtiles` aqui mesmo** (ver seção
+   "Conversão local" abaixo — desde 2026-09-28, antes o Render fazia essa
+   conversão) e envia o resultado pronto pra API do GeoMap (`PUT
    /admin/camadas/:id/arquivo`, a mesma rota que o upload manual pela tela
-   de admin usa) — **em todos os mapas que têm essa camada** (hoje,
-   Talhões existe em 3 mapas — "Geral", "Temático" e "Irrigação" —, e
-   Limites também nos mesmos 3).
-4. Espera cada conversão terminar (pode levar minutos, principalmente
-   Talhões) antes de passar pra próxima — nunca duas ao mesmo tempo (já
-   visto causar erro no Render em produção real).
+   de admin usa, só que com o arquivo já convertido em vez do `.shp`) —
+   **em todos os mapas que têm essa camada** (hoje, Talhões existe em 4
+   mapas — "Geral", "Temático", "Irrigação" e "ICOL" —, e Limites também).
+   Converte uma vez só por nome de camada, mesmo que ele apareça em vários
+   mapas.
+4. Espera cada envio terminar antes de passar pro próximo — nunca dois ao
+   mesmo tempo.
 5. Registra tudo em `log.txt` e termina (não fica rodando o resto do
    dia).
 
@@ -118,6 +121,55 @@ navegador de verdade nessa máquina e completar a autenticação que
 aparecer (uma vez) libera a rede pro resto da sessão, inclusive pra
 chamadas feitas depois via terminal.
 
+### 4.5. Conversão local (ogr2ogr/tippecanoe/Python) — pré-requisito novo
+
+Desde 2026-09-28 a conversão `.shp` → `.pmtiles` (geometria + rótulos)
+roda **aqui**, não mais no Render — converter Talhões (o mais pesado) lá
+estourava o limite de memória do plano gratuito (512MB) e derrubava o
+processo no meio do job (aconteceu de verdade em 20/09, 22/09 e 26/09).
+Esta máquina agora precisa dos mesmos binários que a máquina de
+desenvolvimento do Leo já usa — mais fácil **copiar** do que reinstalar
+do zero, já que são binários prontos:
+
+1. **Copiar as pastas** (de `C:\Users\lmalerbo\` na máquina do Leo, via
+   RDP/pasta de rede/pendrive) pra um lugar fixo nesta máquina, ex.
+   `C:\ferramentas\`:
+   - `cygwin-portable\` inteira (~1,6GB — tem `ogr2ogr.exe` +
+     dependências, dentro de `root\bin\`).
+   - De `tippecanoe\`, só precisa de `tippecanoe.exe` e `tile-join.exe`
+     (~330MB a pasta toda, mas só esses 2 arquivos importam).
+2. **Python** (roda os scripts de rótulo — `pipeline/rotulos/*.py`, no
+   repositório clonado, não em `automacao/`): instalar via Scoop, mesmo
+   padrão sem-admin já usado nesta máquina pra Node/git —
+   `scoop install python` — depois `pip install -r
+   ..\..\pipeline\requirements.txt` (caminho relativo a esta pasta;
+   `pyshp`/`pyproj`/`shapely`, poucos MB).
+3. **`git pull`** neste clone do repositório — traz o módulo de conversão
+   novo (`backend/src/lib/conversaoShapefile.js`, só módulos nativos do
+   Node, não precisa de `npm install` dentro de `backend/`) e o
+   `vigiar.mjs` atualizado. Confirmar que a pasta `backend/` existe do
+   lado de `automacao/` (clone completo do repositório, não só esta
+   subpasta).
+4. Acrescentar ao `.env` desta pasta (ver `.env.example` — variáveis
+   novas, mesmo padrão de sempre — ajustar os caminhos pra onde as pastas
+   foram copiadas no passo 1):
+   ```
+   OGR2OGR_PATH=C:\ferramentas\cygwin-portable\root\bin\ogr2ogr.exe
+   TIPPECANOE_PATH=C:\ferramentas\tippecanoe\tippecanoe.exe
+   TILEJOIN_PATH=C:\ferramentas\tippecanoe\tile-join.exe
+   CYGWIN_BIN_DIR=C:\ferramentas\cygwin-portable\root\bin
+   PYTHON_PATH=python
+   ```
+5. Testar a conversão isolada antes de rodar `npm run vigiar` de
+   verdade — copie um `.shp`+`.dbf`+`.shx`+`.prj` de teste pra uma pasta
+   qualquer e rode (dentro de `automacao/vigiar-talhoes-limites/`):
+   ```powershell
+   node -e "import('../../backend/src/lib/conversaoShapefile.js').then(async m => { const nome = await m.validarShapefileNaPasta('CAMINHO_DA_PASTA_DE_TESTE'); const buf = await m.converterPastaShapefileParaPmtiles('CAMINHO_DA_PASTA_DE_TESTE', nome, 'teste'); console.log(buf.length, 'bytes', buf.subarray(0,7).toString()); })"
+   ```
+   Sucesso: imprime um tamanho em bytes e `PMTiles` (a assinatura do
+   arquivo). Qualquer binário não encontrado aponta exatamente qual
+   variável de `.env` conferir (mensagem de erro já nomeia a variável).
+
 ### 5. Descobrir os ids de camada
 
 ```
@@ -191,6 +243,15 @@ seguro pra confirmar que está tudo certo: soltar um `.shp` de teste
 (cópia de um dia já processado, renomeado com uma data mais nova) na
 pasta e rodar `npm run vigiar` na mão — só depois de ver "todas as
 camadas atualizadas" é que o arquivo realmente foi pra produção.
+
+## Se der erro de binário não encontrado
+
+`ENOENT`/"não encontrado" ao converter aponta um caminho de `.env`
+errado ou a pasta copiada (passo 4.5) incompleta — a mensagem sempre
+nomeia a variável (`OGR2OGR_PATH`/`TIPPECANOE_PATH`/`TILEJOIN_PATH`/
+`PYTHON_PATH`). Testar o binário isolado direto no PowerShell (ex: `&
+"C:\ferramentas\cygwin-portable\root\bin\ogr2ogr.exe" --version`) reproduz
+o erro fora do Node, mais fácil de depurar.
 
 ## O que NÃO está coberto (de propósito)
 

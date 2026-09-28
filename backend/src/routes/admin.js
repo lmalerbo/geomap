@@ -3,9 +3,6 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
 import multer from "multer";
 import bcrypt from "bcrypt";
 import AdmZip from "adm-zip";
@@ -13,6 +10,7 @@ import { pool } from "../db/pool.js";
 import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
 import { SENHA_TEMPORARIA_PADRAO } from "../lib/senhaTemporaria.js";
 import { testarLogin } from "../lib/dronemgmt.js";
+import { validarShapefileNaPasta, converterPastaShapefileParaPmtiles } from "../lib/conversaoShapefile.js";
 import {
   salvarArquivo,
   apagarArquivo,
@@ -22,47 +20,6 @@ import {
 } from "../lib/storage.js";
 
 export const adminRouter = Router();
-
-const execFileAsync = promisify(execFile);
-
-// Sem essas variáveis, assume que "ogr2ogr"/"tippecanoe" já estão no PATH
-// (é o caso normal num host Linux de produção). No Windows local, tippecanoe
-// não compila nativamente — usa os binários Cygwin-compilados apontados
-// nessas variáveis (ver .env.example). Em produção na nuvem (Render), esses
-// binários não existem — upload de .zip (conversão shapefile) falha com
-// mensagem clara (ENOENT), mas .pmtiles já pronto continua funcionando
-// normalmente (ver processarArquivoRecebido).
-const OGR2OGR_PATH = process.env.OGR2OGR_PATH || "ogr2ogr";
-const TIPPECANOE_PATH = process.env.TIPPECANOE_PATH || "tippecanoe";
-const CYGWIN_BIN_DIR = process.env.CYGWIN_BIN_DIR || null;
-// Geração automática de rótulos (número do talhão / nome da fazenda) —
-// mesmo padrão de PATH das duas variáveis acima. python3/tile-join
-// resolvem via PATH dentro da imagem Docker de produção; local Windows
-// aponta pros binários Cygwin (tile-join.exe sai do mesmo `make install`
-// do tippecanoe.exe, ver pipeline/rotulos/README.md).
-const PYTHON_PATH = process.env.PYTHON_PATH || "python3";
-const TILEJOIN_PATH = process.env.TILEJOIN_PATH || "tile-join";
-// pipeline/rotulos fica 3 níveis acima deste arquivo (routes -> src ->
-// backend -> raiz do repo) tanto em dev local quanto dentro da imagem
-// Docker, que espelha essa mesma estrutura (ver backend/Dockerfile).
-const ROTULOS_SCRIPTS_DIR =
-  process.env.ROTULOS_SCRIPTS_DIR ||
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../pipeline/rotulos");
-
-// Testado contra produção real (Render free tier, só 0.1 CPU): o Talhões
-// completo (~7500 feições) levou ~8min de ponta a ponta, e o script de
-// rótulos sozinho (o passo mais lento, roda polylabel feição a feição em
-// Python puro) não termina dentro de 5min nessa instância — 5min bastava
-// na máquina de desenvolvimento (CPU de verdade), mas não no free tier.
-const TIMEOUT_CONVERSAO = 15 * 60 * 1000;
-
-// PATH do processo filho: binários Cygwin-compilados precisam achar
-// cygwin1.dll e as outras DLLs do runtime, que não estão no PATH normal
-// do Windows.
-function envParaConversao() {
-  if (!CYGWIN_BIN_DIR) return process.env;
-  return { ...process.env, PATH: `${CYGWIN_BIN_DIR}${path.delimiter}${process.env.PATH}` };
-}
 
 // memoryStorage (não diskStorage): o arquivo fica só em req.file.buffer —
 // nunca toca disco local, que num host free-tier (Render) não é
@@ -120,161 +77,6 @@ async function gravarArquivosSoltos(pastaTemp, arquivos) {
   for (const arquivo of arquivos) {
     await fs.promises.writeFile(path.join(pastaTemp, arquivo.originalname), arquivo.buffer);
   }
-}
-
-// Confere .shp + os obrigatórios (.dbf/.shx/.prj) numa pasta já populada
-// (via zip extraído ou arquivos soltos) — aponta especificamente o que
-// falta, em vez de uma mensagem genérica de "shapefile incompleto". .prj
-// virou obrigatório aqui: sem ele, tanto o ogr2ogr (-t_srs sozinho conta
-// com auto-detecção da projeção de origem) quanto os scripts de rótulo
-// (ver decidirEstrategiaRotulos/gerar_rotulos.py) dependem de adivinhar a
-// projeção — já causou geometria/rótulo em posição errada antes.
-async function validarShapefileNaPasta(pastaTemp) {
-  const arquivos = await fs.promises.readdir(pastaTemp);
-  const shp = arquivos.find((f) => f.toLowerCase().endsWith(".shp"));
-  if (!shp) {
-    throw new Error("nenhum arquivo .shp encontrado");
-  }
-  const base = shp.slice(0, -4).toLowerCase();
-  const faltando = [".dbf", ".shx", ".prj"].filter(
-    (ext) => !arquivos.some((f) => f.toLowerCase() === `${base}${ext}`)
-  );
-  if (faltando.length > 0) {
-    throw new Error(`faltando: ${faltando.join(", ")}`);
-  }
-  return shp;
-}
-
-// Decide se gera rótulos e com qual estratégia, pelos campos do próprio
-// GeoJSON já convertido — mesmo critério que o frontend já usa pra
-// decidir `ehTalhao` em Mapa.jsx (presença do campo TALHAO). Retorna null
-// quando a camada não é desse tipo (Municípios, Malhas Viárias, Unidades,
-// Pontos de Captação) — comportamento de hoje preservado, só geometria.
-async function decidirEstrategiaRotulos(caminhoGeojson) {
-  const geojson = JSON.parse(await fs.promises.readFile(caminhoGeojson, "utf8"));
-  const campos = Object.keys(geojson.features?.[0]?.properties || {});
-  if (campos.includes("TALHAO") && campos.includes("SECAO")) {
-    return { script: "gerar_rotulos.py", argsExtras: [] };
-  }
-  if (campos.includes("DESC_SECAO")) {
-    return { script: "gerar_rotulos_por_atributo.py", argsExtras: ["DESC_SECAO"] };
-  }
-  return null;
-}
-
-// .shp (numa pasta já populada, com .dbf/.shx/.prj do lado) -> .pmtiles.
-// Mesmos passos de pipeline/shp_para_pmtiles.sh (ogr2ogr pra GeoJSON,
-// tippecanoe pra geometria), orquestrado a partir do Node. Depois de
-// gerar a geometria, decide se gera rótulos (pipeline/rotulos/README.md)
-// e, se sim, roda o script Python correspondente, gera o .pmtiles de
-// rótulos com `-r1` (desliga o drop-rate padrão do tippecanoe, que apaga
-// a maioria dos rótulos em zooms intermediários) e junta os dois com
-// tile-join — mesma receita já validada manualmente nesta sessão.
-async function converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamadaArquivo) {
-  const base = nomeShp.slice(0, -4);
-  const caminhoShp = path.join(pastaTemp, nomeShp);
-  const caminhoGeojson = path.join(pastaTemp, `${base}.geojson`);
-  const caminhoPmtilesGeometria = path.join(pastaTemp, `${crypto.randomUUID()}.pmtiles`);
-  const env = envParaConversao();
-
-  try {
-    await execFileAsync(
-      OGR2OGR_PATH,
-      ["-f", "GeoJSON", "-t_srs", "EPSG:4326", caminhoGeojson, caminhoShp],
-      { env, timeout: TIMEOUT_CONVERSAO }
-    );
-  } catch (err) {
-    throw new Error(
-      err.code === "ENOENT"
-        ? `ogr2ogr não encontrado (OGR2OGR_PATH=${OGR2OGR_PATH}) — confira a configuração no .env`
-        : `falha ao converter .shp pra GeoJSON: ${err.stderr || err.message}`
-    );
-  }
-
-  try {
-    await execFileAsync(
-      TIPPECANOE_PATH,
-      [
-        `--output=${caminhoPmtilesGeometria}`,
-        `--layer=${nomeCamadaArquivo || base}`,
-        // maximum-zoom FIXO (não "g"/guess): o "guess" escolhe o maxzoom
-        // com base no espaçamento entre features pra deixá-las
-        // visualmente distinguíveis — pra um dado pouco denso (poucos
-        // pontos bem espaçados, ex: sedes de unidade), escolhe um
-        // maxzoom absurdamente baixo (chegou a 0 num teste real), o que
-        // quantiza as coordenadas num grid gigante (~9km no zoom 0) e
-        // faz a feição gravar num lugar bem diferente da posição real —
-        // não é bug de exibição, o dado já fica errado dentro do
-        // .pmtiles. 16 preserva precisão de poucos metros pra qualquer
-        // densidade de feição (ponto/linha/polígono).
-        "--maximum-zoom=16",
-        "--drop-densest-as-needed",
-        "--force",
-        caminhoGeojson,
-      ],
-      { env, timeout: TIMEOUT_CONVERSAO }
-    );
-  } catch (err) {
-    throw new Error(
-      err.code === "ENOENT"
-        ? `tippecanoe não encontrado (TIPPECANOE_PATH=${TIPPECANOE_PATH}) — confira a configuração no .env`
-        : `falha ao gerar .pmtiles: ${err.stderr || err.message}`
-    );
-  }
-
-  const estrategiaRotulos = await decidirEstrategiaRotulos(caminhoGeojson);
-  if (!estrategiaRotulos) {
-    return fs.promises.readFile(caminhoPmtilesGeometria);
-  }
-
-  const caminhoRotulosGeojson = path.join(pastaTemp, `${crypto.randomUUID()}-rotulos.geojson`);
-  const caminhoRotulosPmtiles = path.join(pastaTemp, `${crypto.randomUUID()}-rotulos.pmtiles`);
-  const caminhoPmtilesFinal = path.join(pastaTemp, `${crypto.randomUUID()}-final.pmtiles`);
-
-  try {
-    await execFileAsync(
-      PYTHON_PATH,
-      [
-        path.join(ROTULOS_SCRIPTS_DIR, estrategiaRotulos.script),
-        caminhoShp,
-        ...estrategiaRotulos.argsExtras,
-        caminhoRotulosGeojson,
-      ],
-      { env, timeout: TIMEOUT_CONVERSAO }
-    );
-  } catch (err) {
-    throw new Error(
-      err.code === "ENOENT"
-        ? `python não encontrado (PYTHON_PATH=${PYTHON_PATH}) — confira a configuração no .env`
-        : `falha ao gerar rótulos: ${err.stderr || err.message}`
-    );
-  }
-
-  try {
-    await execFileAsync(
-      TIPPECANOE_PATH,
-      [`--output=${caminhoRotulosPmtiles}`, "--layer=rotulos", "-z17", "-r1", "--force", caminhoRotulosGeojson],
-      { env, timeout: TIMEOUT_CONVERSAO }
-    );
-  } catch (err) {
-    throw new Error(`falha ao gerar .pmtiles de rótulos: ${err.stderr || err.message}`);
-  }
-
-  try {
-    await execFileAsync(
-      TILEJOIN_PATH,
-      ["-f", "-o", caminhoPmtilesFinal, caminhoPmtilesGeometria, caminhoRotulosPmtiles],
-      { env, timeout: TIMEOUT_CONVERSAO }
-    );
-  } catch (err) {
-    throw new Error(
-      err.code === "ENOENT"
-        ? `tile-join não encontrado (TILEJOIN_PATH=${TILEJOIN_PATH}) — confira a configuração no .env`
-        : `falha ao juntar geometria e rótulos: ${err.stderr || err.message}`
-    );
-  }
-
-  return fs.promises.readFile(caminhoPmtilesFinal);
 }
 
 // Decide, pelo que chegou no multipart, se usa o .pmtiles direto (valida
@@ -976,8 +778,8 @@ adminRouter.get("/admin/camadas", async (req, res) => {
 // escopo desta rota — o admin roda o pipeline localmente e faz upload do
 // resultado), cria o registro em camadas associado a um mapa. Permissão
 // não entra mais aqui — vive no mapa (ver /admin/mapas acima).
-// Conversão de shapefile grande pode levar minutos (ver TIMEOUT_CONVERSAO
-// acima) — POST/PUT de camada não seguram mais a conexão HTTP esse tempo
+// Conversão de shapefile grande pode levar minutos (ver TIMEOUT_CONVERSAO em
+// lib/conversaoShapefile.js) — POST/PUT de camada não seguram mais a conexão HTTP esse tempo
 // todo. Validam tudo que é rápido de checar de forma síncrona (arquivo
 // presente, campos obrigatórios, mapa/camada existe) e devolvem um jobId
 // na hora; a conversão em si roda em segundo plano (funções abaixo, sem

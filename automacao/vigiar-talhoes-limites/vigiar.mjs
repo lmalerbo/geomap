@@ -11,9 +11,15 @@
 // por dia mesmo, então "vigiar em tempo real" nunca foi necessário de
 // verdade.
 import path from "path";
+import os from "os";
+import crypto from "crypto";
 import fs from "fs/promises";
 import { fileURLToPath, pathToFileURL } from "url";
 import { criarClienteApi, aguardarJobConcluir } from "./lib/api.mjs";
+import {
+  validarShapefileNaPasta,
+  converterPastaShapefileParaPmtiles,
+} from "../../backend/src/lib/conversaoShapefile.js";
 import {
   interpretarNomeArquivo,
   unidadeSuportada,
@@ -114,11 +120,30 @@ async function aguardarArquivosCompletos(pasta, info, { tentativas = 5, esperaMs
   return null;
 }
 
+// Converte o shapefile em .pmtiles AQUI (servidor geo), não no Render —
+// converter Talhões no Render (512MB) estourava a memória e derrubava o
+// processo no meio do job (20/09, 22/09, 26/09/2026). Copia os arquivos
+// pra uma pasta temporária local (a conversão escreve intermediários ao
+// lado do .shp — nunca na pasta de rede). O nome da camada vira o nome da
+// camada vetorial dentro do .pmtiles, igual ao upload pela tela de admin.
+async function converterLocalmente(caminhos, nomeCamada) {
+  const pastaTemp = path.join(os.tmpdir(), `geomap-vigiar-${crypto.randomUUID()}`);
+  await fs.mkdir(pastaTemp, { recursive: true });
+  try {
+    for (const caminho of caminhos) {
+      await fs.copyFile(caminho, path.join(pastaTemp, path.basename(caminho)));
+    }
+    const nomeShp = await validarShapefileNaPasta(pastaTemp);
+    return await converterPastaShapefileParaPmtiles(pastaTemp, nomeShp, nomeCamada);
+  } finally {
+    await fs.rm(pastaTemp, { recursive: true, force: true });
+  }
+}
+
 // Processa um candidato (Talhões OU Limites de uma unidade, na data mais
-// recente encontrada) — envia a camada correspondente em CADA mapa que a
-// tem (ver mapeamento-camadas.json), uma de cada vez (sequencial, nunca
-// duas conversões pesadas ao mesmo tempo no Render — já visto causar
-// erro em produção real).
+// recente encontrada) — converte uma vez por nome de camada e envia o
+// .pmtiles pronto pra camada correspondente em CADA mapa que a tem (ver
+// mapeamento-camadas.json), uma de cada vez.
 async function processarCandidato({ pasta, mapeamento, cliente }, info) {
   const estadoAtual = await lerEstado(CAMINHO_ESTADO);
   if (jaProcessado(estadoAtual, info.unidade, info.tipo, info.data)) {
@@ -144,9 +169,18 @@ async function processarCandidato({ pasta, mapeamento, cliente }, info) {
   }
 
   await log(`(${info.unidade}/${info.tipo}) processando ${info.data} -> camadas [${camadaIds.join(", ")}]`);
+  const nomesCamadas = new Map((await cliente.listarCamadas()).map((c) => [c.id, c.nome]));
+  const pmtilesPorNome = new Map(); // mesma camada em vários mapas costuma ter o mesmo nome — converte uma vez só
   for (const camadaId of camadaIds) {
-    await log(`  camada ${camadaId}: enviando...`);
-    const jobId = await cliente.enviarArquivoCamada(camadaId, caminhos, info.data);
+    const nomeCamada = nomesCamadas.get(camadaId);
+    if (!pmtilesPorNome.has(nomeCamada)) {
+      await log(`  convertendo localmente (camada "${nomeCamada}")...`);
+      const inicio = Date.now();
+      pmtilesPorNome.set(nomeCamada, await converterLocalmente(caminhos, nomeCamada));
+      await log(`  conversão concluída em ${Math.round((Date.now() - inicio) / 1000)}s (${pmtilesPorNome.get(nomeCamada).length} bytes)`);
+    }
+    await log(`  camada ${camadaId}: enviando .pmtiles...`);
+    const jobId = await cliente.enviarPmtilesCamada(camadaId, pmtilesPorNome.get(nomeCamada), info.data);
     await log(`  camada ${camadaId}: job ${jobId} criado, aguardando conclusão...`);
     await aguardarJobConcluir(cliente, jobId, {
       aoFalharTemporariamente: (erro, tentativa) =>
