@@ -23,36 +23,22 @@ const TIMEOUT_LOGIN_MS = 30_000;
 // de novo toda hora enquanto o backend está ocioso ou dormindo.
 let sessaoCache = null; // { cookie, xsrfToken, obtidaEm }
 
-// Navegador Chromium mantido vivo entre logins (Playwright), em vez de
-// abrir+fechar um processo inteiro a cada relogin — achado real (2026-08-20,
-// Leo reportou 1,5-2min de carregamento em TODA visita ao mapa "Voos", não
-// só na primeira do dia): abrir um Chromium do zero é o passo mais pesado
-// do login, e no plano free do Render (RAM bem limitada, imagem já carrega
-// GDAL/tippecanoe) repetir isso a cada requisição é provável causa de
-// pressão de memória (possível derrubada/reinício do processo, perdendo o
-// sessaoCache e forçando login de novo sempre — nunca confirmado via log do
-// Render nesta sessão, mas é a hipótese mais provável dado o padrão
-// observado). Reusar o navegador entre logins elimina o custo de
-// lançar/matar o processo do Chromium a cada vez; só a aba (context/page)
-// é criada e fechada por login.
-let navegadorPromise = null;
-
-async function obterNavegador() {
-  if (!navegadorPromise) {
-    navegadorPromise = chromium.launch({
-      headless: true,
-      // Reduz footprint de memória em containers com pouca RAM — mesmo
-      // princípio de qualquer Chromium rodando em CI/container pequeno:
-      // /dev/shm costuma ser pequeno demais no Docker por padrão (causa
-      // crash do Chromium, não só lentidão) e a GPU não existe de verdade
-      // num servidor headless.
-      args: ["--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"],
-    });
-    navegadorPromise.catch(() => {
-      navegadorPromise = null; // não deixa uma falha de lançamento presa em cache pra sempre
-    });
-  }
-  return navegadorPromise;
+// Chromium aberto só durante o login e fechado logo em seguida. Chegou a
+// ficar vivo o tempo todo (2026-08-20, pra acelerar relogins), mas isso
+// deixava ~150-250MB presos no container de 512MB do Render e a conversão
+// diária de Talhões (ogr2ogr/tippecanoe/rótulos) começou a estourar a
+// memória — processo morto no meio do job em 20/09, 22/09 e 26/09, com
+// alerta "exceeded its memory limit" do Render (2026-09-28). Login é raro
+// (a sessão fica em sessaoCache) e a lentidão do mapa de voos já foi
+// resolvida pelo cache de pendências, então reabrir o Chromium no próximo
+// login custa pouco.
+function abrirNavegador() {
+  return chromium.launch({
+    headless: true,
+    // /dev/shm costuma ser pequeno demais no Docker (crash do Chromium) e
+    // não existe GPU num servidor headless.
+    args: ["--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"],
+  });
 }
 
 function validarConfig() {
@@ -66,13 +52,11 @@ function validarConfig() {
 
 // Loga pela tela normal (SSO redireciona por conta própria até o cookie ser
 // gravado) e extrai os cookies de sessão — mesma técnica de
-// login_dronemgmt() em atualizar_voos.py. Usa o Chromium persistente
-// (obterNavegador) — só a aba (context/page) é criada e fechada aqui, nunca
-// o navegador inteiro, pra não pagar o custo de lançar um processo Chromium
-// do zero a cada login.
+// login_dronemgmt() em atualizar_voos.py. O Chromium é aberto e fechado
+// aqui dentro (ver abrirNavegador).
 async function logar() {
   validarConfig();
-  const browser = await obterNavegador();
+  const browser = await abrirNavegador();
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
@@ -124,7 +108,7 @@ async function logar() {
     }
     throw err;
   } finally {
-    await context.close(); // fecha só a aba — o navegador persistente continua vivo pro próximo login
+    await browser.close(); // fecha o Chromium inteiro (e a aba junto) — ver abrirNavegador
   }
 }
 
