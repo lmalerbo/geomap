@@ -1,0 +1,26 @@
+name: Manter backend acordado
+
+# Render (free tier) dorme o processo depois de ~15min sem receber
+# nenhuma requisição — quem acorda ele de novo paga ~30-60s de cold start
+# (Node subindo do zero), medido em produção real em 41s só pro /health
+# responder (2026-09-29). Pilotos abrindo o mapa de voo esporadicamente ao
+# longo do dia (intervalos > 15min) sempre pegavam essa demora, mesmo
+# depois do cache de pendências (voos_pendentes_cache) já ter resolvido o
+# outro lado do problema (buscar no DroneManagement). Sem orçamento pra
+# upar o plano do Render — esse ping gratuito evita o processo dormir de
+# verdade, então nenhum acesso real precisa pagar o cold start.
+#
+# "every 10 minutes" é best-effort do GitHub Actions (não garante o
+# segundo exato, pode atrasar alguns minutos sob carga) — 10min dá uma
+# margem de ~5min contra o limite de 15min do Render antes de dormir.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pingar /health
+        run: curl -sf --max-time 90 https://geomap-docker.onrender.com/health
