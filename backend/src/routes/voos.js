@@ -62,6 +62,12 @@ function mapearRegistro(r) {
     // hectares pendentes em vez de contagem de talhões no painel do
     // mapa (ver useApontamentoVoo.js).
     areaHa: r.layerDetails?.totalArea ?? null,
+    // Área de fornecedor (mesmo PROPRIEDADES_FORNECEDOR usado acima pra
+    // excluir Falhas Soca) — aqui em TODO registro, não só Falhas Soca,
+    // porque Falhas Plantio voa em fornecedor de verdade e só precisa
+    // dessa informação pra se destacar com outra cor no mapa (pedido do
+    // Leo, 2026-09-29), não pra ser filtrado.
+    fornecedor: PROPRIEDADES_FORNECEDOR.has(r.layerDetails?.transferProperty),
   };
 }
 

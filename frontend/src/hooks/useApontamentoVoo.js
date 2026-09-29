@@ -108,6 +108,26 @@ function corPorProjeto(nome) {
   return paletaFallback[h % paletaFallback.length];
 }
 
+// Falhas Plantio em área de fornecedor precisa se destacar do Falhas
+// Plantio normal (pedido do Leo, 2026-09-29 — ele voa mesmo em fornecedor,
+// diferente de Falhas Soca, que é excluído dessa área lá no backend; ver
+// PROPRIEDADES_FORNECEDOR em voos.js). Um azul claro/saturado contrasta
+// tanto com o verde normal de Falhas Plantio (#16a34a) quanto com o azul
+// escuro já usado por "Projeto Plantio" (#2563eb) — não reaproveita esse
+// último de propósito, pra não os dois tipos parecerem a mesma coisa no
+// mapa.
+const NOME_FALHAS_PLANTIO = "Falhas Plantio";
+const COR_FALHAS_PLANTIO_FORNECEDOR = "#38bdf8";
+
+// Cor de um registro pendente específico — igual corPorProjeto pra
+// qualquer tipo, exceto Falhas Plantio em área de fornecedor (ver acima).
+function corPorRegistro(registro) {
+  if (registro.projeto === NOME_FALHAS_PLANTIO && registro.fornecedor) {
+    return COR_FALHAS_PLANTIO_FORNECEDOR;
+  }
+  return corPorProjeto(registro.projeto);
+}
+
 // Ordem fixa (ORDEM_E_COR_TIPO_VOO acima); tipo desconhecido (fora da
 // lista) vai pro fim, em ordem alfabética entre si.
 function ordenarTiposVoo(nomes) {
@@ -137,7 +157,7 @@ function ordenarTiposVoo(nomes) {
 // de empilhar N contornos um em cima do outro — clicar nele abre uma
 // escolha rápida (`escolhaPendente`) em vez de marcar direto.
 export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
-  const [pendentes, setPendentes] = useState([]); // [{id, projeto, secao, talhao, controlStatus, verifyFlightSize, areaHa}]
+  const [pendentes, setPendentes] = useState([]); // [{id, projeto, secao, talhao, controlStatus, verifyFlightSize, areaHa, fornecedor}]
   // `null` = sem filtro (mostra todos os tipos); com filtro, só os
   // marcados. Nunca usa Set vazio pra "todos" — senão não dava pra
   // distinguir de "usuário desmarcou tudo".
@@ -177,8 +197,28 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // porque é 100% função de `pendentes`.
   const projetosDisponiveis = ordenarTiposVoo([...new Set(pendentes.map((r) => r.projeto).filter(Boolean))]);
   // Nome + cor (estável, ver corPorProjeto) de cada tipo — pro painel
-  // desenhar o swatch ao lado de cada checkbox.
-  const legendaProjetos = projetosDisponiveis.map((nome) => ({ nome, cor: corPorProjeto(nome) }));
+  // desenhar o swatch ao lado de cada checkbox. Falhas Plantio em área de
+  // fornecedor ganha uma 2ª linha só informativa (mesma cor que aparece de
+  // verdade no mapa nesses talhões, ver corPorRegistro) — sem virar um
+  // filtro à parte: `projeto` das duas linhas aponta pro mesmo
+  // "Falhas Plantio" real, então marcar/desmarcar qualquer uma alterna o
+  // tipo inteiro (não dá pra filtrar só a variante fornecedor, não foi
+  // pedido — só precisa aparecer explicado na legenda).
+  const legendaProjetos = projetosDisponiveis.flatMap((nome) => {
+    const base = { chave: nome, rotulo: nome, cor: corPorProjeto(nome), projeto: nome };
+    if (nome === NOME_FALHAS_PLANTIO && pendentes.some((r) => r.projeto === nome && r.fornecedor)) {
+      return [
+        base,
+        {
+          chave: `${nome}::fornecedor`,
+          rotulo: `${nome} (fornecedor)`,
+          cor: COR_FALHAS_PLANTIO_FORNECEDOR,
+          projeto: nome,
+        },
+      ];
+    }
+    return [base];
+  });
 
   // `null` = sem filtro (mostra tudo); com filtro, só os projetos
   // marcados. Também derivado — nunca fica dessincronizado de `pendentes`
@@ -268,24 +308,32 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     // = sem contorno; 1 tipo = cor daquele tipo, no contorno normal; 2+
     // tipos = um anel por tipo (ver bloco abaixo), nunca uma cor genérica
     // de "múltiplo".
-    const tiposPorTalhao = new Map(); // chave -> Set<projeto>
+    // Map<projeto, registro> em vez de Set<projeto> — precisa de um
+    // registro de verdade (não só o nome) pra corPorRegistro conseguir
+    // diferenciar Falhas Plantio em área de fornecedor (ver acima). Um
+    // registro representante por tipo já basta: todos os registros do
+    // mesmo talhão+tipo compartilham o mesmo `fornecedor` (é atributo do
+    // talhão, não do voo individual).
+    const tiposPorTalhao = new Map(); // chave -> Map<projeto, registro>
     for (const r of pendentesFiltrados) {
       const k = chave(r.secao, r.talhao);
-      if (!tiposPorTalhao.has(k)) tiposPorTalhao.set(k, new Set());
-      tiposPorTalhao.get(k).add(r.projeto);
+      if (!tiposPorTalhao.has(k)) tiposPorTalhao.set(k, new Map());
+      if (!tiposPorTalhao.get(k).has(r.projeto)) tiposPorTalhao.get(k).set(r.projeto, r);
     }
 
     const chavesVerdes = new Set(recemApontados.keys());
     const chavesPorCor = new Map(); // cor -> [chaves], só quando tem 1 tipo só
-    const multiploPorChave = new Map(); // chave -> string[] tipos (ordenados), quando tem 2+
+    const multiploPorChave = new Map(); // chave -> registro[] (ordenados por tipo), quando tem 2+
 
-    for (const [k, tiposSet] of tiposPorTalhao) {
+    for (const [k, registrosPorTipo] of tiposPorTalhao) {
       if (chavesVerdes.has(k)) continue; // recém apontado tem prioridade, tratado à parte
-      if (tiposSet.size > 1) {
-        multiploPorChave.set(k, ordenarTiposVoo([...tiposSet]));
+      if (registrosPorTipo.size > 1) {
+        const nomesOrdenados = ordenarTiposVoo([...registrosPorTipo.keys()]);
+        multiploPorChave.set(k, nomesOrdenados.map((nome) => registrosPorTipo.get(nome)));
         continue;
       }
-      const cor = corPorProjeto([...tiposSet][0]);
+      const [registro] = registrosPorTipo.values();
+      const cor = corPorRegistro(registro);
       if (!chavesPorCor.has(cor)) chavesPorCor.set(cor, []);
       chavesPorCor.get(cor).push(k);
     }
@@ -316,8 +364,8 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       const idAnel = idCamadaAnel(i);
       if (!getLayerSeguro(map, idAnel)) continue;
       const ramosAnel = [];
-      for (const [k, tipos] of multiploPorChave) {
-        if (i < tipos.length) ramosAnel.push(k, corPorProjeto(tipos[i]));
+      for (const [k, registros] of multiploPorChave) {
+        if (i < registros.length) ramosAnel.push(k, corPorRegistro(registros[i]));
       }
       const expressaoAnel =
         ramosAnel.length > 0

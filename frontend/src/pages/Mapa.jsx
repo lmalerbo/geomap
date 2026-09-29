@@ -2326,15 +2326,15 @@ export default function Mapa() {
                 </span>
               </button>
               <div className="filtro-projetos-voo">
-                {apontamento.legendaProjetos.map(({ nome, cor }) => (
-                  <label key={nome} className="campo-form-admin campo-form-admin--checkbox">
+                {apontamento.legendaProjetos.map(({ chave, rotulo, cor, projeto }) => (
+                  <label key={chave} className="campo-form-admin campo-form-admin--checkbox">
                     <input
                       type="checkbox"
-                      checked={apontamento.filtroProjetos?.has(nome) ?? true}
-                      onChange={() => apontamento.alternarFiltroProjeto(nome)}
+                      checked={apontamento.filtroProjetos?.has(projeto) ?? true}
+                      onChange={() => apontamento.alternarFiltroProjeto(projeto)}
                     />
                     <span className="swatch-tipo-voo" style={{ backgroundColor: cor }} aria-hidden="true" />
-                    {nome}
+                    {rotulo}
                   </label>
                 ))}
               </div>
