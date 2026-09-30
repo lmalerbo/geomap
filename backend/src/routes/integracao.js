@@ -43,6 +43,49 @@ function exigirTokenHub(req, res, next) {
 
 integracaoRouter.use("/integracao", exigirTokenHub);
 
+// Registros de Linhas de Colheita já existentes para o talhão na safra (menos
+// os cancelados: controlStatus 11). Usado pra NÃO duplicar: um voo agendado
+// à mão no DroneManagement, ou uma chamada anterior que caiu no meio (a
+// conexão pode cair depois do POST e antes da resposta chegar ao Hub).
+async function registrosLinhasColheita(harvest, section, landPlot) {
+  const filtro = { $and: [
+    { unitId: `UUID('${UNIT_ID}')` },
+    { flightProject: `UUID('${PROJETO_LINHAS_COLHEITA}')` },
+    { section },
+    { landPlot },
+    { harvest },
+  ] };
+  const r = await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", {
+    params: { pageNumber: 1, pageSize: 50, filter: JSON.stringify(filtro) },
+  });
+  if (!r.ok) throw new Error(`consulta de registros respondeu ${r.status}`);
+  const dados = await r.json();
+  return (dados.value || [])
+    .filter((x) => x.section === section && String(x.landPlot) === landPlot && x.controlStatus !== 11)
+    .map((x) => ({ id: x.id, controlStatus: x.controlStatus, verifyFlightSize: x.verifyFlightSize,
+                   createdUtc: x.createdUtc, scheduledDate: x.scheduledDate }));
+}
+
+// Só leitura: o que já existe de Linhas de Colheita pra cada talhão.
+// body: { harvest: 2026, itens: [{ section, landPlot }, ...] } (até 200)
+integracaoRouter.post("/integracao/dronemgmt/linhas-colheita/consultar", async (req, res) => {
+  const { harvest, itens } = req.body || {};
+  if (!Number.isInteger(harvest) || !Array.isArray(itens) || !itens.length || itens.length > 200) {
+    return res.status(400).json({ erro: "informe harvest (ano) e itens (1 a 200)" });
+  }
+  const resultados = [];
+  for (const item of itens) {
+    const section = String(item?.section || "").trim();
+    const landPlot = String(item?.landPlot || "").trim();
+    try {
+      resultados.push({ section, landPlot, registros: await registrosLinhasColheita(harvest, section, landPlot) });
+    } catch (err) {
+      resultados.push({ section, landPlot, erro: err.message });
+    }
+  }
+  res.json({ resultados });
+});
+
 // Agenda um voo de Linhas de Colheita por talhão, do mesmo jeito que o
 // formulário web: busca o talhão (layer) da safra e cria o registro.
 // body: { harvest: 2026, itens: [{ section: "10119", landPlot: "1" }, ...] }
@@ -61,6 +104,14 @@ integracaoRouter.post("/integracao/dronemgmt/linhas-colheita/agendar", async (re
       continue;
     }
     try {
+      // Já existe voo de Linhas de Colheita ativo pra esse talhão na safra?
+      // Devolve o existente em vez de criar outro.
+      const existentes = await registrosLinhasColheita(harvest, section, landPlot);
+      if (existentes.length) {
+        const maisRecente = existentes.sort((a, b) => String(b.createdUtc).localeCompare(String(a.createdUtc)))[0];
+        resultados.push({ section, landPlot, id: maisRecente.id, existente: true, totalExistentes: existentes.length });
+        continue;
+      }
       const busca = await chamarApi("/portal/api/v1/gateway/dronemanagement/layer/filter", {
         params: { harvestYear: harvest, section, landPlot },
       });
