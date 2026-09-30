@@ -17,6 +17,7 @@ import { authRouter } from "./routes/auth.js";
 import { mapasRouter } from "./routes/mapas.js";
 import { adminRouter } from "./routes/admin.js";
 import { voosRouter } from "./routes/voos.js";
+import { integracaoRouter } from "./routes/integracao.js";
 import { pinsRouter } from "./routes/pins.js";
 
 export const app = express();
@@ -34,6 +35,10 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
+// integracaoRouter primeiro: rotas servidor-a-servidor do Hub Geotech, com
+// chave de serviço própria. Os routers abaixo aplicam middleware sem prefixo
+// e interceptariam /integracao/* (ver comentário do voosRouter).
+app.use(integracaoRouter);
 app.use(authRouter);
 app.use(mapasRouter);
 // voosRouter precisa vir ANTES do adminRouter: adminRouter registra
