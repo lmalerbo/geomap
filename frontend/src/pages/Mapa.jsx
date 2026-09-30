@@ -1394,19 +1394,32 @@ export default function Mapa() {
       // mudou) sempre re-insere essa camada logo abaixo do primeiro rótulo
       // (ver beforeId em adicionarCamada) — sem essa segunda passada, ela
       // sempre pularia pro topo do bloco de corpos, ignorando a posição
-      // configurada. Deliberadamente NÃO mexe na camada "voos" (contorno de
-      // pendência de voo) nem nos rótulos — só ordem entre camadas normais é
-      // configurável (decisão do Leo, 2026-09-30); cada tipo de camada
-      // continua com o posicionamento especial que já tinha.
-      const primeiroRotulo = primeiroRotuloExistente(map);
-      const ordenadasParaEmpilhar = [...mapasLocais]
-        .filter((m) => carregadas.get(m.id)?.tipoCamada !== "voos")
-        .sort((a, b) => (b.ordem ?? 0) - (a.ordem ?? 0)); // maior ordem (fundo) primeiro, menor (topo) por último
-      for (const mapa of ordenadasParaEmpilhar) {
-        const info = carregadas.get(mapa.id);
-        if (!info) continue;
-        for (const layerId of [info.fillLayerId, info.lineLayerId, info.circleLayerId, info.highlightLayerId, info.highlightCircleLayerId]) {
-          if (layerId && map.getLayer(layerId)) map.moveLayer(layerId, primeiroRotulo);
+      // configurada.
+      //
+      // Mapa com uma camada "voos" (ex: mapa "Voos", réplica de Talhões pra
+      // apontamento — ver useApontamentoVoo) fica de FORA por completo:
+      // essa camada não participa do `ordem` (decisão do Leo, 2026-09-30) e
+      // seu z-index fica fixo em onde `adicionarCamada` a colocou (beforeId
+      // = primeiro rótulo, no momento em que ela foi criada). Se essa
+      // passada movesse as camadas IRMÃs dela (Municípios, Malhas Viárias,
+      // Limites) em volta dela sem levar essa posição fixa em conta, elas
+      // podiam acabar entrando por CIMA da camada de voos — foi exatamente
+      // isso que aconteceu (bug real reportado pelo Leo, 2026-09-30, "base
+      // de talhões com problema... no mapa de voo": Talhões — Voos sumindo
+      // atrás de outra camada). Mais simples e seguro pular a reordenação
+      // inteira nesse mapa do que tentar calcular uma âncora — a ordem
+      // dessas camadas nunca foi um problema reportado ali, só a posição
+      // relativa à camada de voos importa de verdade.
+      const temCamadaVoos = [...carregadas.values()].some((info) => info.tipoCamada === "voos");
+      if (!temCamadaVoos) {
+        const primeiroRotulo = primeiroRotuloExistente(map);
+        const ordenadasParaEmpilhar = [...mapasLocais].sort((a, b) => (b.ordem ?? 0) - (a.ordem ?? 0)); // maior ordem (fundo) primeiro, menor (topo) por último
+        for (const mapa of ordenadasParaEmpilhar) {
+          const info = carregadas.get(mapa.id);
+          if (!info) continue;
+          for (const layerId of [info.fillLayerId, info.lineLayerId, info.circleLayerId, info.highlightLayerId, info.highlightCircleLayerId]) {
+            if (layerId && map.getLayer(layerId)) map.moveLayer(layerId, primeiroRotulo);
+          }
         }
       }
 
