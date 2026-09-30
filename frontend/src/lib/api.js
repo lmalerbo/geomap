@@ -130,6 +130,19 @@ export async function duplicarMapaAdmin(token, mapaId) {
   return resp.json();
 }
 
+// Ordem de exibição das camadas de um mapa (menor = mais acima no mapa) —
+// camadaIds precisa ser a lista COMPLETA de camadas do mapa, já na ordem
+// desejada de cima pra baixo (ver PUT /admin/mapas/:id/ordem-camadas).
+export async function atualizarOrdemCamadasAdmin(token, mapaId, camadaIds) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/ordem-camadas`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ camadaIds }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 // Duplica uma única camada (diferente de duplicarMapaAdmin acima) —
 // mapaDestinoId é opcional, sem ele duplica pro mesmo mapa da origem.
 export async function duplicarCamadaAdmin(token, camadaId, mapaDestinoId) {

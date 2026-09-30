@@ -833,10 +833,11 @@ async function adicionarCamada(map, protocol, mapa) {
     id: mapa.id,
     nome: mapa.nome,
     versao: mapa.versao,
-    // versao só muda quando a geometria muda; atributos/estilo podem mudar
-    // independente disso (painel de admin) — a assinatura cobre os três,
-    // pra saber quando vale reconstruir a camada sem rebaixar nada.
-    assinatura: `${mapa.versao}|${JSON.stringify(mapa.atributosConfig)}|${JSON.stringify(mapa.estiloConfig)}`,
+    // versao só muda quando a geometria muda; atributos/estilo/ordem podem
+    // mudar independente disso (painel de admin) — a assinatura cobre os
+    // quatro, pra saber quando vale reconstruir a camada sem rebaixar nada.
+    assinatura: `${mapa.versao}|${JSON.stringify(mapa.atributosConfig)}|${JSON.stringify(mapa.estiloConfig)}|${mapa.ordem}`,
+    ordem: mapa.ordem ?? 0,
     // Modos categorizado/graduado não têm 1 cor representativa — usa a cor
     // de fallback deles como aproximação pra legenda/swatch.
     cor:
@@ -1380,6 +1381,32 @@ export default function Mapa() {
             const { [mapa.id]: _removido, ...resto } = atual;
             return resto;
           });
+        }
+      }
+
+      // Reaplica a ordem configurada (campo `ordem`: menor = mais acima,
+      // ver AdminMapas.jsx) toda vez que aplicar() roda, não só quando uma
+      // camada é criada — map.moveLayer() reordena uma camada já existente
+      // sem recriar fonte/layer (diferente de removerCamada+adicionarCamada,
+      // que já mexe na assinatura acima), então isso não interfere com a
+      // lógica de "quando reconstruir" de cima. É preciso reafirmar o stack
+      // INTEIRO a cada rodada porque uma atualização parcial (só 1 camada
+      // mudou) sempre re-insere essa camada logo abaixo do primeiro rótulo
+      // (ver beforeId em adicionarCamada) — sem essa segunda passada, ela
+      // sempre pularia pro topo do bloco de corpos, ignorando a posição
+      // configurada. Deliberadamente NÃO mexe na camada "voos" (contorno de
+      // pendência de voo) nem nos rótulos — só ordem entre camadas normais é
+      // configurável (decisão do Leo, 2026-09-30); cada tipo de camada
+      // continua com o posicionamento especial que já tinha.
+      const primeiroRotulo = primeiroRotuloExistente(map);
+      const ordenadasParaEmpilhar = [...mapasLocais]
+        .filter((m) => carregadas.get(m.id)?.tipoCamada !== "voos")
+        .sort((a, b) => (b.ordem ?? 0) - (a.ordem ?? 0)); // maior ordem (fundo) primeiro, menor (topo) por último
+      for (const mapa of ordenadasParaEmpilhar) {
+        const info = carregadas.get(mapa.id);
+        if (!info) continue;
+        for (const layerId of [info.fillLayerId, info.lineLayerId, info.circleLayerId, info.highlightLayerId, info.highlightCircleLayerId]) {
+          if (layerId && map.getLayer(layerId)) map.moveLayer(layerId, primeiroRotulo);
         }
       }
 

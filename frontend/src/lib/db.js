@@ -41,7 +41,7 @@ function abrirDb() {
   });
 }
 
-export async function salvarMapaBaixado(camadaId, mapaId, nome, versao, blob, atributosConfig, estiloConfig) {
+export async function salvarMapaBaixado(camadaId, mapaId, nome, versao, blob, atributosConfig, estiloConfig, ordem) {
   const db = await abrirDb();
   // Convertido pra ArrayBuffer antes de gravar — Blob guardado direto no
   // IndexedDB sofre de um bug do WebKit/Safari onde o "backing file" se
@@ -60,19 +60,21 @@ export async function salvarMapaBaixado(camadaId, mapaId, nome, versao, blob, at
     blob: dados,
     atributosConfig: atributosConfig || [],
     estiloConfig: estiloConfig || null,
+    ordem: ordem ?? 0,
     baixadoEm: new Date().toISOString(),
   });
 }
 
-// Atualiza nome/mapaId/config de atributos/estilo, sem mexer no blob —
+// Atualiza nome/mapaId/config de atributos/estilo/ordem, sem mexer no blob —
 // usado quando o catálogo muda algo que não exige rebaixar o .pmtiles (ex:
-// admin reordenou os atributos exibidos ou mudou a cor, mas a geometria não
-// mudou). Reescreve mapaId sempre (não só nos campos que "parecem" novos):
-// um registro salvo antes do campo mapaId existir (versão anterior a
-// múltiplos mapas) nunca teria outra chance de ganhar esse valor, já que a
-// versao dele pode nunca mudar de novo — sem isso a camada fica escondida
-// pra sempre no mapa certo (mapaId undefined não bate com nenhum filtro).
-export async function atualizarMetadadosMapa(camadaId, mapaId, nome, atributosConfig, estiloConfig) {
+// admin reordenou os atributos exibidos, mudou a cor, ou reordenou as
+// camadas do mapa, mas a geometria não mudou). Reescreve mapaId sempre (não
+// só nos campos que "parecem" novos): um registro salvo antes do campo
+// mapaId existir (versão anterior a múltiplos mapas) nunca teria outra
+// chance de ganhar esse valor, já que a versao dele pode nunca mudar de
+// novo — sem isso a camada fica escondida pra sempre no mapa certo (mapaId
+// undefined não bate com nenhum filtro).
+export async function atualizarMetadadosMapa(camadaId, mapaId, nome, atributosConfig, estiloConfig, ordem) {
   const db = await abrirDb();
   const atual = await db.get(STORE_CAMADAS, camadaId);
   if (!atual) return;
@@ -82,6 +84,7 @@ export async function atualizarMetadadosMapa(camadaId, mapaId, nome, atributosCo
     nome,
     atributosConfig: atributosConfig || [],
     estiloConfig: estiloConfig || null,
+    ordem: ordem ?? 0,
   });
 }
 

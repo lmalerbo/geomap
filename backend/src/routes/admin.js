@@ -607,8 +607,8 @@ adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
     [mapaId]
   );
   const { rows: camadasOrigem } = await pool.query(
-    `SELECT nome, versao, categoria, arquivo_path, atributos_config, estilo_config
-     FROM camadas WHERE mapa_id = $1 ORDER BY nome`,
+    `SELECT nome, versao, categoria, arquivo_path, atributos_config, estilo_config, ordem
+     FROM camadas WHERE mapa_id = $1 ORDER BY ordem`,
     [mapaId]
   );
 
@@ -632,8 +632,8 @@ adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
     const novaChave = `${crypto.randomUUID()}.pmtiles`;
     await duplicarArquivo(c.arquivo_path, novaChave);
     await pool.query(
-      `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config, ordem)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         novoMapa.id,
         c.nome,
@@ -648,6 +648,10 @@ adminRouter.post("/admin/mapas/:id/duplicar", async (req, res) => {
         // mesmo padrão já usado em PUT /admin/camadas/:id/atributos e /estilo.
         c.atributos_config === null ? null : JSON.stringify(c.atributos_config),
         c.estilo_config === null ? null : JSON.stringify(c.estilo_config),
+        // Mesma ordem relativa da camada de origem — o mapa novo nasce
+        // vazio, então não há risco de empate de `ordem` com nada que já
+        // exista nele.
+        c.ordem,
       ]
     );
   }
@@ -702,8 +706,8 @@ adminRouter.post("/admin/camadas/:id/duplicar", async (req, res) => {
   await duplicarArquivo(camadaOrigem.arquivo_path, novaChave);
 
   const { rows: novaCamadaRows } = await pool.query(
-    `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config, ordem)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE((SELECT MAX(ordem) + 1 FROM camadas WHERE mapa_id = $1), 0))
      RETURNING id, mapa_id, nome, versao, categoria, publicado_em`,
     [
       mapaDestinoId,
@@ -769,9 +773,46 @@ adminRouter.get("/admin/estatisticas", async (req, res) => {
 
 adminRouter.get("/admin/camadas", async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, mapa_id, nome, versao, categoria, publicado_em, estilo_config FROM camadas ORDER BY nome`
+    `SELECT id, mapa_id, nome, versao, categoria, publicado_em, estilo_config, ordem
+     FROM camadas ORDER BY mapa_id, ordem`
   );
   res.json(rows);
+});
+
+// Ordem de exibição das camadas de um mapa (menor = mais acima no mapa) —
+// pedido do Leo (2026-09-30). `camadaIds` é a lista COMPLETA de camadas do
+// mapa, já na ordem desejada de cima pra baixo (índice do array vira
+// `ordem`) — exige bater exatamente com o conjunto de camadas do mapa
+// (nem a mais nem a menos) pra nunca deixar uma camada esquecida com
+// `ordem` desatualizada ou apontar id de outro mapa por engano.
+adminRouter.put("/admin/mapas/:id/ordem-camadas", async (req, res) => {
+  const mapaId = Number(req.params.id);
+  if (!Number.isInteger(mapaId)) {
+    return res.status(400).json({ erro: "id de mapa inválido" });
+  }
+  const camadaIds = req.body?.camadaIds;
+  if (!Array.isArray(camadaIds) || camadaIds.length === 0 || !camadaIds.every(Number.isInteger)) {
+    return res.status(400).json({ erro: "camadaIds deve ser uma lista de ids" });
+  }
+
+  const { rows: existentes } = await pool.query("SELECT id FROM camadas WHERE mapa_id = $1", [mapaId]);
+  const idsExistentes = new Set(existentes.map((c) => c.id));
+  const idsRecebidos = new Set(camadaIds);
+  if (
+    idsExistentes.size !== idsRecebidos.size ||
+    ![...idsExistentes].every((id) => idsRecebidos.has(id))
+  ) {
+    return res.status(400).json({ erro: "camadaIds precisa conter exatamente as camadas deste mapa" });
+  }
+
+  await pool.query(
+    `UPDATE camadas SET ordem = nova.ordem
+     FROM (SELECT unnest($1::int[]) AS id, unnest($2::int[]) AS ordem) nova
+     WHERE camadas.id = nova.id`,
+    [camadaIds, camadaIds.map((_, i) => i)]
+  );
+
+  res.json({ ok: true });
 });
 
 // Adicionar camada: recebe o .pmtiles já gerado pelo pipeline (fora do
@@ -820,9 +861,14 @@ async function processarCriacaoEmSegundoPlano(jobId, { arquivoUnico, arquivosSha
   }
 
   try {
+    // Camada nova entra no FUNDO do stack do mapa (maior `ordem` já usada
+    // + 1), não empatada no topo (ordem 0 do default da coluna) — um admin
+    // adicionando uma camada nova não espera que ela cubra as que já
+    // existiam.
     const { rows } = await pool.query(
-      `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, ordem)
+       VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(ordem) + 1 FROM camadas WHERE mapa_id = $1), 0))
+       RETURNING id`,
       [mapaId, nome, versao, categoria, nomeArquivoFinal]
     );
     await concluirJob(jobId, rows[0].id);

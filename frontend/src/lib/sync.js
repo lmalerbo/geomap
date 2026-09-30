@@ -52,15 +52,16 @@ export async function sincronizarMapas(token) {
       // rebaixar, mesmo que a versão continue a mesma — autocorrige no
       // próximo sync online, sem exigir nenhuma ação do usuário.
       if (local && local.versao === camada.versao && local.blob instanceof ArrayBuffer) {
-        // Geometria/tiles não mudaram, mas nome, atributos ou estilo podem
-        // ter mudado (ex: admin reordenou campos ou trocou a cor) — atualiza
-        // sem rebaixar.
+        // Geometria/tiles não mudaram, mas nome, atributos, estilo ou ordem
+        // podem ter mudado (ex: admin reordenou campos, trocou a cor, ou
+        // reordenou as camadas do mapa) — atualiza sem rebaixar.
         await atualizarMetadadosMapa(
           camada.id,
           camada.mapaId,
           camada.nome,
           camada.atributos_config,
-          camada.estilo_config
+          camada.estilo_config,
+          camada.ordem
         );
         return;
       }
@@ -72,7 +73,8 @@ export async function sincronizarMapas(token) {
         camada.versao,
         blob,
         camada.atributos_config,
-        camada.estilo_config
+        camada.estilo_config,
+        camada.ordem
       );
     }),
     ...removidas.map((c) => removerMapaBaixado(c.id)),

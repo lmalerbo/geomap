@@ -1,17 +1,30 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   listarMapasAdmin,
   listarGruposAdmin,
+  listarCamadasAdmin,
   criarMapaAdmin,
   atualizarMapaAdmin,
   removerMapaAdmin,
   duplicarMapaAdmin,
+  atualizarOrdemCamadasAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import IconeLordicon from "../components/IconeLordicon.jsx";
 
 const FORM_VAZIO = { nome: "", descricao: "", permissoes: [] };
+
+// Confirmação de "salvo" some sozinha depois de um tempo — mesmo padrão já
+// usado em AdminCamadas.jsx (useAutoDismiss), reescrito aqui em vez de
+// importado de lá pra manter as duas telas independentes.
+function useAutoDismiss(valor, setValor, delayMs = 2500) {
+  useEffect(() => {
+    if (!valor) return;
+    const id = setTimeout(() => setValor(null), delayMs);
+    return () => clearTimeout(id);
+  }, [valor, setValor, delayMs]);
+}
 
 function alternarGrupoEm(permissoes, grupoId) {
   return permissoes.some((p) => p.grupoId === grupoId)
@@ -38,6 +51,27 @@ export default function AdminMapas() {
   const [duplicandoId, setDuplicandoId] = useState(null);
   const [carregando, setCarregando] = useState(true);
 
+  // Ordenar camadas (o que fica em cima/embaixo no mapa) — pedido do Leo
+  // (2026-09-30). `camadas` guarda TODAS as camadas de TODOS os mapas (já
+  // ordenadas por mapa_id, ordem — ver GET /admin/camadas), igual ao padrão
+  // já usado por AdminCamadas.jsx; `ordenandoId` decide qual mapa está com
+  // a lista de reordenação aberta, `ordemCamadas` é a cópia local (só desse
+  // mapa) que o arrastar-e-soltar edita antes de salvar.
+  const [camadas, setCamadas] = useState([]);
+  const [ordenandoId, setOrdenandoId] = useState(null);
+  const [ordemCamadas, setOrdemCamadas] = useState([]);
+  const [salvandoOrdemId, setSalvandoOrdemId] = useState(null);
+  const [ordemSalvaEm, setOrdemSalvaEm] = useState(null);
+  const [arrastandoIndiceOrdem, setArrastandoIndiceOrdem] = useState(null);
+  // Ref (não só o state acima) pelo mesmo motivo já documentado em
+  // AdminCamadas.jsx (moverAtributoPara): eventos de drag são "continuous
+  // priority" no React 18, setState dentro de onDragStart não garante
+  // flush síncrono antes do onDrop seguinte — ler o state direto ali
+  // arriscava pegar o valor de ANTES do dragstart.
+  const arrastandoIndiceOrdemRef = useRef(null);
+
+  useAutoDismiss(ordemSalvaEm, setOrdemSalvaEm);
+
   function carregarMapas() {
     return listarMapasAdmin(sessao.token).then(setMapas);
   }
@@ -48,9 +82,51 @@ export default function AdminMapas() {
       listarGruposAdmin(sessao.token)
         .then(setGrupos)
         .catch((e) => setErro(e.message)),
+      listarCamadasAdmin(sessao.token)
+        .then(setCamadas)
+        .catch((e) => setErro(e.message)),
     ]).then(() => setCarregando(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
+
+  function abrirOrdenacao(mapa) {
+    setOrdenandoId(mapa.id);
+    setOrdemCamadas(camadas.filter((c) => c.mapa_id === mapa.id));
+    setErro(null);
+  }
+
+  function fecharOrdenacao() {
+    setOrdenandoId(null);
+  }
+
+  function moverCamadaPara(origem, destino) {
+    if (origem === destino) return;
+    setOrdemCamadas((atual) => {
+      const novo = [...atual];
+      const [item] = novo.splice(origem, 1);
+      novo.splice(destino, 0, item);
+      return novo;
+    });
+  }
+
+  async function salvarOrdem(mapaId) {
+    setSalvandoOrdemId(mapaId);
+    setErro(null);
+    try {
+      await atualizarOrdemCamadasAdmin(sessao.token, mapaId, ordemCamadas.map((c) => c.id));
+      setCamadas((atual) => {
+        const semEsseMapa = atual.filter((c) => c.mapa_id !== mapaId);
+        const reordenadas = ordemCamadas.map((c, i) => ({ ...c, ordem: i }));
+        return [...semEsseMapa, ...reordenadas];
+      });
+      setOrdemSalvaEm(new Date());
+      setOrdenandoId(null);
+    } catch (err) {
+      setErro(err.message);
+    } finally {
+      setSalvandoOrdemId(null);
+    }
+  }
 
   function atualizarCampo(campo, valor) {
     setForm((atual) => ({ ...atual, [campo]: valor }));
@@ -251,6 +327,15 @@ export default function AdminMapas() {
                 <button
                   type="button"
                   className="botao-secundario"
+                  onClick={() => (ordenandoId === m.id ? fecharOrdenacao() : abrirOrdenacao(m))}
+                  disabled={m.camadaCount < 2}
+                  title={m.camadaCount < 2 ? "Precisa de 2+ camadas pra ter o que ordenar" : "O que fica em cima, o que fica embaixo"}
+                >
+                  {ordenandoId === m.id ? "Cancelar" : "Ordenar camadas"}
+                </button>
+                <button
+                  type="button"
+                  className="botao-secundario"
                   onClick={() => duplicar(m)}
                   disabled={duplicandoId === m.id}
                   title="Cria uma cópia deste mapa com todas as camadas"
@@ -320,6 +405,51 @@ export default function AdminMapas() {
                     {salvandoEdicaoId === m.id ? "Salvando…" : "Salvar"}
                   </button>
                 </form>
+              )}
+
+              {ordenandoId === m.id && (
+                <div className="cartao-form-admin">
+                  <p className="detalhe-mapa-admin">
+                    Arraste pra reordenar — a de cima fica por cima no mapa.
+                  </p>
+                  <ul className="lista-atributos-admin">
+                    {ordemCamadas.map((c, i) => (
+                      <li
+                        key={c.id}
+                        draggable
+                        onDragStart={() => {
+                          arrastandoIndiceOrdemRef.current = i;
+                          setArrastandoIndiceOrdem(i);
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => {
+                          if (arrastandoIndiceOrdemRef.current !== null) {
+                            moverCamadaPara(arrastandoIndiceOrdemRef.current, i);
+                          }
+                          arrastandoIndiceOrdemRef.current = null;
+                          setArrastandoIndiceOrdem(null);
+                        }}
+                        onDragEnd={() => {
+                          arrastandoIndiceOrdemRef.current = null;
+                          setArrastandoIndiceOrdem(null);
+                        }}
+                        className={`linha-atributo-admin${
+                          arrastandoIndiceOrdem === i ? " linha-atributo-admin--arrastando" : ""
+                        }`}
+                      >
+                        <span className="alca-arrastar" aria-hidden="true" title="Arraste pra reordenar">
+                          ⠿
+                        </span>
+                        {c.nome}
+                      </li>
+                    ))}
+                  </ul>
+                  {ordemSalvaEm && <p className="confirmacao-salvo">✓ Salvo às {ordemSalvaEm.toLocaleTimeString()}</p>}
+                  <button type="button" onClick={() => salvarOrdem(m.id)} disabled={salvandoOrdemId === m.id}>
+                    {salvandoOrdemId === m.id && <span className="spinner" aria-hidden="true" />}
+                    {salvandoOrdemId === m.id ? "Salvando…" : "Salvar ordem"}
+                  </button>
+                </div>
               )}
             </li>
           ))}

@@ -29,10 +29,10 @@ mapasRouter.get("/mapas", async (req, res) => {
 
   const idsMapas = mapas.map((m) => m.id);
   const { rows: camadas } = await pool.query(
-    `SELECT id, mapa_id, nome, versao, categoria, publicado_em, atributos_config, estilo_config
+    `SELECT id, mapa_id, nome, versao, categoria, publicado_em, atributos_config, estilo_config, ordem
      FROM camadas
      WHERE mapa_id = ANY($1)
-     ORDER BY nome`,
+     ORDER BY ordem, nome`,
     [idsMapas]
   );
 
