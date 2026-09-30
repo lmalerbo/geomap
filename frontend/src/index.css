@@ -6,7 +6,24 @@
   --accent: #2c6b47;
   --accent-hover: #23593a;
   --erro: #b3261e;
-  --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  /* Figtree empacotada no app (@fontsource-variable/figtree, importada em
+     main.jsx) — nunca de CDN: o app precisa abrir 100% offline, e fonte
+     de CDN não entra no precache do service worker. Ver
+     docs/REDESENHO_FRONTEND.md. */
+  --sans: "Figtree Variable", system-ui, "Segoe UI", Roboto, sans-serif;
+
+  /* Cartões flutuantes sobre o mapa (redesenho, fase 1) */
+  --cartao-fundo: rgba(255, 255, 255, 0.96);
+  --cartao-borda: rgba(31, 41, 51, 0.08);
+  --cartao-sombra: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.12);
+  --cartao-sombra-forte: 0 1px 2px rgba(16, 24, 40, 0.06), 0 16px 40px rgba(16, 24, 40, 0.16);
+  --cartao-raio: 14px;
+  --accent-suave: #e3efe7;
+  --accent-escuro: #1f5a3a;
+  --largura-dock: 76px;
+  /* Largura do painel de atributos no desktop — os controles de navegação
+     deslizam exatamente essa distância quando ele abre. */
+  --largura-painel-direito: 360px;
 
   /* Escala única de animação — ver PROPOSTA_ANIMACOES.md pro raciocínio
      completo. Duas curvas só (não uma por caso): variar a duração já dá
@@ -407,19 +424,256 @@ input[type="file"]::file-selector-button:hover {
   font-size: 13px;
 }
 
-/* Nome do mapa que o usuário está vendo (ex: "Geral"), ao lado do botão
-   "Trocar mapa" — pedido do Leo (2026-08-21), pra não depender de lembrar
-   qual mapa está aberto. Já existia como state (nomeMapaAtual, usado nos
-   arquivos exportados pela medição), só faltava aparecer na tela. */
-.nome-mapa-atual {
+/* ===== Tela do mapa — barra superior flutuante (redesenho, fase 1) =====
+   O cabeçalho em faixa inteira virou cartões sobre o mapa, que agora ocupa
+   a tela toda (ver docs/REDESENHO_FRONTEND.md). A barra atravessa a
+   largura inteira só pra alinhar os cartões — ela mesma não recebe clique
+   (pointer-events:none), senão o espaço vazio entre os cartões bloquearia
+   arrastar o mapa por baixo. */
+.barra-topo {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.barra-topo > * {
+  pointer-events: auto;
+}
+
+.cartao-identidade {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 10px;
+  background: var(--cartao-fundo);
+  border: 1px solid var(--cartao-borda);
+  border-radius: var(--cartao-raio);
+  box-shadow: var(--cartao-sombra);
   flex-shrink: 1;
   min-width: 0;
+}
+
+.marca-app {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.botao-trocar-mapa {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-height: 44px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+  transition: background-color var(--dur-hover) var(--ease-padrao);
+}
+
+.botao-trocar-mapa:hover {
+  background: #f1f4f2;
+  color: var(--text);
+}
+
+.rotulo-app {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #5b6770;
+}
+
+/* Nome do mapa aberto (ex: "Geral") — pedido do Leo (2026-08-21), pra não
+   depender de lembrar qual mapa está aberto. Agora é o próprio botão de
+   trocar de mapa. */
+.nome-mapa-atual {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.texto-nome-mapa {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-muted);
+}
+
+.divisor-vertical {
+  width: 1px;
+  height: 28px;
+  background: #e3e8eb;
+  flex-shrink: 0;
+}
+
+.status-sincronizacao {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
+  color: #3b4754;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.status-sincronizacao .spinner {
+  width: 12px;
+  height: 12px;
+}
+
+.ponto-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2f9e5b;
+  box-shadow: 0 0 0 3px rgba(47, 158, 91, 0.18);
+  flex-shrink: 0;
+}
+
+.status-sincronizacao--offline .ponto-status {
+  background: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18);
+}
+
+.status-sincronizacao--offline {
+  color: #9a3412;
+}
+
+.texto-status-sync {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.barra-topo-direita {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.chip-status {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 18px;
+  background: var(--cartao-fundo);
+  border: 1px solid var(--cartao-borda);
+  box-shadow: var(--cartao-sombra);
+  font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.chip-status--alerta {
+  background: #fff7ed;
+  color: #9a3412;
+  border-color: #fcd9b6;
+}
+
+.botao-conta {
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(16, 24, 40, 0.18);
+}
+
+/* ===== Barra de ferramentas à esquerda (DockFerramentas) ===== */
+.dock-ferramentas {
+  position: absolute;
+  top: 88px;
+  left: 16px;
+  z-index: 2;
+  width: var(--largura-dock);
+  padding: 6px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--cartao-fundo);
+  border: 1px solid var(--cartao-borda);
+  border-radius: var(--cartao-raio);
+  box-shadow: var(--cartao-sombra);
+  animation: entrada var(--dur-painel) var(--ease-saida);
+}
+
+.dock-grupo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.dock-divisor {
+  width: 48px;
+  height: 1px;
+  background: #e3e8eb;
+  margin: 6px 0;
+}
+
+.dock-botao {
+  width: 64px;
+  height: 60px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #3b4754;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.1;
+  transition:
+    background-color var(--dur-hover) var(--ease-padrao),
+    color var(--dur-hover) var(--ease-padrao),
+    transform var(--dur-micro) var(--ease-padrao);
+}
+
+.dock-botao:hover {
+  background: #f1f4f2;
+  color: #1f2933;
+}
+
+.dock-botao.ativo {
+  background: var(--accent-suave);
+  color: var(--accent-escuro);
+}
+
+.dock-rotulo {
+  text-align: center;
 }
 
 .status-medicao {
@@ -1060,8 +1314,8 @@ input[type="file"]::file-selector-button:hover {
    lados são conhecidos o bastante pra um valor fixo funcionar; aqui não). */
 .pilha-topo-esquerda {
   position: absolute;
-  top: 16px;
-  left: 16px;
+  top: 88px;
+  left: calc(16px + var(--largura-dock) + 12px);
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -1074,17 +1328,17 @@ input[type="file"]::file-selector-button:hover {
      parte de baixo simplesmente ficava fora da tela, sem nenhum jeito de
      rolar até ela (a pilha é position:absolute, não empurra a altura da
      página). */
-  max-height: calc(100% - 32px);
+  max-height: calc(100% - 104px);
   overflow-y: auto;
-  max-width: min(280px, calc(100vw - 32px));
+  max-width: min(320px, calc(100vw - 32px));
 }
 
 .painel-camadas {
   width: 100%;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--cartao-borda);
+  border-radius: var(--cartao-raio);
+  box-shadow: var(--cartao-sombra);
   overflow: hidden;
   animation: entrada var(--dur-painel) var(--ease-saida);
 }
@@ -1105,9 +1359,9 @@ input[type="file"]::file-selector-button:hover {
 .painel-talhoes-fazenda {
   width: 100%;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--cartao-borda);
+  border-radius: var(--cartao-raio);
+  box-shadow: var(--cartao-sombra);
   overflow: hidden;
   animation: entrada var(--dur-painel) var(--ease-saida);
 }
@@ -1419,40 +1673,58 @@ input[type="file"]::file-selector-button:hover {
   display: none;
 }
 
+/* Busca — item da .barra-topo (redesenho, fase 1), não mais um bloco solto
+   no centro do mapa. A barra inteira (z-index 3) já fica acima da pilha
+   de Camadas (z-index 1) e da barra de ferramentas (z-index 2), então a
+   lista de resultados continua recebendo o clique mesmo passando por cima
+   delas (problema já visto em 390px de largura, ver histórico). */
 .painel-busca {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(360px, calc(100vw - 32px));
-  /* Acima de .pilha-topo-esquerda (Camadas + talhões da fazenda, z-index 1)
-     — no mobile as duas ficam próximas o bastante (busca em cima, pilha
-     logo abaixo) pra um painel de Camadas alto (muitas camadas) encostar
-     na lista de resultados da busca; sem isso os cliques nos resultados
-     eram capturados pelo painel de baixo (achado testando 390px de
-     largura), mesmo com os resultados visualmente por cima. */
-  z-index: 2;
+  flex: 0 1 440px;
+  min-width: 0;
 }
 
-.painel-busca input[type="search"] {
-  width: 100%;
-  min-height: 44px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+.campo-busca {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 16px;
+  background: var(--cartao-fundo);
+  border: 1px solid var(--cartao-borda);
+  border-radius: var(--cartao-raio);
+  box-shadow: var(--cartao-sombra);
+  color: #52606d;
+}
+
+.campo-busca svg {
+  flex-shrink: 0;
+}
+
+.campo-busca input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
   font-size: 15px;
+  color: var(--text);
+}
+
+.campo-busca:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--cartao-sombra), 0 0 0 3px rgba(44, 107, 71, 0.15);
 }
 
 .resultados-busca {
   list-style: none;
-  margin: 4px 0 0;
-  padding: 4px;
+  margin: 6px 0 0;
+  padding: 6px;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--cartao-borda);
+  border-radius: var(--cartao-raio);
+  box-shadow: var(--cartao-sombra-forte);
   max-height: 280px;
   overflow-y: auto;
   animation: entrada var(--dur-entrada) var(--ease-saida);
@@ -1476,8 +1748,9 @@ input[type="file"]::file-selector-button:hover {
 /* Item destacado por ↑/↓ (ou hover do mouse, mantém os dois em sincronia) —
    Enter confirma este item, mesmo sem clicar. */
 .resultados-busca button.resultado-busca--destacado {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-suave);
+  color: var(--accent-escuro);
+  font-weight: 600;
 }
 
 .resultados-busca-pins img {
@@ -1488,23 +1761,23 @@ input[type="file"]::file-selector-button:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   padding: 10px 14px;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--cartao-borda);
+  border-radius: var(--cartao-raio);
+  box-shadow: var(--cartao-sombra-forte);
   color: var(--text-muted);
   font-size: 14px;
 }
 
 .ajuda-busca {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   padding: 10px 14px;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--cartao-borda);
+  border-radius: var(--cartao-raio);
+  box-shadow: var(--cartao-sombra-forte);
   color: var(--text-muted);
   font-size: 13px;
 }
@@ -1574,10 +1847,10 @@ input[type="file"]::file-selector-button:hover {
 .painel-flutuante {
   position: absolute;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--cartao-borda);
+  border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--cartao-sombra-forte);
   opacity: 0;
   transform: translateY(12px);
   pointer-events: none;
@@ -1718,18 +1991,17 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .painel-atributos {
-  bottom: 16px;
+  /* Canto superior-direito, abaixo da barra superior (redesenho, fase 1).
+     Antes ficava embaixo e precisava de um teto de altura (calc(100% -
+     420px)) pra não cobrir a pilha de ~7 grupos de controles do MapLibre;
+     agora os controles são poucos e deslizam pro lado quando ele abre
+     (ver .maplibregl-ctrl-top-right), então ele pode usar a altura toda. */
+  top: 88px;
   right: 16px;
-  width: 280px;
-  /* O painel e a pilha de controles nativos do MapLibre (zoom+bússola,
-     localização, home, medição, track, satélite — 6 grupos, ~380px de
-     altura) ficam no mesmo canto direito, então dividem a mesma faixa
-     horizontal. Sem o terceiro termo, um talhão com muitos atributos
-     deixava o painel alto o bastante pra invadir a área da pilha de
-     botões por cima (não é só estética — os botões ficavam inacessíveis
-     atrás do painel). 420px reserva a altura da pilha + folga. */
-  max-height: min(60vh, 480px, calc(100% - 420px));
+  width: var(--largura-painel-direito);
+  max-height: calc(100% - 104px);
   overflow-y: auto;
+  padding: 18px 20px;
 }
 
 .painel-atributos h2 {
@@ -1757,9 +2029,8 @@ input[type="file"]::file-selector-button:hover {
    640px). Precisa vir DEPOIS das regras base acima — mesma especificidade
    (1 classe), então a ordem no arquivo decide, não a media query sozinha. */
 @media (min-width: 1100px) {
-  .painel-atributos {
-    width: min(34vw, 520px);
-    max-height: min(70vh, 640px, calc(100% - 420px));
+  :root {
+    --largura-painel-direito: 400px;
   }
 
   /* auto-fit em vez das 2 colunas fixas de cima — com o painel mais largo,
@@ -2112,13 +2383,42 @@ input[type="file"]::file-selector-button:hover {
   line-height: 1;
 }
 
-/* Botões nativos do MapLibre (zoom, bússola, localização) — maiores pra toque */
-.maplibregl-ctrl-group button {
-  width: 40px !important;
-  height: 40px !important;
+/* Controles de navegação do MapLibre (zoom, bússola, localização, ver
+   tudo, satélite) — redesenho, fase 1: só navegação fica aqui (medir,
+   percurso e anotar foram pra barra de ferramentas à esquerda). Alinhados
+   abaixo da barra superior; deslizam pra esquerda quando o painel de
+   atributos abre no mesmo canto, em vez de ficarem escondidos atrás dele. */
+.area-mapa .maplibregl-ctrl-top-right {
+  top: 78px;
+  right: 6px;
+  transition: right 260ms var(--ease-saida);
+}
+
+@media (min-width: 641px) {
+  .area-mapa:has(.painel-atributos.aberto) .maplibregl-ctrl-top-right {
+    right: calc(6px + var(--largura-painel-direito) + 12px);
+  }
+}
+
+/* Prefixo .area-mapa: o CSS do MapLibre é carregado depois deste (junto
+   do chunk da tela do mapa) e, com a mesma especificidade, venceria. */
+.area-mapa .maplibregl-ctrl-group:not(:empty) {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--cartao-borda);
+  box-shadow: var(--cartao-sombra);
+}
+
+.area-mapa .maplibregl-ctrl-group button {
+  width: 44px !important;
+  height: 44px !important;
   min-height: 0;
   background-color: #fff !important;
-  color: var(--text) !important;
+  color: #3b4754 !important;
+}
+
+.area-mapa .maplibregl-ctrl-group button:hover {
+  background-color: #f1f4f2 !important;
 }
 
 .maplibregl-ctrl-icon {
@@ -2126,7 +2426,7 @@ input[type="file"]::file-selector-button:hover {
 }
 
 /* Botão de fundo satélite ativo (Mapa.jsx, FundoControl) */
-.maplibregl-ctrl-group button.ctrl-ativo {
+.area-mapa .maplibregl-ctrl-group button.ctrl-ativo {
   background-color: #e3f2e9 !important;
   color: #2f6f4e !important;
 }
@@ -2502,28 +2802,107 @@ input[type="file"]::file-selector-button:hover {
     height: 34px;
   }
 
-  /* Busca fica em cima (altura fixa e conhecida — 1 input) e camadas
-     embaixo dela (altura variável — some depende de quantas camadas o
-     mapa tem e se o painel está aberto por padrão), nunca o contrário:
-     um painel de altura variável não pode ficar "acima" com posição
-     fixa, senão qualquer conteúdo a mais nele passa a cobrir o painel
-     de baixo em vez de empurrá-lo. Direita reservada pros controles de
-     zoom do MapLibre (grupo de botões 40px + margem), senão a busca
-     passa por baixo deles.
-  */
-  .painel-busca {
+  /* Barra superior em 2 linhas no celular (redesenho, fase 1): cartão do
+     mapa + conta em cima, busca em largura cheia embaixo — ordem fixa,
+     altura total conhecida (8 + 48 + 8 + 48 = 112px), então a barra de
+     ferramentas, os controles de navegação e a pilha de painéis começam
+     todos logo abaixo sem calcular nada em runtime. */
+  .barra-topo {
     top: 8px;
     left: 8px;
-    right: 60px;
-    transform: none;
-    width: auto;
+    right: 8px;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
-  .pilha-topo-esquerda {
+  .cartao-identidade {
+    order: 1;
+    flex: 1 1 auto;
+    height: 48px;
+    gap: 6px;
+    padding: 0 12px 0 4px;
+  }
+
+  .marca-app,
+  .rotulo-app {
+    display: none;
+  }
+
+  .botao-trocar-mapa {
+    min-height: 40px;
+    padding: 2px 6px;
+  }
+
+  .divisor-vertical {
+    height: 22px;
+  }
+
+  .status-sincronizacao {
+    font-size: 12px;
+  }
+
+  .barra-topo-direita {
+    order: 2;
+    height: 48px;
+  }
+
+  .chip-status {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .botao-conta {
+    width: 40px;
+    height: 40px;
+  }
+
+  .painel-busca {
+    order: 3;
+    flex: 1 1 100%;
+  }
+
+  .campo-busca {
+    height: 48px;
+  }
+
+  .dock-ferramentas {
+    top: 120px;
     left: 8px;
-    top: 64px;
-    max-width: calc(100vw - 16px);
-    max-height: calc(100% - 80px);
+    width: 56px;
+    padding: 4px;
+  }
+
+  .dock-botao {
+    width: 48px;
+    height: 48px;
+  }
+
+  .dock-rotulo {
+    display: none;
+  }
+
+  .dock-divisor {
+    width: 32px;
+    margin: 4px 0;
+  }
+
+  .area-mapa .maplibregl-ctrl-top-right {
+    top: 110px;
+    right: -2px;
+  }
+
+  /* Entre a barra de ferramentas (esquerda) e os controles de navegação
+     (direita, ~60px) — sem invadir nenhum dos dois. */
+  .pilha-topo-esquerda {
+    top: 120px;
+    left: 72px;
+    max-width: calc(100vw - 140px);
+    max-height: calc(100% - 136px);
+  }
+
+  .barra-anotar {
+    bottom: 16px;
   }
 
   /* Painel de atributos ocupa menos tela no celular (era 45vh) — a
@@ -2533,6 +2912,7 @@ input[type="file"]::file-selector-button:hover {
     left: 8px;
     right: 8px;
     bottom: 8px;
+    top: auto;
     width: auto;
     max-height: 34vh;
     padding: 12px;
@@ -2674,19 +3054,26 @@ input[type="file"]::file-selector-button:hover {
   flex: 1;
 }
 
+/* Rodapé central (redesenho, fase 1) — antes ficava no topo, onde agora
+   mora a busca. É o lugar das barras de ação (medir/percurso/anotar) da
+   fase 2, ver docs/REDESENHO_FRONTEND.md. */
 .barra-anotar {
   position: absolute;
-  top: 12px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
+  /* Sem isso, left:50% limita a largura disponível à metade da tela e a
+     barra quebrava em 3 linhas no celular (achado no teste de 390px). */
+  width: max-content;
   z-index: 6;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
   background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  border: 1px solid var(--cartao-borda);
+  border-radius: 16px;
+  box-shadow: var(--cartao-sombra-forte);
   max-width: calc(100vw - 32px);
   flex-wrap: wrap;
 }
@@ -2792,4 +3179,16 @@ input[type="file"]::file-selector-button:hover {
 .caixa-pode-anotar {
   font-size: 12px;
   opacity: 0.85;
+}
+
+/* Tablet (641-900px): a barra superior cabe numa linha só, mas sem folga
+   pra frase de sincronização inteira — fica só o ponto colorido (a frase
+   continua no title/leitor de tela). No celular (<=640px) a busca desce
+   pra outra linha e a frase volta a caber. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .texto-status-sync,
+  .rotulo-app,
+  .divisor-vertical {
+    display: none;
+  }
 }

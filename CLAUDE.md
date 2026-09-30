@@ -2496,6 +2496,57 @@ verdade, não em área vazia) não pôde ser exercitado neste ambiente — os
 `.pmtiles` do banco de dev local não carregam (mesma limitação de
 sempre), fica como não-exercitável, coberto só por leitura de código.
 
+**Redesenho do frontend, fase 1 — estrutura da tela do mapa
+(2026-09-30)**: proposta visual aprovada pelo Leo a partir de um
+protótipo clicável (link e decisões em `docs/REDESENHO_FRONTEND.md`,
+que também lista as fases 2–5). Desenvolvido no branch
+`feat/redesenho-mapa` — só vai pra `master` (e produção) depois de
+validado, porque os pilotos usam essa tela todo dia. O que mudou:
+- Mapa ocupa a tela toda: o cabeçalho (`.barra-mapa`, que continua
+  existindo nas telas de admin/início/ajuda) virou `.barra-topo`
+  flutuante com cartão de identidade (nome do mapa = botão de trocar
+  mapa, status de sincronização curto com a frase inteira no `title`),
+  busca e botão de conta (iniciais, abre o `MenuLateral`). A barra tem
+  `pointer-events: none` e só os cartões recebem clique — senão o vão
+  entre eles bloquearia arrastar o mapa.
+- `components/DockFerramentas.jsx` (novo): barra de ferramentas à
+  esquerda com rótulo em cada botão. Substitui os botões circulares de
+  Camadas/Tipo de voo e os controles `MedicaoControl`/`TrackControl`/
+  `AnotarControl` do MapLibre (removidos) — a regra de exclusão mútua
+  Camadas × Tipo de voo e "abrir painel fecha cartões de informação"
+  continua a mesma, só mudou quem dispara. À direita ficam só controles
+  de navegação (zoom/bússola, localização, ver tudo, satélite).
+- Painel de atributos (e `CartaoPonto`/`CartaoPin`, que usam a mesma
+  classe) abre no canto superior-direito com altura total; os controles
+  de navegação deslizam pra esquerda quando ele abre
+  (`:has(.painel-atributos.aberto)`), substituindo o antigo teto de
+  altura `calc(100% - 420px)`. No celular continua embaixo, compacto.
+- Barra de anotar desceu pro rodapé central (o topo agora é da busca).
+- Fonte Figtree empacotada (`@fontsource-variable/figtree`, importada em
+  `main.jsx`) — nunca Google Fonts, pra continuar funcionando offline.
+  Tokens novos em `:root` (`--cartao-*`, `--largura-dock`,
+  `--largura-painel-direito`).
+- Bug encontrado testando: no primeiro acesso de um aparelho o nome do
+  mapa aparecia como "mapa-1" até recarregar (só era lido do IndexedDB
+  na abertura, antes da sincronização gravar) — agora também é
+  atualizado quando a sincronização termina. Ficou visível só porque o
+  nome virou o elemento principal do cartão.
+- Detalhe de CSS que vale lembrar: o CSS do MapLibre carrega depois do
+  `index.css` (vem junto do chunk da tela do mapa), então regras nossas
+  sobre `.maplibregl-*` precisam de especificidade maior (prefixo
+  `.area-mapa`), senão perdem em empate.
+
+Verificado com Playwright contra backend/frontend locais e o Postgres
+local (`geoportal_dev`, iniciado via `pg_ctl` do Scoop), em 1440×900,
+768×1024 e 390×844: sem sobreposição entre barra superior, busca,
+barra de ferramentas, controles e painéis; atributos de um talhão real
+(19 campos) ocupam a altura toda à direita no desktop e ~34% da tela no
+celular; zero erro de console. Para ter camadas de verdade no banco
+local, as camadas do mapa local foram apontadas temporariamente para os
+arquivos atuais do mapa Geral no R2 (leitura) e um grupo temporário deu
+acesso ao `admin@geoportal.local` — tudo restaurado/removido ao final,
+e os servidores/Postgres local desligados de novo.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

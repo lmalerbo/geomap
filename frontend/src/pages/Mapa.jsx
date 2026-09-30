@@ -36,7 +36,14 @@ import {
   linkAppleMaps,
   compartilharLocalizacao,
 } from "../lib/compartilharLocalizacao.js";
-import MenuLateral, { IconeMapas, IconeCamadas } from "../components/MenuLateral.jsx";
+import MenuLateral from "../components/MenuLateral.jsx";
+import DockFerramentas, {
+  IconeDockCamadas,
+  IconeDockMedir,
+  IconeDockPercurso,
+  IconeDockAnotar,
+  IconeDockTipoVoo,
+} from "../components/DockFerramentas.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import LegendaCamada, {
   IconeFormaPonto,
@@ -54,14 +61,37 @@ import FormularioPin from "../components/pins/FormularioPin.jsx";
 import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
 import { useJobs } from "../context/JobsContext.jsx";
 
-function IconeMenu() {
+// Marca do app no cartão de identidade da barra superior (pino de mapa).
+function IconeMarca() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="3" y1="6" x2="21" y2="6" />
-      <line x1="3" y1="12" x2="21" y2="12" />
-      <line x1="3" y1="18" x2="21" y2="18" />
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11Z" />
+      <circle cx="12" cy="10" r="2.2" />
     </svg>
   );
+}
+
+function IconeSetaBaixo() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function IconeBusca() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+function iniciaisDoNome(nome) {
+  const partes = String(nome || "").trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "?";
+  return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
 }
 
 // Alvo/mira — botão recolhido da ação "Apontar voo" (distinto do ícone de
@@ -75,24 +105,6 @@ function IconeApontamento() {
       <line x1="12" y1="20" x2="12" y2="23" />
       <line x1="1" y1="12" x2="4" y2="12" />
       <line x1="20" y1="12" x2="23" y2="12" />
-    </svg>
-  );
-}
-
-// Drone (mesmo estilo de traço 2px dos outros ícones do projeto) — botão
-// recolhido da legenda "Tipo de voo".
-function IconeVoo() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="6" height="6" rx="1" />
-      <circle cx="4" cy="4" r="2" />
-      <circle cx="20" cy="4" r="2" />
-      <circle cx="4" cy="20" r="2" />
-      <circle cx="20" cy="20" r="2" />
-      <line x1="9" y1="9" x2="5.5" y2="5.5" />
-      <line x1="15" y1="9" x2="18.5" y2="5.5" />
-      <line x1="9" y1="15" x2="5.5" y2="18.5" />
-      <line x1="15" y1="15" x2="18.5" y2="18.5" />
     </svg>
   );
 }
@@ -111,55 +123,6 @@ class HomeControl {
     botao.setAttribute("aria-label", "Voltar à visão inicial");
     botao.innerHTML =
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9"/></svg>';
-    botao.onclick = () => this._aoClicar();
-    this._container.appendChild(botao);
-    return this._container;
-  }
-  onRemove() {
-    this._container.parentNode?.removeChild(this._container);
-  }
-}
-
-// Botão "Medir" — liga/desliga o modo medição (distância/área). A lógica
-// mora em React (precisa de estado pra desenhar o painel/resultado); este
-// controle só dispara o callback, igual o HomeControl.
-class MedicaoControl {
-  constructor(aoClicar) {
-    this._aoClicar = aoClicar;
-  }
-  onAdd() {
-    this._container = document.createElement("div");
-    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
-    const botao = document.createElement("button");
-    botao.type = "button";
-    botao.title = "Medir distância/área";
-    botao.setAttribute("aria-label", "Medir distância/área");
-    botao.innerHTML =
-      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M21.3 8.7 8.7 21.3a1 1 0 0 1-1.4 0l-4.6-4.6a1 1 0 0 1 0-1.4L15.3 2.7a1 1 0 0 1 1.4 0l4.6 4.6a1 1 0 0 1 0 1.4Z"/><path d="m14.5 5.5 2 2M11.5 8.5l2 2M8.5 11.5l2 2M5.5 14.5l2 2"/></svg>';
-    botao.onclick = () => this._aoClicar();
-    this._container.appendChild(botao);
-    return this._container;
-  }
-  onRemove() {
-    this._container.parentNode?.removeChild(this._container);
-  }
-}
-
-// Botão "Anotar" — só existe em mapa onde o usuário pode anotar (pins);
-// adicionado/removido por efeito quando `podeEditar` muda.
-class AnotarControl {
-  constructor(aoClicar) {
-    this._aoClicar = aoClicar;
-  }
-  onAdd() {
-    this._container = document.createElement("div");
-    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
-    const botao = document.createElement("button");
-    botao.type = "button";
-    botao.title = "Anotar no mapa";
-    botao.setAttribute("aria-label", "Anotar no mapa");
-    botao.innerHTML =
-      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M12 22s-7-7.5-7-13a7 7 0 0 1 14 0c0 5.5-7 13-7 13z"/><path d="M12 6v6M9 9h6"/></svg>';
     botao.onclick = () => this._aoClicar();
     this._container.appendChild(botao);
     return this._container;
@@ -201,31 +164,6 @@ class FundoControl {
         : "Ver fundo de satélite";
     this._botao.title = titulo;
     this._botao.setAttribute("aria-label", titulo);
-  }
-  onRemove() {
-    this._container.parentNode?.removeChild(this._container);
-  }
-}
-
-// Botão "Track log" — abre/fecha o painel de gravação de percurso (item 4).
-// Mesmo molde de MedicaoControl: só dispara o callback, toda a lógica de
-// GPS/gravação mora em React (precisa de estado).
-class TrackControl {
-  constructor(aoClicar) {
-    this._aoClicar = aoClicar;
-  }
-  onAdd() {
-    this._container = document.createElement("div");
-    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
-    const botao = document.createElement("button");
-    botao.type = "button";
-    botao.title = "Gravar percurso";
-    botao.setAttribute("aria-label", "Gravar percurso");
-    botao.innerHTML =
-      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M3 17c3-6 6 4 9-2s6 4 9-2"/><circle cx="4" cy="17.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="20" cy="12.5" r="1.4" fill="currentColor" stroke="none"/></svg>';
-    botao.onclick = () => this._aoClicar();
-    this._container.appendChild(botao);
-    return this._container;
   }
   onRemove() {
     this._container.parentNode?.removeChild(this._container);
@@ -945,7 +883,7 @@ export default function Mapa() {
   // "dispositivo" (sem internet de verdade) | "servidor" (o aparelho tem
   // internet, mas a chamada ao backend falhou — servidor fora do ar,
   // bloqueio de borda etc, ver sincronizarMapas) | null enquanto não se
-  // sabe ainda — muda a mensagem exibida (ver barra-mapa abaixo) pra não
+  // sabe ainda — muda a mensagem exibida (status no cartão de identidade) pra não
   // o usuário achar que é problema do celular dele quando não é.
   const [motivoOffline, setMotivoOffline] = useState(null);
   // Nada baixado localmente pra este mapa ainda — mesmo raciocínio de
@@ -1001,14 +939,16 @@ export default function Mapa() {
   );
   const [menuAberto, setMenuAberto] = useState(false);
   // Nome de verdade do mapa (ex: "Geral", "Temático"), lido do IndexedDB
-  // (mesma fonte da tela inicial) — usado só pra identificar o mapa nos
-  // arquivos exportados pela medição (KML/PDF), em vez de "mapa-<id>".
-  const [nomeMapaAtual, setNomeMapaAtual] = useState(`mapa-${mapaId}`);
+  // (mesma fonte da tela inicial) — aparece no cartão da barra superior e
+  // identifica o mapa nos arquivos exportados pela medição (KML/PDF).
+  // Vazio até a primeira leitura/sincronização (a barra mostra
+  // "Carregando…"; a exportação cai em "mapa-<id>").
+  const [nomeMapaAtual, setNomeMapaAtual] = useState("");
   // Vem do catálogo salvo no IndexedDB (GET /mapas.podeEditar) — funciona
   // offline. Libera as ferramentas de anotação (pins).
   const [podeEditar, setPodeEditar] = useState(false);
   // Barra de ferramentas "Anotar" (tocar no mapa / GPS) — aberta/fechada
-  // pelo AnotarControl no canto superior-direito.
+  // pelo botão Anotar da barra de ferramentas (DockFerramentas).
   const [barraAnotarAberta, setBarraAnotarAberta] = useState(false);
 
   // Medição, track log e importação temporária viraram hooks próprios
@@ -1024,7 +964,7 @@ export default function Mapa() {
       setPontoSelecionado(null);
       pins.fecharPin();
     },
-    nomeMapaAtual
+    nomeMapaAtual || `mapa-${mapaId}`
   );
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto, mapaId);
@@ -1152,8 +1092,9 @@ export default function Mapa() {
       }),
       "top-right"
     );
-    map.addControl(new MedicaoControl(() => medicao.setMedindo((m) => !m)), "top-right");
-    map.addControl(new TrackControl(() => track.setMostrarPainelTrack((m) => !m)), "top-right");
+    // Medir, Percurso e Anotar saíram daqui pra barra de ferramentas à
+    // esquerda (DockFerramentas) — ferramenta não se mistura mais com
+    // navegação (redesenho, fase 1).
     const fundoControl = new FundoControl(() => setFundoSatelite((s) => !s));
     fundoControlRef.current = fundoControl;
     map.addControl(fundoControl, "top-right");
@@ -1179,17 +1120,12 @@ export default function Mapa() {
     };
   }, []);
 
-  // Controle "Anotar" só para quem pode anotar neste mapa.
+  // Perder a permissão de anotar (ex: sync mudou `podeEditar`) fecha a
+  // barra de anotar — antes isso vinha de graça ao remover o controle do
+  // MapLibre; agora o botão mora na barra de ferramentas.
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapaPronto || !podeEditar) return;
-    const controle = new AnotarControl(() => setBarraAnotarAberta((a) => !a));
-    map.addControl(controle, "top-right");
-    return () => {
-      map.removeControl(controle);
-      setBarraAnotarAberta(false);
-    };
-  }, [mapaPronto, podeEditar]);
+    if (!podeEditar) setBarraAnotarAberta(false);
+  }, [podeEditar]);
 
   // Medição e anotação disputariam o mesmo clique — ligar uma desliga a outra.
   useEffect(() => {
@@ -1313,7 +1249,12 @@ export default function Mapa() {
           navigate("/inicio", { replace: true });
         }
         const atualizado = disponiveis.find((m) => m.id === mapaId);
-        if (!cancelado && atualizado) setPodeEditar(atualizado.podeEditar === true);
+        if (!cancelado && atualizado) {
+          setPodeEditar(atualizado.podeEditar === true);
+          // Primeiro acesso neste aparelho: o nome ainda não existia no
+          // IndexedDB quando o mapa abriu, só depois da sincronização.
+          if (atualizado.nome) setNomeMapaAtual(atualizado.nome);
+        }
       }
     });
 
@@ -1919,52 +1860,101 @@ export default function Mapa() {
   // de uma busca anterior pode ficar fora dos limites.
   const indiceDestacadoValido = Math.min(indiceDestacadoBusca, Math.max(resultadosBusca.length - 1, 0));
 
+  // Status de sincronização no cartão de identidade — versão curta visível,
+  // completa no title (o cartão não tem espaço pra frase inteira).
+  const estadoSync = sincronizando ? "sincronizando" : offline ? "offline" : "ok";
+  const horaSync = ultimaSincronizacao?.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const textoSyncCurto = sincronizando
+    ? "Sincronizando…"
+    : offline
+      ? motivoOffline === "servidor"
+        ? "Servidor fora · mapa salvo"
+        : "Offline · mapa salvo"
+      : horaSync
+        ? `Sincronizado às ${horaSync}`
+        : "";
+  const textoSyncCompleto = offline
+    ? motivoOffline === "servidor"
+      ? "Servidor indisponível — usando último mapa salvo"
+      : "Offline — usando último mapa salvo"
+    : textoSyncCurto;
+
+  // Painéis de consulta (Camadas, Tipo de voo) continuam mutuamente
+  // exclusivos e fecham cartões de informação ao abrir — mesma regra de
+  // antes (2026-08-21 / 2026-09-22), só que agora disparada pela barra de
+  // ferramentas em vez dos botões circulares.
+  function fecharCartoesDeInformacao() {
+    setSelecao(null);
+    setPontoSelecionado(null);
+    pins.fecharPin();
+  }
+  const mostrarTipoVoo = Boolean(voosInfo) && !apontamento.modoApontamento && apontamento.legendaProjetos.length > 1;
+  const gruposDock = [
+    [
+      {
+        id: "camadas",
+        rotulo: "Camadas",
+        icone: <IconeDockCamadas />,
+        visivel: mapasLocais.length > 0,
+        ativo: painelCamadasAberto,
+        aoClicar: () => {
+          if (painelCamadasAberto) {
+            setPainelCamadasAberto(false);
+            return;
+          }
+          setPainelCamadasAberto(true);
+          setPainelTipoVooAberto(false);
+          fecharCartoesDeInformacao();
+        },
+      },
+      {
+        id: "tipo-voo",
+        rotulo: "Tipo de voo",
+        icone: <IconeDockTipoVoo />,
+        visivel: mostrarTipoVoo,
+        ativo: painelTipoVooAberto,
+        aoClicar: () => {
+          if (painelTipoVooAberto) {
+            setPainelTipoVooAberto(false);
+            return;
+          }
+          setPainelTipoVooAberto(true);
+          setPainelCamadasAberto(false);
+          fecharCartoesDeInformacao();
+        },
+      },
+    ],
+    [
+      {
+        id: "medir",
+        rotulo: "Medir",
+        rotuloCompleto: "Medir distância ou área",
+        icone: <IconeDockMedir />,
+        ativo: medicao.medindo,
+        aoClicar: () => medicao.setMedindo((m) => !m),
+      },
+      {
+        id: "percurso",
+        rotulo: "Percurso",
+        rotuloCompleto: "Gravar percurso",
+        icone: <IconeDockPercurso />,
+        ativo: track.mostrarPainelTrack,
+        aoClicar: () => track.setMostrarPainelTrack((m) => !m),
+      },
+      {
+        id: "anotar",
+        rotulo: "Anotar",
+        rotuloCompleto: "Anotar no mapa",
+        icone: <IconeDockAnotar />,
+        visivel: podeEditar,
+        ativo: barraAnotarAberta,
+        aoClicar: () => setBarraAnotarAberta((a) => !a),
+      },
+    ],
+  ];
+
   return (
     <main className="tela-mapa">
-      <header className="barra-mapa">
-        <strong>GeoMap</strong>
-        <span className="status-sync">
-          {sincronizando && <span className="spinner" aria-hidden="true" />}
-          {sincronizando
-            ? "Sincronizando…"
-            : offline
-              ? motivoOffline === "servidor"
-                ? "Servidor indisponível — usando último mapa salvo"
-                : "Offline — usando último mapa salvo"
-              : ultimaSincronizacao
-                ? `Atualizado às ${ultimaSincronizacao.toLocaleTimeString("pt-BR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}`
-                : null}
-        </span>
-        {pinsPendentes > 0 && (
-          <span className="status-pins-pendentes" aria-live="polite">
-            {pinsPendentes === 1 ? "1 anotação aguardando envio" : `${pinsPendentes} anotações aguardando envio`}
-          </span>
-        )}
-        {medicao.medindo && (
-          <span className="status-medicao" aria-live="polite">
-            Medição ativa: {medicao.modoMedicao === "area" ? "área" : "distância"}
-          </span>
-        )}
-        <span className="nome-mapa-atual" title={nomeMapaAtual}>
-          {nomeMapaAtual}
-        </span>
-        <Link to="/inicio" className="botao-circular" aria-label="Trocar mapa" title="Trocar mapa">
-          <IconeMapas />
-        </Link>
-        <button
-          type="button"
-          className="botao-circular"
-          onClick={() => setMenuAberto(true)}
-          aria-label="Abrir menu"
-          title="Menu"
-        >
-          <IconeMenu />
-        </button>
-      </header>
-
       <MenuLateral
         aberto={menuAberto}
         aoFechar={() => setMenuAberto(false)}
@@ -1987,10 +1977,41 @@ export default function Mapa() {
           </div>
         )}
 
+        <div className="barra-topo">
+          <div className="cartao-identidade">
+            <span className="marca-app">
+              <IconeMarca />
+            </span>
+            <Link
+              to="/inicio"
+              className="botao-trocar-mapa"
+              aria-label={`Trocar mapa (atual: ${nomeMapaAtual || "carregando"})`}
+              title="Trocar mapa"
+            >
+              <span className="rotulo-app">GeoMap</span>
+              <span className="nome-mapa-atual">
+                <span className="texto-nome-mapa">{nomeMapaAtual || "Carregando…"}</span>
+                <IconeSetaBaixo />
+              </span>
+            </Link>
+            <span className="divisor-vertical" aria-hidden="true" />
+            <span className={`status-sincronizacao status-sincronizacao--${estadoSync}`} aria-live="polite" title={textoSyncCompleto}>
+              {sincronizando ? (
+                <span className="spinner" aria-hidden="true" />
+              ) : (
+                <span className="ponto-status" aria-hidden="true" />
+              )}
+              <span className="texto-status-sync">{textoSyncCurto}</span>
+            </span>
+          </div>
+
         {mapasLocais.length > 0 && (
           <div className="painel-busca">
+            <div className="campo-busca">
+            <IconeBusca />
             <input
               type="search"
+              aria-label="Buscar"
               // Placeholder mais curto (2026-09-22) — a dica de buscar
               // várias fazendas separando com ";" ficava "poluído" na
               // barra; a funcionalidade continua igual, só não é mais
@@ -2014,6 +2035,7 @@ export default function Mapa() {
               disabled={!buscaHabilitada}
               aria-disabled={!buscaHabilitada}
             />
+            </div>
             {!buscaHabilitada ? (
               <p className="ajuda-busca">
                 A busca não está disponível para o mapa carregado. Use o clique no mapa para ver atributos.
@@ -2065,25 +2087,29 @@ export default function Mapa() {
           </div>
         )}
 
+          <div className="barra-topo-direita">
+            {pinsPendentes > 0 && (
+              <span className="chip-status chip-status--alerta" aria-live="polite">
+                {pinsPendentes === 1 ? "1 anotação aguardando envio" : `${pinsPendentes} anotações aguardando envio`}
+              </span>
+            )}
+            <button
+              type="button"
+              className="botao-conta"
+              onClick={() => setMenuAberto(true)}
+              aria-label="Abrir menu"
+              title="Menu"
+            >
+              {iniciaisDoNome(sessao.usuario.nome)}
+            </button>
+          </div>
+        </div>
+
+        {mapaPronto && <DockFerramentas grupos={gruposDock} />}
+
         <div className="pilha-topo-esquerda">
-        {mapasLocais.length > 0 && (!painelCamadasAberto ? (
-          <button
-            type="button"
-            className="botao-circular botao-camadas-recolhido"
-            onClick={() => {
-              setPainelCamadasAberto(true);
-              setPainelTipoVooAberto(false); // mutuamente exclusivos (pedido do Leo, 2026-08-21) — dois cards abertos juntos na mesma pilha poluíam a tela
-              setSelecao(null); // fecha Atributos também (2026-09-22) — no máximo 1 card de informação aberto por vez
-              setPontoSelecionado(null);
-              pins.fecharPin();
-            }}
-            aria-label="Abrir painel de camadas"
-            title="Camadas"
-          >
-            <IconeCamadas />
-          </button>
-        ) : (
-          <aside className="painel-camadas">
+        {mapasLocais.length > 0 && painelCamadasAberto && (
+          <aside className="painel-camadas" aria-label="Camadas">
             <button
               type="button"
               className="cabecalho-painel-camadas"
@@ -2302,7 +2328,7 @@ export default function Mapa() {
               </div>
             </div>
           </aside>
-        ))}
+        )}
 
         {buscaSelecionada && talhoesFazenda.length > 0 && (
           <div className="painel-talhoes-fazenda">
@@ -2336,24 +2362,8 @@ export default function Mapa() {
         {voosInfo &&
           !apontamento.modoApontamento &&
           apontamento.legendaProjetos.length > 1 &&
-          (!painelTipoVooAberto ? (
-            <button
-              type="button"
-              className="botao-circular botao-camadas-recolhido"
-              onClick={() => {
-                setPainelTipoVooAberto(true);
-                setPainelCamadasAberto(false); // mutuamente exclusivos, ver comentário em Camadas
-                setSelecao(null); // fecha Atributos também (2026-09-22)
-                setPontoSelecionado(null);
-                pins.fecharPin();
-              }}
-              aria-label="Abrir legenda de tipos de voo"
-              title="Tipo de voo"
-            >
-              <IconeVoo />
-            </button>
-          ) : (
-            <aside className="painel-camadas">
+          painelTipoVooAberto && (
+            <aside className="painel-camadas" aria-label="Tipo de voo">
               <button
                 type="button"
                 className="cabecalho-painel-camadas"
@@ -2379,7 +2389,7 @@ export default function Mapa() {
                 ))}
               </div>
             </aside>
-          ))}
+          )}
         </div>
 
         {mapasLocais.length === 0 && !sincronizando && (
