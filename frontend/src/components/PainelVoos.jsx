@@ -18,7 +18,9 @@ export default function PainelVoos({ apontamento, aoApontar, compacto = false })
     retentarLote,
     descartarLote,
     enviarFilaAgora,
+    pendentes,
   } = apontamento;
+  const temUrgente = pendentes.some((r) => r.urgente);
 
   const ha = areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
   const horaCache = pendenciasDeCache
@@ -86,6 +88,13 @@ export default function PainelVoos({ apontamento, aoApontar, compacto = false })
           </div>
         </div>
       ))}
+
+      {temUrgente && (
+        <p className="legenda-urgente">
+          <span className="swatch-urgente" aria-hidden="true" />
+          Pontilhado vermelho: Falhas com “Voar urgente” · número embaixo do talhão: dias corridos
+        </p>
+      )}
 
       {!compacto && legendaProjetos.length > 0 && (
         <div className="filtro-tipos-voo" role="group" aria-label="Filtrar por tipo de voo">

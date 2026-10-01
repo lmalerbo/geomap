@@ -38,3 +38,23 @@ test("Falhas Soca de outra safra ou sem dado de estágio não conta", () => {
   assert.equal(estagioValidoParaFalhasSoca({}), false);
   assert.equal(estagioValidoParaFalhasSoca(undefined), false);
 });
+
+import { ehFalhasUrgente, dataReferenciaVoo } from "../src/lib/regrasApontamento.js";
+
+test("urgente com destaque só pras Falhas com Voar urgente", () => {
+  assert.equal(ehFalhasUrgente("Falhas Plantio", 6), true);
+  assert.equal(ehFalhasUrgente("Falhas Soca", 6), true);
+  assert.equal(ehFalhasUrgente("Falhas Soca", 5), false);
+  assert.equal(ehFalhasUrgente("Projeto Plantio", 6), false);
+});
+
+test("data de referência: plantio, corte ou agendamento", () => {
+  const bruto = {
+    scheduledDate: "2026-07-16T16:26:24.809Z",
+    layerDetails: { datePlanting: "2024-01-06T00:00:00Z", cutDate: "2026-05-14T00:00:00Z" },
+  };
+  assert.equal(dataReferenciaVoo("Falhas Plantio", bruto), "2024-01-06T00:00:00Z");
+  assert.equal(dataReferenciaVoo("Falhas Soca", bruto), "2026-05-14T00:00:00Z");
+  assert.equal(dataReferenciaVoo("Projeto Plantio", bruto), "2026-07-16T16:26:24.809Z");
+  assert.equal(dataReferenciaVoo("Falhas Soca", {}), null);
+});

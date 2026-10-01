@@ -8,6 +8,7 @@ import {
   EVENTO_FILA_APONTAMENTOS,
 } from "../lib/filaApontamentosApp.js";
 import { useApontamentosNaFila } from "./useApontamentosNaFila.js";
+import { textoLegendaDias } from "../lib/diasCorridos.js";
 
 // Contorno dos talhões cujo apontamento está guardado no aparelho esperando
 // sinal (fila offline, redesenho fase 4) — âmbar, distinto de qualquer cor
@@ -30,6 +31,33 @@ const TEMPO_CONFIRMACAO_MS = 4000;
 // funciona com GeoJSON+lineMetrics) — anéis concêntricos são a
 // alternativa que funciona de forma confiável pra qualquer quantidade de
 // tipos.
+// Falhas com "Voar urgente": pontilhado vermelho por baixo do contorno
+// (que mantém a cor do tipo), e a legenda de dias corridos em cada talhão
+// pendente — pedidos do Leo (2026-10-01).
+const CAMADA_URGENTE = "camada-voos-urgente";
+const CAMADA_DIAS = "camada-voos-dias";
+const IMAGEM_PONTILHADO = "voos-pontilhado-urgente";
+const COR_URGENTE = [220, 38, 38]; // #dc2626
+
+// Padrão de pontinhos vermelhos (desenhado em memória, sem arquivo).
+function imagemPontilhado() {
+  const lado = 10;
+  const dados = new Uint8Array(lado * lado * 4);
+  const centro = (lado - 1) / 2;
+  for (let y = 0; y < lado; y++) {
+    for (let x = 0; x < lado; x++) {
+      const d = Math.hypot(x - centro, y - centro);
+      const alfa = d <= 1.6 ? 235 : d <= 2.3 ? 110 : 0;
+      const i = (y * lado + x) * 4;
+      dados[i] = COR_URGENTE[0];
+      dados[i + 1] = COR_URGENTE[1];
+      dados[i + 2] = COR_URGENTE[2];
+      dados[i + 3] = alfa;
+    }
+  }
+  return { width: lado, height: lado, data: dados };
+}
+
 const CAMADA_ANEL_PREFIXO = "camada-voos-anel-";
 const MAX_ANEIS_MULTIPLO = 6;
 const LARGURA_ANEL = 2.5;
@@ -82,6 +110,29 @@ function chave(secao, talhao) {
 // nos efeitos abaixo já reduz a janela disso acontecer, mas essa função
 // é o cinto de segurança de verdade — nunca deixa esse erro específico
 // escapar pra fora do hook.
+// Camadas de voo sempre por cima das outras camadas do mapa (pedido do Leo,
+// 2026-10-01). Mapa.jsx chama isso depois de montar/remontar as camadas
+// (uma camada nova entra embaixo do primeiro rótulo, que pode ficar no meio
+// da pilha de voos); o hook chama quando cria as próprias camadas.
+// moveLayer sem beforeId leva pro topo, então a ordem da lista é a ordem
+// final de baixo pra cima.
+export function trazerVoosParaCima(map, voosInfo) {
+  if (!map || !voosInfo) return;
+  const ids = [
+    voosInfo.fillLayerId,
+    CAMADA_URGENTE,
+    voosInfo.lineLayerId,
+    ...Array.from({ length: MAX_ANEIS_MULTIPLO }, (_, i) => idCamadaAnel(i)),
+    voosInfo.highlightLayerId,
+    voosInfo.rotuloLayerId,
+    CAMADA_SELECAO,
+    CAMADA_DIAS,
+  ];
+  for (const id of ids) {
+    if (id && getLayerSeguro(map, id)) map.moveLayer(id);
+  }
+}
+
 function getLayerSeguro(map, id) {
   try {
     return map.getLayer(id);
@@ -451,6 +502,32 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
           : semContorno;
       map.setPaintProperty(idAnel, "line-color", expressaoAnel);
     }
+
+    const chaveTalhao = ["concat", ["get", "SECAO"], "-", ["get", "TALHAO"]];
+
+    // Pontilhado vermelho: talhão com alguma Falha em "Voar urgente".
+    if (getLayerSeguro(map, CAMADA_URGENTE)) {
+      const urgentes = [
+        ...new Set(pendentesFiltrados.filter((r) => r.urgente).map((r) => chave(r.secao, r.talhao))),
+      ].filter((k) => !chavesVerdes.has(k));
+      map.setFilter(CAMADA_URGENTE, urgentes.length > 0 ? ["match", chaveTalhao, urgentes, true, false] : FILTRO_NENHUM);
+    }
+
+    // Legenda de dias corridos (um número por tipo pendente no talhão).
+    if (getLayerSeguro(map, CAMADA_DIAS)) {
+      const ramosDias = [];
+      const hoje = new Date();
+      for (const [k, registrosPorTipo] of tiposPorTalhao) {
+        if (chavesVerdes.has(k)) continue;
+        const nomes = ordenarTiposVoo([...registrosPorTipo.keys()]);
+        const texto = textoLegendaDias(
+          nomes.map((n) => registrosPorTipo.get(n)),
+          hoje
+        );
+        if (texto) ramosDias.push(k, texto);
+      }
+      map.setLayoutProperty(CAMADA_DIAS, "text-field", ramosDias.length > 0 ? ["match", chaveTalhao, ...ramosDias, ""] : "");
+    }
   }, [pendentesFiltrados, recemApontados, carregandoPendentes, voosInfo, mapaPronto, mapRef, fila.pendentes]);
 
   // 2b) cria/destrói os MAX_ANEIS_MULTIPLO contornos concêntricos usados
@@ -479,9 +556,48 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       });
     }
 
+    if (!map.hasImage(IMAGEM_PONTILHADO)) map.addImage(IMAGEM_PONTILHADO, imagemPontilhado());
+    if (!getLayerSeguro(map, CAMADA_URGENTE)) {
+      map.addLayer({
+        id: CAMADA_URGENTE,
+        type: "fill",
+        source: voosInfo.sourceId,
+        "source-layer": voosInfo.sourceLayerPrincipal,
+        paint: { "fill-pattern": IMAGEM_PONTILHADO, "fill-antialias": false },
+        filter: FILTRO_NENHUM,
+      });
+    }
+    if (!getLayerSeguro(map, CAMADA_DIAS)) {
+      map.addLayer({
+        id: CAMADA_DIAS,
+        type: "symbol",
+        source: voosInfo.sourceId,
+        "source-layer": voosInfo.sourceLayerPrincipal,
+        minzoom: 12,
+        layout: {
+          "text-field": "",
+          "text-font": ["Noto Sans Regular"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 13],
+          // Abaixo do número do talhão (rótulo da própria camada).
+          "text-offset": [0, 1.25],
+          "text-allow-overlap": false,
+          "text-padding": 1,
+        },
+        paint: {
+          "text-color": "#1f2933",
+          "text-halo-color": "#ffffff",
+          "text-halo-width": 1.6,
+        },
+      });
+    }
+    trazerVoosParaCima(map, voosInfo);
+
     return () => {
       for (let i = 0; i < MAX_ANEIS_MULTIPLO; i++) {
         const id = idCamadaAnel(i);
+        if (getLayerSeguro(map, id)) map.removeLayer(id);
+      }
+      for (const id of [CAMADA_URGENTE, CAMADA_DIAS]) {
         if (getLayerSeguro(map, id)) map.removeLayer(id);
       }
     };
@@ -516,6 +632,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       paint: { "line-color": CORES_FERRAMENTAS.vooSelecionado, "line-width": 5 },
       filter: FILTRO_NENHUM, // nada selecionado ainda
     });
+    trazerVoosParaCima(map, voosInfo);
 
     return () => {
       if (getLayerSeguro(map, CAMADA_SELECAO)) map.removeLayer(CAMADA_SELECAO);

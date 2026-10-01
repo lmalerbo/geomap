@@ -8,6 +8,8 @@ import {
   motivoParaNaoApontar,
   estagioValidoParaFalhasSoca,
   VERSAO_REGRA_PENDENTES,
+  ehFalhasUrgente,
+  dataReferenciaVoo,
 } from "../lib/regrasApontamento.js";
 
 // Proxy pra integração DroneManagement (apontamento de voo pelo mapa) —
@@ -49,6 +51,7 @@ const PROPRIEDADES_FORNECEDOR = new Set(["FORNECEDOR", "FORNEC. SUBPARCERIA", "F
 const TAMANHO_PAGINA = 500;
 
 function mapearRegistro(r) {
+  const projeto = r.flightProjectDetails?.description || null;
   return {
     id: r.id,
     // Nome do projeto/campanha de voo (ex: "Falhas Plantio", "Projeto
@@ -71,6 +74,11 @@ function mapearRegistro(r) {
     // dessa informação pra se destacar com outra cor no mapa (pedido do
     // Leo, 2026-09-29), não pra ser filtrado.
     fornecedor: PROPRIEDADES_FORNECEDOR.has(r.layerDetails?.transferProperty),
+    // Falhas com Voar urgente ganham pontilhado vermelho no mapa; a data de
+    // referência vira a legenda de dias corridos de cada talhão (pedido do
+    // Leo, 2026-10-01 — ver regrasApontamento.js).
+    urgente: ehFalhasUrgente(projeto, r.verifyFlightSize),
+    dataReferencia: dataReferenciaVoo(projeto, r),
   };
 }
 

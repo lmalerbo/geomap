@@ -2750,6 +2750,29 @@ esperado de id de piloto inválido), banco local preparado e desfeito.
 `usuario_id` em todo job e sem a coluna o envio de camada (inclusive o
 da automação) quebraria.
 
+**Mapa de voos: urgente, dias corridos e voos por cima (2026-10-01)**:
+- **Voos por cima** das outras camadas: `trazerVoosParaCima`
+  (`hooks/useApontamentoVoo.js`) move contorno, anéis, rótulo, seleção e
+  as camadas novas abaixo pro topo; `Mapa.jsx` chama depois de montar as
+  camadas (uma camada recém montada entra embaixo do primeiro rótulo, que
+  pode estar no meio da pilha de voos), o hook chama quando cria as dele.
+- **Voar urgente** (`verifyFlightSize = 6`) só nas Falhas (Plantio e
+  Soca): camada `camada-voos-urgente` com padrão de pontinhos vermelhos
+  desenhado em memória (`map.addImage`, sem arquivo), por baixo do
+  contorno, que mantém a cor do tipo. O backend manda `urgente` em cada
+  registro (`ehFalhasUrgente` em `lib/regrasApontamento.js`).
+- **Legenda de dias corridos** em cada talhão pendente (`camada-voos-dias`,
+  a partir do zoom 12, abaixo do número do talhão): Falhas Plantio contam
+  do plantio (`layerDetails.datePlanting`), Falhas Soca do corte
+  (`cutDate`), as demais do agendamento (`scheduledDate`) — o backend
+  manda `dataReferencia` (`dataReferenciaVoo`), o app calcula os dias
+  (`lib/diasCorridos.js`, com testes), então segue certo sem internet.
+  Talhão com 2+ tipos mostra um número por tipo ("30 d · 5 d"). Pegadinha:
+  plantio/corte chegam como meia-noite UTC — convertidos pro horário de
+  Brasília viravam o dia anterior; são tratados como só-dia.
+- `VERSAO_REGRA_PENDENTES` mudou pra o cache de pendências trazer os
+  campos novos.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

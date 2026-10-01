@@ -26,7 +26,7 @@ import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
-import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
+import { useApontamentoVoo, trazerVoosParaCima } from "../hooks/useApontamentoVoo.js";
 import { usePins } from "../hooks/usePins.js";
 import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
 import { useApontamentosNaFila } from "../hooks/useApontamentosNaFila.js";
@@ -77,6 +77,7 @@ import FormularioPin from "../components/pins/FormularioPin.jsx";
 import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
 import { copiarTexto } from "../lib/coordenadas.js";
 import { useJobs } from "../context/JobsContext.jsx";
+import { diasCorridos } from "../lib/diasCorridos.js";
 
 // Marca do app no cartão de identidade da barra superior (pino de mapa).
 function IconeMarca() {
@@ -1426,6 +1427,10 @@ export default function Mapa() {
             if (layerId && map.getLayer(layerId)) map.moveLayer(layerId, primeiroRotulo);
           }
         }
+      } else {
+        // Mapa de voos: as camadas de voo vão pro topo (uma camada recém
+        // montada pode ter entrado no meio da pilha delas).
+        trazerVoosParaCima(map, [...carregadas.values()].find((info) => info.tipoCamada === "voos"));
       }
 
       const headers = [...carregadas.values()].map((c) => c.header);
@@ -2896,7 +2901,12 @@ export default function Mapa() {
                             : `${pendenciasTalhaoSelecionado.length} voos pendentes`}
                         </strong>
                         {" · "}
-                        {pendenciasTalhaoSelecionado.map((r) => r.projeto).join(", ")}
+                        {pendenciasTalhaoSelecionado
+                          .map((r) => {
+                            const dias = diasCorridos(r.dataReferencia);
+                            return `${r.projeto}${dias != null ? ` (${dias} d)` : ""}${r.urgente ? " · urgente" : ""}`;
+                          })
+                          .join(", ")}
                       </p>
                       <button
                         type="button"
