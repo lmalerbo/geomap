@@ -2803,12 +2803,16 @@ API em `docs/INTEGRACAO_DRONEMANAGEMENT.md`. Decisões (com o Leo):
   As duas buscas (realizados, pendentes) rodam em sequência, nunca em
   paralelo — duas sessões novas abririam dois Chromium no Render.
 
-Verificado: 67 testes de backend e 53 unitários de frontend; API local
+Verificado: 69 testes de backend e 55 unitários de frontend; API local
 contra o DroneManagement real bateu com a sonda (safra até 01/10: 1.733
 talhões, 24.722,57 ha; Falhas Plantio próprio + fornecedor = 6.469,88)
 e a 2ª chamada levou 0,9s (cache); Playwright em 1440/768/390 como admin,
 piloto, usuário comum e piloto sem rede (25 checagens, zero erro de
-console). **Antes de publicar**: aplicar a migration 017 em produção,
+console). Revisão final (revisor novo) achou 4 problemas corrigidos com teste: cache
+offline da página separado por usuário, período limitado (ano ≥ 2000, até
+5 anos — digitar o ano no campo de data travava servidor e página),
+resposta antiga descartada ao trocar período, voo sem data válida
+descartado. **Antes de publicar**: aplicar a migration 017 em produção,
 criar `INDICADORES_TOKEN` no Render e entregar a chave ao agente por fora
 do repositório. Implementado na worktree `../geomap-indicadores`, branch
 `feat/indicadores-voo-impl` (outra sessão estava commitando o redesenho
