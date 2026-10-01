@@ -6,6 +6,9 @@ import { usuarioTemPermissaoMapa } from "../lib/permissoes.js";
 import { motivoParaNaoApontar, VERSAO_REGRA_PENDENTES } from "../lib/regrasApontamento.js";
 import { contarRegistros, buscarTodosRegistros } from "../lib/consultaDroneMgmt.js";
 import { filtroPendentesDroneMgmt, filtrarEMapearPendentes } from "../lib/pendentesVoo.js";
+import { calcularIndicadores, lerPeriodo, hojeLocal } from "../lib/indicadoresVoo.js";
+import { obterDadosIndicadores } from "../lib/fonteIndicadoresVoo.js";
+import { lerNomesPilotos, pilotoDoUsuario } from "../lib/nomesPilotos.js";
 
 // Proxy pra integração DroneManagement (apontamento de voo pelo mapa) —
 // ver docs/INTEGRACAO_DRONEMANAGEMENT.md pro contrato completo da API de
@@ -177,4 +180,59 @@ voosRouter.post("/voos/apontamentos", async (req, res) => {
   }
 
   res.json({ sucesso, falha });
+});
+
+// --- Indicadores de voo (página /indicadores) ---
+// Ver docs/superpowers/specs/2026-10-01-indicadores-voo-design.md. Admin
+// vê tudo e escolhe o piloto; piloto (linha em pilotos_dronemgmt) vê o
+// painel da equipe + o próprio rendimento, nunca os colegas um a um.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+voosRouter.get("/voos/indicadores/acesso", async (req, res) => {
+  const ehAdmin = req.usuarioPapel === "admin";
+  const ehPiloto = !!(await pilotoDoUsuario(req.usuarioId));
+  res.json({ podeVer: ehAdmin || ehPiloto, ehAdmin, ehPiloto });
+});
+
+voosRouter.get("/voos/indicadores", async (req, res) => {
+  const hoje = hojeLocal();
+  const periodo = lerPeriodo(req.query, hoje);
+  if (periodo.erro) return res.status(400).json({ erro: periodo.erro });
+
+  const ehAdmin = req.usuarioPapel === "admin";
+  const meuPiloto = await pilotoDoUsuario(req.usuarioId);
+  if (!ehAdmin && !meuPiloto) {
+    return res.status(403).json({ erro: "indicadores disponíveis só para pilotos e administradores" });
+  }
+
+  let pilotoId = meuPiloto;
+  if (ehAdmin) {
+    const pedido = req.query.piloto;
+    if (pedido && !UUID_RE.test(pedido)) return res.status(400).json({ erro: "piloto inválido" });
+    pilotoId = pedido ? pedido.toLowerCase() : null;
+  }
+
+  let dados;
+  try {
+    dados = await obterDadosIndicadores({ forcar: req.query.forcar === "1" });
+  } catch (err) {
+    console.error("Indicadores de voo: falha ao consultar o DroneManagement:", err);
+    return res.status(502).json({ erro: "Não foi possível consultar o DroneManagement agora." });
+  }
+
+  const nomesPilotos = await lerNomesPilotos();
+  res.json({
+    ...calcularIndicadores({
+      realizados: dados.realizados,
+      pendentes: dados.pendentes,
+      ...periodo,
+      hoje,
+      pilotoId,
+      nomesPilotos,
+      incluirPorPiloto: ehAdmin,
+    }),
+    atualizadoEm: dados.atualizadoEm,
+    desatualizado: dados.desatualizado,
+  });
 });

@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { timingSafeEqual } from "node:crypto";
 import { chamarApi } from "../lib/dronemgmt.js";
+import { calcularIndicadores, lerPeriodo, hojeLocal } from "../lib/indicadoresVoo.js";
+import { obterDadosIndicadores } from "../lib/fonteIndicadoresVoo.js";
+import { lerNomesPilotos } from "../lib/nomesPilotos.js";
 
 // Integração servidor-a-servidor com o Hub Geotech (Regra B da Colheita:
 // revoo de linhas). Só o agente do Hub chama estas rotas — nunca um
@@ -14,11 +17,14 @@ import { chamarApi } from "../lib/dronemgmt.js";
 //
 // Montado ANTES dos outros routers em app.js: voosRouter/adminRouter aplicam
 // middleware sem prefixo e interceptariam /integracao/*. Aqui o middleware
-// fica preso ao prefixo /integracao.
+// do Hub fica preso ao prefixo /integracao/dronemgmt.
+//
+// Também mora aqui GET /integracao/voos/indicadores (2026-10-01): só
+// leitura, para o agente que monta a apresentação do gerente, com chave
+// própria (INDICADORES_TOKEN) — a chave do Hub não abre essa rota e vice-versa.
 
 export const integracaoRouter = Router();
 
-const TOKEN = process.env.HUB_INTEGRACAO_TOKEN || "";
 const UNIT_ID = process.env.DRONEMGMT_UNIT_ID || "";
 
 // Projeto de voo "Linhas de Colheita" (lista de projetos do DroneManagement,
@@ -32,16 +38,22 @@ const FLIGHT_TYPE = 3;
 const STATUS_A_VOAR = 2;
 const PORTE_VOO_LIBERADO = 5;
 
-function exigirTokenHub(req, res, next) {
-  const recebido = Buffer.from(req.get("x-hub-token") || "");
-  const esperado = Buffer.from(TOKEN);
-  if (!TOKEN || recebido.length !== esperado.length || !timingSafeEqual(recebido, esperado)) {
-    return res.status(401).json({ erro: "não autorizado" });
-  }
-  next();
+// Lê a variável a cada pedido (não no carregamento do módulo) e compara em
+// tempo constante. Variável vazia = rota fechada.
+function exigirChave(cabecalho, variavel) {
+  return (req, res, next) => {
+    const esperado = Buffer.from(process.env[variavel] || "");
+    const recebido = Buffer.from(req.get(cabecalho) || "");
+    if (!esperado.length || recebido.length !== esperado.length || !timingSafeEqual(recebido, esperado)) {
+      return res.status(401).json({ erro: "não autorizado" });
+    }
+    next();
+  };
 }
 
-integracaoRouter.use("/integracao", exigirTokenHub);
+// Só as rotas do Hub (agendar/consultar Linhas de Colheita). Antes era
+// "/integracao" inteiro; os indicadores de voo usam outra chave.
+integracaoRouter.use("/integracao/dronemgmt", exigirChave("x-hub-token", "HUB_INTEGRACAO_TOKEN"));
 
 // Registros de Linhas de Colheita já existentes para o talhão na safra (menos
 // os cancelados: controlStatus 11). Usado pra NÃO duplicar: um voo agendado
@@ -190,3 +202,38 @@ integracaoRouter.post("/integracao/dronemgmt/situacao", async (req, res) => {
   }
   res.json({ resultados });
 });
+
+// --- Indicadores de voo para o agente de apresentação ---
+// Só leitura, chave própria (INDICADORES_TOKEN). Mesmo cálculo da página
+// /indicadores, sempre com a lista por piloto e sem "meu rendimento".
+// Contrato documentado em docs/INTEGRACAO_DRONEMANAGEMENT.md.
+integracaoRouter.get(
+  "/integracao/voos/indicadores",
+  exigirChave("x-indicadores-token", "INDICADORES_TOKEN"),
+  async (req, res) => {
+    const hoje = hojeLocal();
+    const periodo = lerPeriodo(req.query, hoje);
+    if (periodo.erro) return res.status(400).json({ erro: periodo.erro });
+
+    let dados;
+    try {
+      dados = await obterDadosIndicadores({ forcar: req.query.forcar === "1" });
+    } catch (err) {
+      console.error("Indicadores de voo (agente): falha ao consultar o DroneManagement:", err);
+      return res.status(502).json({ erro: "Não foi possível consultar o DroneManagement agora." });
+    }
+
+    res.json({
+      ...calcularIndicadores({
+        realizados: dados.realizados,
+        pendentes: dados.pendentes,
+        ...periodo,
+        hoje,
+        nomesPilotos: await lerNomesPilotos(),
+        incluirPorPiloto: true,
+      }),
+      atualizadoEm: dados.atualizadoEm,
+      desatualizado: dados.desatualizado,
+    });
+  }
+);
