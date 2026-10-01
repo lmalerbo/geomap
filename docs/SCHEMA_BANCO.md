@@ -123,6 +123,25 @@ local ainda `pendente`. Ver também a entrada "Mapa do Preparo —
 anotações" na seção "Estado atual" de `CLAUDE.md` pro resumo funcional
 completo.
 
+## indicadores_voo_cache
+
+Cache dos registros do DroneManagement usados pelos indicadores de voo
+(página `/indicadores` e API do agente de apresentação). Migration 017.
+Ver `docs/superpowers/specs/2026-10-01-indicadores-voo-design.md`.
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| chave | text PK | `'realizados'` (Verificar porte = Voado) ou `'pendentes'` (mesma regra do mapa de Voos) |
+| count_dronemgmt | integer | total de registros no DroneManagement na última busca completa |
+| registros | jsonb | `{ versao, itens }` — `itens` no formato enxuto de `lib/fonteIndicadoresVoo.js`; `versao` diferente da atual = cache vencido |
+| atualizado_em | timestamptz | hora da última busca completa |
+
+Reuso (`lib/fonteIndicadoresVoo.js`): o cache vale se a contagem atual
+no DroneManagement for a mesma **e** tiver menos de 1 hora (pega edição
+que não muda a contagem). Se o DroneManagement falhar e houver cache, ele
+é devolvido com `desatualizado: true`. Tabela própria em vez de
+`voos_pendentes_cache`, que é por `mapa_id`.
+
 ## logs
 
 | Campo | Tipo | Observação |

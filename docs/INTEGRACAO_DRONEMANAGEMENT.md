@@ -364,3 +364,72 @@ sendo o contrato da API em si, não repete o plano.
   o modo de apontamento, selecionar talhões, confirmar um lote) — nunca
   testado clicando de verdade, só validado via chamadas de API isoladas
   e `vite build` limpo.
+
+## API de indicadores para o agente de apresentação
+
+Rota só-leitura com os números do slide "Voos com Drone" (S3M8), para o
+agente que monta a apresentação do gerente. Mesmo cálculo da página
+`/indicadores` do GeoMap (`backend/src/lib/indicadoresVoo.js`) — o número
+do PowerPoint sempre bate com o da tela.
+
+### Chamada
+
+```
+GET https://geomap-docker.onrender.com/integracao/voos/indicadores?de=2026-04-01&ate=2027-03-31
+x-indicadores-token: <INDICADORES_TOKEN>
+```
+
+- `de`/`ate` (`AAAA-MM-DD`, os dois juntos): período do **realizado**.
+  Sem parâmetros = safra atual (01/04 a 31/03).
+- `forcar=1`: ignora o cache e busca tudo de novo no DroneManagement.
+- Chave errada ou ausente → `401`. Datas inválidas → `400`.
+- DroneManagement fora do ar: devolve o último resultado guardado com
+  `"desatualizado": true`; sem nenhum guardado → `502`.
+- A primeira chamada do dia pode levar 1–2 min (Render acordando + login
+  no DroneManagement + busca de ~4.400 voos). As seguintes, com cache
+  (até 1h, ou até a contagem mudar), voltam em ~1s.
+
+### Resposta
+
+```json
+{
+  "periodo": { "de": "2026-04-01", "ate": "2027-03-31" },
+  "atualizadoEm": "2026-10-01T17:23:01.334Z",
+  "desatualizado": false,
+  "resumo": {
+    "realizadoHa": 24722.57, "realizadoTalhoes": 1733,
+    "aVoarHa": 5177.28, "aVoarTalhoes": 488,
+    "totalHa": 29899.85, "progresso": 0.8268
+  },
+  "ultimos15DiasUteis": { "de": "2026-09-11", "ate": "2026-10-01", "ha": 3563.84, "talhoes": 239, "diasComVoo": 13 },
+  "porTipo": [
+    { "tipo": "Falhas Soca", "realizadoHa": 9673.22, "realizadoTalhoes": 657, "aVoarHa": 3103.99, "aVoarTalhoes": 270 }
+  ],
+  "porSemana": [ { "semana": "2026-W14", "inicio": "2026-03-30", "ha": 410.93, "talhoes": 27 } ],
+  "porPiloto": [
+    { "pilotoId": "uuid", "piloto": "Nome", "ha": 18136.07, "talhoes": 1236, "diasVoados": 89, "mediaHaPorDia": 203.78 }
+  ]
+}
+```
+
+(Valores reais de 2026-10-01; listas encurtadas.)
+
+### O que cada número significa
+
+| Campo | Significado |
+|---|---|
+| `realizado*` | Registros com Verificar porte = **Voado**, com data do voo (fuso de Brasília) dentro do período |
+| `aVoar*` | Fila liberada **de hoje** — mesma regra do mapa de Voos (A voar + porte Voo liberado/Voar urgente; Falhas Soca só nos estágios da safra e sem fornecedor). **Não depende do período** |
+| `totalHa` / `progresso` | realizado + a voar; realizado ÷ total (0 a 1) |
+| `ultimos15DiasUteis` | 15 dias de segunda a sexta terminando em `min(ate, hoje)`; soma todo voo nessa janela (inclusive fim de semana no meio) |
+| `porTipo` | Tipo de voo do DroneManagement. Falhas Plantio em propriedade com "FORNEC" vira **"Falhas Plantio Forn."**. Expansões, Sinistro, Ambiental, Drone Aplicação, Experimentação Agrícola e tipos novos → **"Outros"** (sempre por último) |
+| `porSemana` | Semana ISO (segunda a domingo) do início do período até a semana de hoje; semanas sem voo aparecem com zero |
+| `porPiloto` | Por piloto que voou no período; nome vem do cadastro de pilotos do GeoMap — sem cadastro aparece "Piloto não cadastrado (8 primeiros caracteres do id)" |
+
+### O que **não** está nesses números
+
+- Metas: projetado de Ervas Daninhas do ano-safra e a meta de 250 ha/dia
+  ficam com o agente.
+- Área de fornecedor fora do agendamento formal (não existe no
+  DroneManagement).
+- Categorias combinadas ("Falhas Plantio + Ervas" etc.).

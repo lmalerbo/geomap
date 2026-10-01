@@ -21,6 +21,7 @@ const AdminEstatisticas = lazy(() => import("./pages/AdminEstatisticas.jsx"));
 const AdminVisaoGeral = lazy(() => import("./pages/AdminVisaoGeral.jsx"));
 const LayoutAdmin = lazy(() => import("./components/LayoutAdmin.jsx"));
 const Ajuda = lazy(() => import("./pages/Ajuda.jsx"));
+const Indicadores = lazy(() => import("./pages/Indicadores.jsx"));
 const DefinirSenha = lazy(() => import("./pages/DefinirSenha.jsx"));
 
 function CarregandoRota() {
@@ -121,6 +122,14 @@ export default function App() {
                 <Route path="usuarios" element={<AdminUsuarios />} />
                 <Route path="estatisticas" element={<AdminEstatisticas />} />
               </Route>
+              <Route
+                path="/indicadores"
+                element={
+                  <RotaProtegida>
+                    <Indicadores />
+                  </RotaProtegida>
+                }
+              />
               <Route
                 path="/ajuda"
                 element={
