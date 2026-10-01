@@ -2689,6 +2689,67 @@ agora guarda `{regra, itens}` com `VERSAO_REGRA_PENDENTES`: mudar a regra
 exige mudar esse texto, senão o cache antigo continua valendo até a
 contagem do DroneManagement mudar por outro motivo.
 
+**Redesenho, fase 5 — administração (2026-10-01)**: ver
+`docs/REDESENHO_FRONTEND.md`. Branch `feat/redesenho-fase5`, em 5 commits:
+
+- **Estrutura**: `components/LayoutAdmin.jsx` envolve todas as telas de
+  admin (rotas aninhadas sob `/admin` em `App.jsx`, com `Suspense`
+  próprio em volta do `Outlet` pra o menu não piscar), menu lateral fixo
+  no desktop e gaveta no celular (≤900px). Busca o resumo da Visão geral
+  uma vez e compartilha via `useResumoAdmin()` (ponto de atenção e selo de
+  camadas atrasadas no menu). O menu da conta (`MenuLateral.jsx`) tem uma
+  entrada só, "Administração". Classes CSS com prefixo `adm-`.
+- **Visão geral** (`/admin`, `AdminVisaoGeral.jsx`): aviso quando a
+  automação diária para (com o passo a passo do portal da rede), números,
+  situação de cada camada, 7 dias da automação e atividade recente.
+  `GET /admin/visao-geral`; a saúde é DEDUZIDA no backend
+  (`lib/saudeAutomacao.js`, com testes) — o backend não enxerga o
+  `log.txt` do servidor geo. A automação só faz login quando tem arquivo
+  novo, então "nada enviado no dia" não separa "sem internet" de "sem
+  export novo"; o sinal confiável é a camada atrasada (sem atualização
+  desde ontem depois das 11h). Conta de serviço identificada por
+  `AUTOMACAO_EMAIL` (padrão `automacao@geoportal.local`). Jobs antigos
+  (sem `usuario_id`) são atribuídos pela janela de 3h depois de um login
+  da automação; job "processando" há mais de 40 min é órfão.
+- **Mapas**: cards + painel com abas Camadas (ordem por arrastar/setas),
+  Acesso (grupos e pode anotar) e Detalhes (duplicar, remover).
+- **Usuários e grupos**: tabela com filtros e último acesso (do log de
+  login); painel com papel, grupos (mostrando os mapas de cada um),
+  **vínculo de piloto do DroneManagement** (`PUT
+  /admin/usuarios/:id/piloto`, antes só no banco), senha, desativar,
+  excluir. Aba Grupos em cartões.
+- **Camadas**: 3 colunas — lista; prévia real no mapa
+  (`components/PreviaCamada.jsx`, carregado sob demanda, protocolo
+  próprio `pmtiles-previa://` porque o `Protocol` da lib só aceita
+  `pmtiles://` e esse nome já é registrado pela tela do mapa) +
+  **versões anteriores restauráveis**; editor em abas. A lógica de
+  estilo/atributos/arquivo não mudou. `?camada=ID` abre direto.
+- **Versões de camada** (migration 016): tabela `versoes_camada`; cada
+  troca de arquivo guarda a anterior (até 3 por camada; as mais velhas são
+  apagadas do R2). Os backups `.bak-` antigos não tinham vínculo com a
+  camada (o nome era a chave antiga, que muda a cada envio) — em
+  2026-10-01 eram 182 arquivos, ~2 GB dos 10 GB grátis do R2, sem uso.
+  Restaurar guarda o arquivo atual como versão e muda a `versao` pra os
+  aparelhos baixarem de novo. A migration 016 também põe `usuario_id` em
+  `jobs_conversao`.
+
+Pegadinhas achadas testando: (1) o CSS do MapLibre carrega depois do
+nosso e põe `position: relative` no contêiner do mapa — a prévia ficou
+com altura 0 até ganhar seletor mais específico; (2) regra de 2 colunas
+de uma tela, definida depois da regra de celular, ganhava dela (mesma
+armadilha de ordem do CSS das fases anteriores); (3) `flex: 1` num
+input dentro de coluna flex achata a altura; (4) num teste, ler pixels de
+canvas WebGL sem `preserveDrawingBuffer` dá falso positivo — conferir
+pela API do mapa (`queryRenderedFeatures`), exposto só em dev.
+
+Verificado com Playwright no dev local (Visão geral 18, Mapas 15,
+Usuários 16, Camadas 15 checagens; zero erro de console fora o 400
+esperado de id de piloto inválido), banco local preparado e desfeito.
+**Antes de publicar**: aplicar a migration 016 no banco de produção
+(`npm run migrate` com o `.env` de produção) — o código novo grava
+`usuario_id` em todo job e sem a coluna o envio de camada (inclusive o
+da automação) quebraria.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
