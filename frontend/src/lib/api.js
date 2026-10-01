@@ -421,6 +421,28 @@ export async function apontarVoos(token, { mapaId, dataVoo, registros }) {
   return resp.json();
 }
 
+// Indicadores de voo (página /indicadores) — ver backend/src/routes/voos.js.
+export async function buscarAcessoIndicadores(token) {
+  const resp = await fetch(`${API_URL}/voos/indicadores/acesso`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function buscarIndicadoresVoo(token, { de, ate, piloto, forcar }) {
+  const qs = new URLSearchParams({ de, ate });
+  if (piloto) qs.set("piloto", piloto);
+  if (forcar) qs.set("forcar", "1");
+  const resp = await fetch(`${API_URL}/voos/indicadores?${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 // --- Anotações (pins) do mapa — ver lib/syncPins.js ---
 
 export async function listarPinsRemoto(token, mapaId, desde) {
