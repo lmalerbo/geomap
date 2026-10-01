@@ -11,10 +11,10 @@ import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
 import { SENHA_TEMPORARIA_PADRAO } from "../lib/senhaTemporaria.js";
 import { testarLogin } from "../lib/dronemgmt.js";
 import { validarShapefileNaPasta, converterPastaShapefileParaPmtiles } from "../lib/conversaoShapefile.js";
+import { resumirAutomacao, DIAS_HISTORICO } from "../lib/saudeAutomacao.js";
 import {
   salvarArquivo,
   apagarArquivo,
-  copiarArquivo,
   duplicarArquivo,
   gerarUrlAssinada,
 } from "../lib/storage.js";
@@ -250,6 +250,12 @@ adminRouter.get("/admin/usuarios", async (req, res) => {
      FROM usuarios ORDER BY nome`
   );
   const { rows: membros } = await pool.query(`SELECT usuario_id, grupo_id FROM usuarios_grupos`);
+  const { rows: acessos } = await pool.query(
+    `SELECT usuario_id, max(data_hora) AS ultimo FROM logs WHERE acao = 'login' GROUP BY usuario_id`
+  );
+  const { rows: pilotos } = await pool.query("SELECT usuario_id, pilot_user_ad_id FROM pilotos_dronemgmt");
+  const ultimoAcessoPorUsuario = new Map(acessos.map((a) => [a.usuario_id, a.ultimo]));
+  const pilotoPorUsuario = new Map(pilotos.map((p) => [p.usuario_id, p.pilot_user_ad_id]));
 
   const gruposPorUsuario = new Map();
   for (const m of membros) {
@@ -257,7 +263,43 @@ adminRouter.get("/admin/usuarios", async (req, res) => {
     gruposPorUsuario.get(m.usuario_id).push(m.grupo_id);
   }
 
-  res.json(usuarios.map((u) => ({ ...u, grupoIds: gruposPorUsuario.get(u.id) || [] })));
+  res.json(
+    usuarios.map((u) => ({
+      ...u,
+      grupoIds: gruposPorUsuario.get(u.id) || [],
+      ultimoAcesso: ultimoAcessoPorUsuario.get(u.id) || null,
+      pilotUserADId: pilotoPorUsuario.get(u.id) || null,
+    }))
+  );
+});
+
+// Vínculo com o piloto do DroneManagement (necessário pra apontar voo pelo
+// mapa Voos) — antes só existia direto no banco. null/"" desvincula.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+adminRouter.put("/admin/usuarios/:id/piloto", async (req, res) => {
+  const usuarioId = Number(req.params.id);
+  if (!Number.isInteger(usuarioId)) {
+    return res.status(400).json({ erro: "id de usuário inválido" });
+  }
+  const pilotId = (req.body?.pilotUserADId || "").trim();
+  if (pilotId && !UUID_RE.test(pilotId)) {
+    return res.status(400).json({ erro: "o id do piloto no DroneManagement tem o formato 00000000-0000-0000-0000-000000000000" });
+  }
+  const { rows } = await pool.query("SELECT id FROM usuarios WHERE id = $1", [usuarioId]);
+  if (!rows[0]) {
+    return res.status(404).json({ erro: "usuário não encontrado" });
+  }
+  if (pilotId) {
+    await pool.query(
+      `INSERT INTO pilotos_dronemgmt (usuario_id, pilot_user_ad_id) VALUES ($1, $2)
+       ON CONFLICT (usuario_id) DO UPDATE SET pilot_user_ad_id = EXCLUDED.pilot_user_ad_id`,
+      [usuarioId, pilotId]
+    );
+  } else {
+    await pool.query("DELETE FROM pilotos_dronemgmt WHERE usuario_id = $1", [usuarioId]);
+  }
+  await registrarAuditoria(req.usuarioId, "piloto_dronemgmt", `usuário ${usuarioId}: ${pilotId || "desvinculado"}`, req.ip);
+  res.json({ ok: true, pilotUserADId: pilotId || null });
 });
 
 adminRouter.post("/admin/usuarios", async (req, res) => {
@@ -828,12 +870,13 @@ adminRouter.put("/admin/mapas/:id/ordem-camadas", async (req, res) => {
 // status virar concluido/erro. Contrato uniforme (sempre 202+jobId,
 // mesmo pra .pmtiles pronto que resolve em <1s) — importante pra uma
 // futura automação não precisar ramificar por tipo de arquivo.
-async function criarJob(tipo, camadaId) {
+async function criarJob(tipo, camadaId, usuarioId) {
   const id = crypto.randomUUID();
-  await pool.query(`INSERT INTO jobs_conversao (id, tipo, camada_id) VALUES ($1, $2, $3)`, [
+  await pool.query(`INSERT INTO jobs_conversao (id, tipo, camada_id, usuario_id) VALUES ($1, $2, $3, $4)`, [
     id,
     tipo,
     camadaId,
+    usuarioId ?? null,
   ]);
   return id;
 }
@@ -903,7 +946,7 @@ adminRouter.post("/admin/camadas", uploadArquivoCamada, async (req, res) => {
     return res.status(400).json({ erro: "mapa não encontrado" });
   }
 
-  const jobId = await criarJob("criar_camada", null);
+  const jobId = await criarJob("criar_camada", null, req.usuarioId);
   res.status(202).json({ jobId });
   processarCriacaoEmSegundoPlano(jobId, { arquivoUnico, arquivosShapefile, mapaId, nome, versao, categoria }).catch(
     (err) => console.error(`Job ${jobId} (criar_camada) falhou:`, err)
@@ -924,8 +967,10 @@ adminRouter.delete("/admin/camadas/:id", async (req, res) => {
     return res.status(404).json({ erro: "camada não encontrada" });
   }
 
+  const { rows: versoes } = await pool.query("SELECT chave FROM versoes_camada WHERE camada_id = $1", [camadaId]);
   await pool.query("DELETE FROM camadas WHERE id = $1", [camadaId]);
   await apagarArquivo(camada.arquivo_path);
+  for (const v of versoes) await apagarArquivo(v.chave);
 
   res.json({ ok: true });
 });
@@ -958,7 +1003,38 @@ adminRouter.get("/admin/camadas/:id/arquivo", async (req, res) => {
 // apagado — fica renomeado com sufixo de timestamp como backup leve,
 // caso o upload novo seja ruim (sem UI de navegação por versões antigas,
 // só a garantia de não perder o anterior de imediato).
-async function processarAtualizacaoEmSegundoPlano(jobId, camadaId, { arquivoUnico, arquivosShapefile, versao, nomeCamadaAtual, arquivoPathAtual }) {
+// Quantas versões anteriores cada camada guarda. A automação substitui
+// Talhões (~20 MB) todo dia em 4 mapas — sem limite, os backups enchiam os
+// 10 GB grátis do R2 em poucos meses.
+const MAX_VERSOES_ANTERIORES = 3;
+
+// Guarda o arquivo atual como versão anterior (cópia server-side no R2) e
+// apaga as que passaram do limite. Só grava a linha se a cópia deu certo —
+// uma versão apontando pra uma chave inexistente não serviria pra restaurar.
+async function guardarVersaoAnterior(camadaId, { chave, versao, usuarioId }) {
+  const chaveBackup = `${chave}.bak-${Date.now()}`;
+  try {
+    await duplicarArquivo(chave, chaveBackup);
+  } catch (err) {
+    console.warn(`Camada ${camadaId}: não deu pra guardar a versão anterior (${err.message})`);
+    return;
+  }
+  await pool.query(
+    "INSERT INTO versoes_camada (camada_id, chave, versao, usuario_id) VALUES ($1, $2, $3, $4)",
+    [camadaId, chaveBackup, versao, usuarioId ?? null]
+  );
+  const { rows: excedentes } = await pool.query(
+    `SELECT id, chave FROM versoes_camada WHERE camada_id = $1
+     ORDER BY substituida_em DESC, id DESC OFFSET $2`,
+    [camadaId, MAX_VERSOES_ANTERIORES]
+  );
+  for (const v of excedentes) {
+    await apagarArquivo(v.chave);
+    await pool.query("DELETE FROM versoes_camada WHERE id = $1", [v.id]);
+  }
+}
+
+async function processarAtualizacaoEmSegundoPlano(jobId, camadaId, { arquivoUnico, arquivosShapefile, versao, nomeCamadaAtual, arquivoPathAtual, versaoAtual, usuarioId }) {
   let nomeArquivoFinal;
   try {
     nomeArquivoFinal = await processarArquivoRecebido({ arquivoUnico, arquivosShapefile }, nomeCamadaAtual);
@@ -966,13 +1042,9 @@ async function processarAtualizacaoEmSegundoPlano(jobId, camadaId, { arquivoUnic
     return falharJob(jobId, err.message);
   }
 
-  // Arquivo antigo não é apagado — copiado (cópia server-side no R2, sem
-  // baixar/reenviar) com sufixo de timestamp como backup leve, caso o
-  // upload novo seja ruim (sem UI de navegação por versões antigas, só a
-  // garantia de não perder o anterior de imediato). Ambas as chamadas
-  // toleram o arquivo antigo já não existir (mesmo comportamento de
-  // antes com fs.rename).
-  await copiarArquivo(arquivoPathAtual, `${arquivoPathAtual}.bak-${Date.now()}`);
+  // O arquivo atual vira versão anterior (restaurável pela tela de
+  // Camadas, ver /admin/camadas/:id/versoes) antes de ser substituído.
+  await guardarVersaoAnterior(camadaId, { chave: arquivoPathAtual, versao: versaoAtual, usuarioId });
   await apagarArquivo(arquivoPathAtual);
 
   await pool.query(`UPDATE camadas SET arquivo_path = $1, versao = $2 WHERE id = $3`, [
@@ -1001,13 +1073,13 @@ adminRouter.put("/admin/camadas/:id/arquivo", uploadArquivoCamada, async (req, r
     return res.status(400).json({ erro: "versão é obrigatória" });
   }
 
-  const { rows } = await pool.query("SELECT arquivo_path, nome FROM camadas WHERE id = $1", [camadaId]);
+  const { rows } = await pool.query("SELECT arquivo_path, nome, versao FROM camadas WHERE id = $1", [camadaId]);
   const camadaAtual = rows[0];
   if (!camadaAtual) {
     return res.status(404).json({ erro: "camada não encontrada" });
   }
 
-  const jobId = await criarJob("atualizar_arquivo", camadaId);
+  const jobId = await criarJob("atualizar_arquivo", camadaId, req.usuarioId);
   res.status(202).json({ jobId });
   processarAtualizacaoEmSegundoPlano(jobId, camadaId, {
     arquivoUnico,
@@ -1015,7 +1087,113 @@ adminRouter.put("/admin/camadas/:id/arquivo", uploadArquivoCamada, async (req, r
     versao,
     nomeCamadaAtual: camadaAtual.nome,
     arquivoPathAtual: camadaAtual.arquivo_path,
+    versaoAtual: camadaAtual.versao,
+    usuarioId: req.usuarioId,
   }).catch((err) => console.error(`Job ${jobId} (atualizar_arquivo) falhou:`, err));
+});
+
+// Versões anteriores de uma camada (as mais recentes primeiro).
+adminRouter.get("/admin/camadas/:id/versoes", async (req, res) => {
+  const camadaId = Number(req.params.id);
+  if (!Number.isInteger(camadaId)) {
+    return res.status(400).json({ erro: "id de camada inválido" });
+  }
+  const { rows } = await pool.query(
+    `SELECT v.id, v.versao, v.substituida_em AS "substituidaEm", u.nome AS "usuarioNome"
+     FROM versoes_camada v LEFT JOIN usuarios u ON u.id = v.usuario_id
+     WHERE v.camada_id = $1 ORDER BY v.substituida_em DESC, v.id DESC`,
+    [camadaId]
+  );
+  res.json(rows);
+});
+
+// Volta uma versão anterior: o arquivo atual vira versão anterior (dá pra
+// desfazer a restauração) e a cópia restaurada ganha uma chave nova. A
+// versão muda de nome pra os aparelhos baixarem de novo no próximo
+// sincronismo (eles comparam a versão local com a do servidor).
+adminRouter.post("/admin/camadas/:id/versoes/:versaoId/restaurar", async (req, res) => {
+  const camadaId = Number(req.params.id);
+  const versaoId = Number(req.params.versaoId);
+  if (!Number.isInteger(camadaId) || !Number.isInteger(versaoId)) {
+    return res.status(400).json({ erro: "id inválido" });
+  }
+  const { rows: camadaRows } = await pool.query("SELECT arquivo_path, versao FROM camadas WHERE id = $1", [camadaId]);
+  const camada = camadaRows[0];
+  if (!camada) {
+    return res.status(404).json({ erro: "camada não encontrada" });
+  }
+  const { rows: versaoRows } = await pool.query(
+    "SELECT chave, versao FROM versoes_camada WHERE id = $1 AND camada_id = $2",
+    [versaoId, camadaId]
+  );
+  const anterior = versaoRows[0];
+  if (!anterior) {
+    return res.status(404).json({ erro: "versão não encontrada" });
+  }
+
+  const novaChave = `${crypto.randomUUID()}.pmtiles`;
+  await duplicarArquivo(anterior.chave, novaChave);
+  await guardarVersaoAnterior(camadaId, { chave: camada.arquivo_path, versao: camada.versao, usuarioId: req.usuarioId });
+  const agora = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const novaVersao = `${anterior.versao || "anterior"} (restaurada ${agora})`;
+  await pool.query("UPDATE camadas SET arquivo_path = $1, versao = $2 WHERE id = $3", [novaChave, novaVersao, camadaId]);
+  await apagarArquivo(camada.arquivo_path);
+  await registrarAuditoria(req.usuarioId, "restaurar_versao", `camada ${camadaId}: ${novaVersao}`, req.ip);
+  res.json({ ok: true, versao: novaVersao });
+});
+
+// Visão geral do admin: números gerais, saúde da automação diária,
+// situação de cada camada e atividade recente. A conta de serviço da
+// automação é identificada pelo e-mail (AUTOMACAO_EMAIL).
+const AUTOMACAO_EMAIL = process.env.AUTOMACAO_EMAIL || "automacao@geoportal.local";
+
+adminRouter.get("/admin/visao-geral", async (req, res) => {
+  const desde = new Date(Date.now() - 30 * 86400000);
+  const [{ rows: autoRows }, { rows: camadas }, { rows: contagens }, { rows: atividade }] = await Promise.all([
+    pool.query("SELECT id FROM usuarios WHERE lower(email) = lower($1)", [AUTOMACAO_EMAIL]),
+    pool.query(
+      `SELECT c.id, c.nome, c.versao, c.publicado_em AS "publicadoEm", c.mapa_id AS "mapaId", m.nome AS "mapaNome"
+       FROM camadas c JOIN mapas m ON m.id = c.mapa_id ORDER BY m.nome, c.ordem`
+    ),
+    pool.query(
+      `SELECT (SELECT count(*)::int FROM mapas) AS mapas,
+              (SELECT count(*)::int FROM camadas) AS camadas,
+              (SELECT count(*)::int FROM usuarios WHERE status = 'ativo') AS usuarios`
+    ),
+    pool.query(
+      `SELECT l.detalhe, l.data_hora AS "quando", u.nome AS "usuarioNome"
+       FROM logs l LEFT JOIN usuarios u ON u.id = l.usuario_id
+       WHERE l.acao = 'admin' ORDER BY l.data_hora DESC LIMIT 8`
+    ),
+  ]);
+  const automacaoId = autoRows[0]?.id ?? null;
+  const [{ rows: logins }, { rows: jobs }] = await Promise.all([
+    automacaoId == null
+      ? { rows: [] }
+      : pool.query(
+          "SELECT data_hora FROM logs WHERE usuario_id = $1 AND acao = 'login' AND data_hora >= $2",
+          [automacaoId, desde]
+        ),
+    pool.query(
+      `SELECT camada_id AS "camadaId", tipo, status, erro, criado_em AS "criadoEm",
+              atualizado_em AS "atualizadoEm", usuario_id AS "usuarioId"
+       FROM jobs_conversao WHERE criado_em >= $1`,
+      [desde]
+    ),
+  ]);
+
+  const automacao = resumirAutomacao({
+    agora: new Date(),
+    automacaoId,
+    logins: logins.map((l) => l.data_hora),
+    jobs,
+    camadas,
+  });
+  res.json({
+    totais: contagens[0],
+    automacao: { ...automacao, email: AUTOMACAO_EMAIL, diasHistorico: DIAS_HISTORICO },
+    atividade,
+  });
 });
 
 adminRouter.get("/admin/jobs/:id", async (req, res) => {
