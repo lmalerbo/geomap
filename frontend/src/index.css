@@ -2978,12 +2978,13 @@ input[type="file"]::file-selector-button:hover {
     right: -2px;
   }
 
-  /* Entre a barra de ferramentas (esquerda) e os controles de navegação
-     (direita, ~60px) — sem invadir nenhum dos dois. */
+  /* Sem barra de ferramentas no celular (fase 3 — virou a gaveta
+     inferior), a pilha só leva o cartão "Talhões da fazenda" da busca;
+     começa na borda esquerda e para antes dos controles de navegação. */
   .pilha-topo-esquerda {
     top: 120px;
-    left: 72px;
-    max-width: calc(100vw - 140px);
+    left: 8px;
+    max-width: calc(100vw - 76px);
     max-height: calc(100% - 136px);
   }
 
@@ -3000,8 +3001,15 @@ input[type="file"]::file-selector-button:hover {
     bottom: 8px;
     top: auto;
     width: auto;
-    max-height: 34vh;
-    padding: 12px;
+    /* Compacto por padrão (fase 3: título, atalhos e 2 atributos, ~36%
+       da tela); o teto só importa com "Ver todos os atributos" aberto. */
+    max-height: 78vh;
+    padding: 14px 16px;
+    border-radius: 20px;
+    /* Expandido, o painel sobe até a faixa dos controles de navegação
+       (canto direito, z-index 2 do MapLibre) — sem isso os botões de zoom
+       ficavam por cima do botão de fechar (achado no teste de 390px). */
+    z-index: 5;
   }
 
   .painel-medicao {
@@ -3466,4 +3474,246 @@ input[type="file"]::file-selector-button:hover {
   .area-mapa:has(.pilha-acoes > *) .pilha-apontamento {
     display: none;
   }
+}
+
+/* ===== Gaveta inferior do celular (redesenho, fase 3) =====
+   No lugar da barra de ferramentas e dos painéis laterais: abas Camadas /
+   Legenda / Ferramentas. Recolhida mostra só as abas e um resumo; aberta
+   ocupa até 60% da tela. Some sozinha enquanto um cartão de informação ou
+   uma ferramenta está usando o rodapé (ver mostrarGaveta em Mapa.jsx). */
+.gaveta-celular {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #fff;
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -8px 28px rgba(16, 24, 40, 0.16);
+  animation: subir-gaveta var(--dur-painel) var(--ease-saida);
+}
+
+.gaveta-celular.aberta {
+  height: 60vh;
+}
+
+@keyframes subir-gaveta {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.alca-gaveta {
+  width: 100%;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 22px 22px 0 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.alca-gaveta:hover {
+  background: transparent;
+}
+
+.alca-gaveta span {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: #cfd6db;
+}
+
+.abas-gaveta {
+  margin: 0 16px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #f1f4f6;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.abas-gaveta button {
+  flex: 1;
+  height: 40px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: #52606d;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.abas-gaveta button:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.abas-gaveta button.ativa {
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.15);
+}
+
+.resumo-gaveta {
+  margin: 10px 16px 16px;
+  min-height: 52px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  color: #52606d;
+  text-align: left;
+}
+
+.resumo-gaveta:hover {
+  background: transparent;
+}
+
+.resumo-gaveta > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.resumo-gaveta strong {
+  font-size: 14.5px;
+  color: var(--text);
+}
+
+.resumo-gaveta > span > span {
+  font-size: 12.5px;
+}
+
+.conteudo-gaveta {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 20px;
+  animation: entrada var(--dur-hover) var(--ease-saida);
+}
+
+/* Lista de camadas dentro da gaveta: alvos de toque maiores que no
+   painel lateral do desktop (o mesmo JSX — ver listaCamadas). */
+.conteudo-gaveta .linha-camada {
+  min-height: 48px;
+}
+
+.conteudo-gaveta .importar-arquivo-temporario {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.grade-ferramentas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 2px;
+}
+
+.bloco-ferramenta {
+  height: 88px;
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  border: 1px solid #e3e8eb;
+  border-radius: 16px;
+  background: #fff;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bloco-ferramenta:hover {
+  background: #f5f8f6;
+}
+
+.bloco-ferramenta span {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bloco-ferramenta input[type="file"] {
+  display: none;
+}
+
+.bloco-legenda-gaveta {
+  padding: 10px 6px 12px;
+  border-bottom: 1px solid #edf1f3;
+}
+
+.bloco-legenda-gaveta:last-child {
+  border-bottom: none;
+}
+
+.bloco-legenda-gaveta h3 {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #5b6770;
+}
+
+.linha-legenda-simples {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.vazio-legenda-gaveta {
+  margin: 12px 6px;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+/* "Ver todos os N atributos" — só no celular (painel compacto). */
+.botao-ver-atributos {
+  width: 100%;
+  height: 44px;
+  min-height: 0;
+  margin-top: 10px;
+  border: none;
+  border-radius: 12px;
+  background: #f5f7f6;
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.botao-ver-atributos:hover {
+  background: #edf2ef;
+}
+
+/* Com a gaveta recolhida no rodapé (~150px), a barra de escala, a
+   atribuição e o botão "Apontar voo" sobem pra continuar visíveis. */
+.area-mapa:has(.gaveta-celular) .maplibregl-ctrl-bottom-left,
+.area-mapa:has(.gaveta-celular) .maplibregl-ctrl-bottom-right {
+  bottom: 150px;
+}
+
+.area-mapa:has(.gaveta-celular) .pilha-apontamento {
+  bottom: 162px;
 }

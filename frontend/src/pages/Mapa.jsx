@@ -43,7 +43,10 @@ import DockFerramentas, {
   IconeDockPercurso,
   IconeDockAnotar,
   IconeDockTipoVoo,
+  IconeDockArea,
+  IconeDockImportar,
 } from "../components/DockFerramentas.jsx";
+import { useEhCelular } from "../hooks/useEhCelular.js";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import LegendaCamada, {
   IconeFormaPonto,
@@ -911,6 +914,14 @@ export default function Mapa() {
   // Sem Web Share API (desktop), "Compartilhar" copia o link do ponto — o
   // botão confirma por 2s ("Link copiado").
   const [linkCopiado, setLinkCopiado] = useState(false);
+  // Celular (redesenho, fase 3): gaveta inferior com abas no lugar da
+  // barra de ferramentas e dos painéis laterais; painel do talhão abre
+  // compacto e só mostra todos os atributos quando pedido (pedido do Leo
+  // no protótipo: "não pode cobrir mais de 50% do mapa").
+  const ehCelular = useEhCelular();
+  const [gavetaAberta, setGavetaAberta] = useState(false);
+  const [abaGaveta, setAbaGaveta] = useState("camadas");
+  const [atributosExpandidos, setAtributosExpandidos] = useState(false);
   // Recolhido por padrão em qualquer tamanho de tela — antes só recolhia
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
   // entre plataformas.
@@ -1035,7 +1046,18 @@ export default function Mapa() {
   useEffect(() => {
     setMostrarMenuCompartilhar(false);
     setLinkCopiado(false);
+    setAtributosExpandidos(false);
   }, [selecao]);
+
+  // Arrastar o mapa recolhe a gaveta do celular — o usuário voltou a olhar
+  // o mapa, a gaveta aberta (60% da tela) só atrapalharia.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto || !ehCelular) return;
+    const recolher = () => setGavetaAberta(false);
+    map.on("dragstart", recolher);
+    return () => map.off("dragstart", recolher);
+  }, [mapaPronto, ehCelular]);
 
   useEffect(() => {
     if (!linkCopiado) return;
@@ -2026,176 +2048,11 @@ export default function Mapa() {
     ],
   ];
 
-  return (
-    <main className="tela-mapa">
-      <MenuLateral
-        aberto={menuAberto}
-        aoFechar={() => setMenuAberto(false)}
-        ehAdmin={sessao.usuario.papel === "admin"}
-        aoSair={handleSair}
-      />
-
-      <AvisoPrimeiraSincronizacao
-        mostrar={sincronizando && semCamadasLocais && !avisoSincronizacaoFechado}
-        aoFechar={() => setAvisoSincronizacaoFechado(true)}
-      />
-
-      <div className="area-mapa">
-        <div ref={containerRef} className="mapa-container" />
-
-        {!mapaPronto && (
-          <div className="carregando-mapa">
-            <span className="spinner spinner--grande" aria-hidden="true" />
-            <p>Carregando mapa…</p>
-          </div>
-        )}
-
-        <div className="barra-topo">
-          <div className="cartao-identidade">
-            <span className="marca-app">
-              <IconeMarca />
-            </span>
-            <Link
-              to="/inicio"
-              className="botao-trocar-mapa"
-              aria-label={`Trocar mapa (atual: ${nomeMapaAtual || "carregando"})`}
-              title="Trocar mapa"
-            >
-              <span className="rotulo-app">GeoMap</span>
-              <span className="nome-mapa-atual">
-                <span className="texto-nome-mapa">{nomeMapaAtual || "Carregando…"}</span>
-                <IconeSetaBaixo />
-              </span>
-            </Link>
-            <span className="divisor-vertical" aria-hidden="true" />
-            <span className={`status-sincronizacao status-sincronizacao--${estadoSync}`} aria-live="polite" title={textoSyncCompleto}>
-              {sincronizando ? (
-                <span className="spinner" aria-hidden="true" />
-              ) : (
-                <span className="ponto-status" aria-hidden="true" />
-              )}
-              <span className="texto-status-sync">{textoSyncCurto}</span>
-            </span>
-          </div>
-
-        {mapasLocais.length > 0 && (
-          <div className="painel-busca">
-            <div className="campo-busca">
-            <IconeBusca />
-            <input
-              type="search"
-              aria-label="Buscar"
-              // Placeholder mais curto (2026-09-22) — a dica de buscar
-              // várias fazendas separando com ";" ficava "poluído" na
-              // barra; a funcionalidade continua igual, só não é mais
-              // anunciada no texto do campo. Busca de anotação (2026-09-25)
-              // usa o mesmo campo — o índice de fazenda pode não existir
-              // (mapa sem `.pmtiles` com esse suporte), mas anotações
-              // continuam buscáveis nele.
-              placeholder={
-                indiceBusca.length > 0
-                  ? "Buscar fazenda…"
-                  : buscaDeAnotacaoDisponivel
-                    ? "Buscar anotação…"
-                    : "Busca não disponível para este mapa"
-              }
-              value={buscaTexto}
-              onChange={(e) => {
-                setBuscaTexto(e.target.value);
-                setIndiceDestacadoBusca(0);
-              }}
-              onKeyDown={(e) => aoTeclarBusca(e, resultadosBusca, indiceDestacadoValido)}
-              disabled={!buscaHabilitada}
-              aria-disabled={!buscaHabilitada}
-            />
-            </div>
-            {!buscaHabilitada ? (
-              <p className="ajuda-busca">
-                A busca não está disponível para o mapa carregado. Use o clique no mapa para ver atributos.
-              </p>
-            ) : (
-              <>
-                {resultadosPins.length > 0 && (
-                  <ul className="resultados-busca resultados-busca-pins">
-                    {resultadosPins.map((p) => (
-                      <li key={p.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBuscaTexto("");
-                            setSelecao(null);
-                            setPontoSelecionado(null);
-                            pins.voarParaPin(p.id);
-                          }}
-                        >
-                          <img src={urlSvgPin(p.icone, p.cor)} alt="" width="12" height="16" /> {p.titulo}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {resultadosBusca.length > 0 && (
-                  <ul className="resultados-busca">
-                    {resultadosBusca.map((r, i) => (
-                      <li key={`${r.mapaId}-${i}`}>
-                        <button
-                          type="button"
-                          className={i === indiceDestacadoValido ? "resultado-busca--destacado" : ""}
-                          onMouseEnter={() => setIndiceDestacadoBusca(i)}
-                          onClick={() => selecionarResultadoBusca(r)}
-                        >
-                          {r.texto}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {termosBusca.length > 0 && resultadosBusca.length === 0 && resultadosPins.length === 0 && (
-                  <p className="sem-resultados-busca">
-                    <IconeEstadoVazio tamanho={16} /> Nada encontrado.
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-          <div className="barra-topo-direita">
-            {pinsPendentes > 0 && (
-              <span className="chip-status chip-status--alerta" aria-live="polite">
-                {pinsPendentes === 1 ? "1 anotação aguardando envio" : `${pinsPendentes} anotações aguardando envio`}
-              </span>
-            )}
-            <button
-              type="button"
-              className="botao-conta"
-              onClick={() => setMenuAberto(true)}
-              aria-label="Abrir menu"
-              title="Menu"
-            >
-              {iniciaisDoNome(sessao.usuario.nome)}
-            </button>
-          </div>
-        </div>
-
-        {mapaPronto && <DockFerramentas grupos={gruposDock} />}
-
-        <div className="pilha-topo-esquerda">
-        {mapasLocais.length > 0 && painelCamadasAberto && (
-          <aside className="painel-camadas" aria-label="Camadas">
-            <button
-              type="button"
-              className="cabecalho-painel-camadas"
-              onClick={() => setPainelCamadasAberto(false)}
-              aria-expanded={painelCamadasAberto}
-            >
-              <span>Camadas</span>
-              <span className={`seta${painelCamadasAberto ? " seta--aberta" : ""}`} aria-hidden="true">
-                ›
-              </span>
-            </button>
-            <div className={`conteudo-painel-camadas${painelCamadasAberto ? " aberto" : ""}`}>
-              <div className="conteudo-painel-camadas-interno">
+  // Conteúdo da lista de camadas e do filtro de tipo de voo — o mesmo JSX
+  // aparece no painel lateral (desktop) ou na gaveta inferior (celular,
+  // redesenho fase 3); só um dos dois é montado por vez.
+  const listaCamadas = (
+    <>
                 {mapasLocais.map((m) => {
                   // Legenda dinâmica: camada com preenchimento (ex: Talhões)
                   // ganha swatch sólido; camada só-contorno (ex: Limites)
@@ -2398,6 +2255,343 @@ export default function Mapa() {
                   />
                 </label>
                 {temporaria.erroImportacao && <p className="erro">{temporaria.erroImportacao}</p>}
+    </>
+  );
+  const filtroTipoVoo = (
+    <div className="filtro-projetos-voo">
+                {apontamento.legendaProjetos.map(({ chave, rotulo, cor, projeto }) => (
+                  <label key={chave} className="campo-form-admin campo-form-admin--checkbox">
+                    <input
+                      type="checkbox"
+                      checked={apontamento.filtroProjetos?.has(projeto) ?? true}
+                      onChange={() => apontamento.alternarFiltroProjeto(projeto)}
+                    />
+                    <span className="swatch-tipo-voo" style={{ backgroundColor: cor }} aria-hidden="true" />
+                    {rotulo}
+                  </label>
+                ))}
+              </div>
+  );
+
+  // Celular: painel do talhão abre compacto (título, atalhos e 2 atributos)
+  // — o resto só com "Ver todos os N atributos".
+  const atributosCompactos = ehCelular && !atributosExpandidos;
+
+  // ----- Gaveta inferior do celular (redesenho, fase 3) -----
+  // Só aparece quando nada mais está usando o rodapé: um cartão de
+  // informação aberto (atributos, ponto, anotação), uma ferramenta em uso
+  // (barra de ação no rodapé) ou o apontamento de voo escondem a gaveta.
+  const mostrarGaveta =
+    ehCelular &&
+    mapaPronto &&
+    mapasLocais.length > 0 &&
+    !selecao &&
+    !pontoSelecionado &&
+    !pins.pinSelecionado &&
+    !pins.rascunho &&
+    !pins.movendoId &&
+    !medicao.medindo &&
+    !track.mostrarPainelTrack &&
+    !barraAnotarAberta &&
+    !apontamento.modoApontamento;
+
+  const qtdCamadasVisiveis = mapasLocais.filter((m) => camadasVisiveis.has(m.id)).length;
+  const abasGaveta = [
+    { id: "camadas", rotulo: "Camadas" },
+    { id: "legenda", rotulo: "Legenda" },
+    { id: "ferramentas", rotulo: "Ferramentas" },
+  ];
+  const resumoGaveta = {
+    camadas: {
+      titulo: `${qtdCamadasVisiveis} de ${mapasLocais.length} camadas visíveis`,
+      sub: "Toque pra ligar, desligar ou importar um arquivo",
+    },
+    legenda: {
+      titulo: mostrarTipoVoo ? "Tipos de voo e camadas" : "Cores e símbolos",
+      sub: "Só do que está visível no mapa agora",
+    },
+    ferramentas: {
+      titulo: podeEditar ? "Medir, gravar percurso, anotar" : "Medir e gravar percurso",
+      sub: "Funcionam sem internet",
+    },
+  }[abaGaveta];
+
+  function ativarFerramenta(acao) {
+    setGavetaAberta(false);
+    acao();
+  }
+
+  const legendaGaveta = (
+    <div className="legenda-gaveta">
+      {mostrarTipoVoo && (
+        <div className="bloco-legenda-gaveta">
+          <h3>Tipo de voo</h3>
+          {filtroTipoVoo}
+        </div>
+      )}
+      {mapasLocais
+        .filter((m) => camadasVisiveis.has(m.id))
+        .map((m) => {
+          const info = camadasCarregadasRef.current.get(m.id);
+          if (!info) return null;
+          const preenchido = (info.opacidadePreenchimento ?? 0) > 0;
+          const detalhada = temLegendaDetalhada({
+            preenchimento: info.preenchimento,
+            contorno: info.contorno,
+            simbolo: info.simbolo,
+            ehPonto: info.ehPonto,
+          });
+          return (
+            <div key={m.id} className="bloco-legenda-gaveta">
+              <h3>{m.nome}</h3>
+              {detalhada ? (
+                <LegendaCamada
+                  preenchimento={info.preenchimento}
+                  contorno={info.contorno}
+                  simbolo={info.simbolo}
+                  ehPonto={info.ehPonto}
+                />
+              ) : (
+                <span className="linha-legenda-simples">
+                  <span
+                    className={`swatch-camada${preenchido ? "" : " swatch-camada--contorno"}`}
+                    style={preenchido ? { backgroundColor: info.cor } : { borderColor: info.corContorno || info.cor }}
+                  />
+                  {m.nome}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      {qtdCamadasVisiveis === 0 && !mostrarTipoVoo && (
+        <p className="vazio-legenda-gaveta">Nenhuma camada visível — ligue alguma na aba Camadas.</p>
+      )}
+    </div>
+  );
+
+  const ferramentasGaveta = (
+    <div className="grade-ferramentas">
+      <button
+        type="button"
+        className="bloco-ferramenta"
+        onClick={() =>
+          ativarFerramenta(() => {
+            medicao.setMedindo(true);
+            medicao.trocarModoMedicao("distancia");
+          })
+        }
+      >
+        <IconeDockMedir />
+        <span>Medir distância</span>
+      </button>
+      <button
+        type="button"
+        className="bloco-ferramenta"
+        onClick={() =>
+          ativarFerramenta(() => {
+            medicao.setMedindo(true);
+            medicao.trocarModoMedicao("area");
+          })
+        }
+      >
+        <IconeDockArea />
+        <span>Medir área</span>
+      </button>
+      <button
+        type="button"
+        className="bloco-ferramenta"
+        onClick={() => ativarFerramenta(() => track.setMostrarPainelTrack(true))}
+      >
+        <IconeDockPercurso />
+        <span>{track.gravandoPercurso ? "Percurso (gravando)" : "Gravar percurso"}</span>
+      </button>
+      {podeEditar && (
+        <button type="button" className="bloco-ferramenta" onClick={() => ativarFerramenta(() => setBarraAnotarAberta(true))}>
+          <IconeDockAnotar />
+          <span>Anotar no mapa</span>
+        </button>
+      )}
+      <label className="bloco-ferramenta">
+        <IconeDockImportar />
+        <span>{temporaria.importandoArquivo ? "Importando…" : "Importar KML/SHP"}</span>
+        {/* Mesmo input do painel de camadas — sem `accept` pelo mesmo
+            motivo documentado lá (Safari/iOS). */}
+        <input type="file" onChange={temporaria.aoImportarArquivo} disabled={temporaria.importandoArquivo} />
+      </label>
+    </div>
+  );
+
+  return (
+    <main className="tela-mapa">
+      <MenuLateral
+        aberto={menuAberto}
+        aoFechar={() => setMenuAberto(false)}
+        ehAdmin={sessao.usuario.papel === "admin"}
+        aoSair={handleSair}
+      />
+
+      <AvisoPrimeiraSincronizacao
+        mostrar={sincronizando && semCamadasLocais && !avisoSincronizacaoFechado}
+        aoFechar={() => setAvisoSincronizacaoFechado(true)}
+      />
+
+      <div className="area-mapa">
+        <div ref={containerRef} className="mapa-container" />
+
+        {!mapaPronto && (
+          <div className="carregando-mapa">
+            <span className="spinner spinner--grande" aria-hidden="true" />
+            <p>Carregando mapa…</p>
+          </div>
+        )}
+
+        <div className="barra-topo">
+          <div className="cartao-identidade">
+            <span className="marca-app">
+              <IconeMarca />
+            </span>
+            <Link
+              to="/inicio"
+              className="botao-trocar-mapa"
+              aria-label={`Trocar mapa (atual: ${nomeMapaAtual || "carregando"})`}
+              title="Trocar mapa"
+            >
+              <span className="rotulo-app">GeoMap</span>
+              <span className="nome-mapa-atual">
+                <span className="texto-nome-mapa">{nomeMapaAtual || "Carregando…"}</span>
+                <IconeSetaBaixo />
+              </span>
+            </Link>
+            <span className="divisor-vertical" aria-hidden="true" />
+            <span className={`status-sincronizacao status-sincronizacao--${estadoSync}`} aria-live="polite" title={textoSyncCompleto}>
+              {sincronizando ? (
+                <span className="spinner" aria-hidden="true" />
+              ) : (
+                <span className="ponto-status" aria-hidden="true" />
+              )}
+              <span className="texto-status-sync">{textoSyncCurto}</span>
+            </span>
+          </div>
+
+        {mapasLocais.length > 0 && (
+          <div className="painel-busca">
+            <div className="campo-busca">
+            <IconeBusca />
+            <input
+              type="search"
+              aria-label="Buscar"
+              // Placeholder mais curto (2026-09-22) — a dica de buscar
+              // várias fazendas separando com ";" ficava "poluído" na
+              // barra; a funcionalidade continua igual, só não é mais
+              // anunciada no texto do campo. Busca de anotação (2026-09-25)
+              // usa o mesmo campo — o índice de fazenda pode não existir
+              // (mapa sem `.pmtiles` com esse suporte), mas anotações
+              // continuam buscáveis nele.
+              placeholder={
+                indiceBusca.length > 0
+                  ? "Buscar fazenda…"
+                  : buscaDeAnotacaoDisponivel
+                    ? "Buscar anotação…"
+                    : "Busca não disponível para este mapa"
+              }
+              value={buscaTexto}
+              onChange={(e) => {
+                setBuscaTexto(e.target.value);
+                setIndiceDestacadoBusca(0);
+              }}
+              onKeyDown={(e) => aoTeclarBusca(e, resultadosBusca, indiceDestacadoValido)}
+              disabled={!buscaHabilitada}
+              aria-disabled={!buscaHabilitada}
+            />
+            </div>
+            {!buscaHabilitada ? (
+              <p className="ajuda-busca">
+                A busca não está disponível para o mapa carregado. Use o clique no mapa para ver atributos.
+              </p>
+            ) : (
+              <>
+                {resultadosPins.length > 0 && (
+                  <ul className="resultados-busca resultados-busca-pins">
+                    {resultadosPins.map((p) => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBuscaTexto("");
+                            setSelecao(null);
+                            setPontoSelecionado(null);
+                            pins.voarParaPin(p.id);
+                          }}
+                        >
+                          <img src={urlSvgPin(p.icone, p.cor)} alt="" width="12" height="16" /> {p.titulo}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {resultadosBusca.length > 0 && (
+                  <ul className="resultados-busca">
+                    {resultadosBusca.map((r, i) => (
+                      <li key={`${r.mapaId}-${i}`}>
+                        <button
+                          type="button"
+                          className={i === indiceDestacadoValido ? "resultado-busca--destacado" : ""}
+                          onMouseEnter={() => setIndiceDestacadoBusca(i)}
+                          onClick={() => selecionarResultadoBusca(r)}
+                        >
+                          {r.texto}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {termosBusca.length > 0 && resultadosBusca.length === 0 && resultadosPins.length === 0 && (
+                  <p className="sem-resultados-busca">
+                    <IconeEstadoVazio tamanho={16} /> Nada encontrado.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+          <div className="barra-topo-direita">
+            {pinsPendentes > 0 && (
+              <span className="chip-status chip-status--alerta" aria-live="polite">
+                {pinsPendentes === 1 ? "1 anotação aguardando envio" : `${pinsPendentes} anotações aguardando envio`}
+              </span>
+            )}
+            <button
+              type="button"
+              className="botao-conta"
+              onClick={() => setMenuAberto(true)}
+              aria-label="Abrir menu"
+              title="Menu"
+            >
+              {iniciaisDoNome(sessao.usuario.nome)}
+            </button>
+          </div>
+        </div>
+
+        {mapaPronto && !ehCelular && <DockFerramentas grupos={gruposDock} />}
+
+        <div className="pilha-topo-esquerda">
+        {!ehCelular && mapasLocais.length > 0 && painelCamadasAberto && (
+          <aside className="painel-camadas" aria-label="Camadas">
+            <button
+              type="button"
+              className="cabecalho-painel-camadas"
+              onClick={() => setPainelCamadasAberto(false)}
+              aria-expanded={painelCamadasAberto}
+            >
+              <span>Camadas</span>
+              <span className={`seta${painelCamadasAberto ? " seta--aberta" : ""}`} aria-hidden="true">
+                ›
+              </span>
+            </button>
+            <div className={`conteudo-painel-camadas${painelCamadasAberto ? " aberto" : ""}`}>
+              <div className="conteudo-painel-camadas-interno">
+                {listaCamadas}
               </div>
             </div>
           </aside>
@@ -2432,10 +2626,7 @@ export default function Mapa() {
           </div>
         )}
 
-        {voosInfo &&
-          !apontamento.modoApontamento &&
-          apontamento.legendaProjetos.length > 1 &&
-          painelTipoVooAberto && (
+        {!ehCelular && mostrarTipoVoo && painelTipoVooAberto && (
             <aside className="painel-camadas" aria-label="Tipo de voo">
               <button
                 type="button"
@@ -2448,22 +2639,58 @@ export default function Mapa() {
                   ›
                 </span>
               </button>
-              <div className="filtro-projetos-voo">
-                {apontamento.legendaProjetos.map(({ chave, rotulo, cor, projeto }) => (
-                  <label key={chave} className="campo-form-admin campo-form-admin--checkbox">
-                    <input
-                      type="checkbox"
-                      checked={apontamento.filtroProjetos?.has(projeto) ?? true}
-                      onChange={() => apontamento.alternarFiltroProjeto(projeto)}
-                    />
-                    <span className="swatch-tipo-voo" style={{ backgroundColor: cor }} aria-hidden="true" />
-                    {rotulo}
-                  </label>
-                ))}
-              </div>
+              {filtroTipoVoo}
             </aside>
           )}
         </div>
+
+        {mostrarGaveta && (
+          <section className={`gaveta-celular${gavetaAberta ? " aberta" : ""}`} aria-label="Painel do mapa">
+            <button
+              type="button"
+              className="alca-gaveta"
+              onClick={() => setGavetaAberta((a) => !a)}
+              aria-label={gavetaAberta ? "Recolher painel" : "Expandir painel"}
+              aria-expanded={gavetaAberta}
+            >
+              <span aria-hidden="true" />
+            </button>
+            <div className="abas-gaveta" role="tablist" aria-label="Seções do painel">
+              {abasGaveta.map((aba) => (
+                <button
+                  key={aba.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={abaGaveta === aba.id}
+                  className={abaGaveta === aba.id ? "ativa" : ""}
+                  onClick={() => {
+                    setAbaGaveta(aba.id);
+                    setGavetaAberta(true);
+                  }}
+                >
+                  {aba.rotulo}
+                </button>
+              ))}
+            </div>
+            {gavetaAberta ? (
+              <div className="conteudo-gaveta" role="tabpanel">
+                {abaGaveta === "camadas" && listaCamadas}
+                {abaGaveta === "legenda" && legendaGaveta}
+                {abaGaveta === "ferramentas" && ferramentasGaveta}
+              </div>
+            ) : (
+              <button type="button" className="resumo-gaveta" onClick={() => setGavetaAberta(true)}>
+                <span>
+                  <strong>{resumoGaveta.titulo}</strong>
+                  <span>{resumoGaveta.sub}</span>
+                </span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m6 15 6-6 6 6" />
+                </svg>
+              </button>
+            )}
+          </section>
+        )}
 
         {mapasLocais.length === 0 && !sincronizando && (
           <p className="aviso-sem-mapas">
@@ -2740,14 +2967,28 @@ export default function Mapa() {
                 </button>
               </div>
               <dl className="atributos-grid" key={selecao.indice}>
-                {itemSelecionado.propriedades.map(({ campo, rotulo, valor }) => (
-                  <div key={campo} className="linha-atributo">
-                    <dt>{rotulo}</dt>
-                    <dd>{String(valor)}</dd>
-                  </div>
-                ))}
+                {(atributosCompactos ? itemSelecionado.propriedades.slice(0, 2) : itemSelecionado.propriedades).map(
+                  ({ campo, rotulo, valor }) => (
+                    <div key={campo} className="linha-atributo">
+                      <dt>{rotulo}</dt>
+                      <dd>{String(valor)}</dd>
+                    </div>
+                  )
+                )}
               </dl>
-              <LinhaCoordenada lngLat={selecao.lngLat} />
+              {ehCelular && itemSelecionado.propriedades.length > 2 && (
+                <button
+                  type="button"
+                  className="botao-ver-atributos"
+                  onClick={() => setAtributosExpandidos((v) => !v)}
+                  aria-expanded={atributosExpandidos}
+                >
+                  {atributosExpandidos
+                    ? "Mostrar menos"
+                    : `Ver todos os ${itemSelecionado.propriedades.length} atributos`}
+                </button>
+              )}
+              {!atributosCompactos && <LinhaCoordenada lngLat={selecao.lngLat} />}
             </>
           )}
         </aside>

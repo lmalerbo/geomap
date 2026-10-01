@@ -2584,6 +2584,33 @@ subtítulo, centralizar, menu Como chegar, link copiado) e celular
 (largura da barra, atributos em 34% da altura, barras escondidas com o
 painel aberto); zero erro de console.
 
+**Redesenho do frontend, fase 3 — celular (2026-10-01)**, mesmo branch:
+- `hooks/useEhCelular.js` (novo, `matchMedia("(max-width: 640px)")`):
+  aqui o celular muda a ESTRUTURA da tela, não só o estilo — no celular
+  a barra de ferramentas e os painéis laterais de Camadas/Tipo de voo
+  não são montados; no lugar entra a `.gaveta-celular` (abas Camadas /
+  Legenda / Ferramentas). Pra não duplicar a lista de camadas, o conteúdo
+  dela e o filtro de tipo de voo viraram variáveis JSX (`listaCamadas`,
+  `filtroTipoVoo`) reaproveitadas no painel do desktop ou na gaveta — só
+  um dos dois é montado por vez.
+- A gaveta some (`mostrarGaveta`) enquanto há cartão de informação
+  aberto (atributos, ponto, anotação, formulário de pin), ferramenta em
+  uso (medir, barra de percurso, anotar, mover pin) ou apontamento de
+  voo; arrastar o mapa recolhe. Os atalhos de Ferramentas fecham a
+  gaveta e abrem a barra de ação correspondente (Medir área já entra em
+  modo Área). Legenda mostra só camadas visíveis (reusa `LegendaCamada`)
+  e, no mapa Voos, o filtro de tipo de voo. Com a gaveta recolhida, a
+  barra de escala/atribuição e o botão "Apontar voo" sobem (`:has()`).
+- Painel do talhão no celular: compacto (título, atalhos, 2 atributos,
+  ~36% da tela — pedido do Leo no protótipo) com "Ver todos os N
+  atributos" (teto 78% da tela); a coordenada só aparece expandido.
+  Volta a compacto a cada nova seleção. Bug achado testando: expandido,
+  o painel subia até a faixa dos botões de zoom (z-index 2 do MapLibre),
+  que tampavam o botão de fechar — `z-index: 5` no painel no celular.
+
+Verificado com Playwright (mesmo ambiente local, desfeito no final): 28
+checagens, celular e regressão do desktop, zero erro de console.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

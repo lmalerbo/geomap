@@ -87,6 +87,23 @@ export function IconeDockAnotar() {
   );
 }
 
+export function IconeDockArea() {
+  return (
+    <Svg>
+      <path d="M5 7 12 4l7 5-2 10H7L5 7Z" />
+    </Svg>
+  );
+}
+
+export function IconeDockImportar() {
+  return (
+    <Svg>
+      <path d="M12 15V4M7 9l5-5 5 5" />
+      <path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
+    </Svg>
+  );
+}
+
 export function IconeDockTipoVoo() {
   return (
     <Svg>

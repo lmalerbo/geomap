@@ -64,8 +64,13 @@ referência visual, este arquivo é a referência do "por quê".
   sobrepostas) e atalhos (Centralizar, Como chegar, Compartilhar — sem
   Web Share API, copia o link do Google Maps). As fases 1 e 2 vão juntas
   pra produção, pra os pilotos se adaptarem a uma mudança só.
-- **Fase 3 — celular**: gaveta inferior com abas; painel de talhão
-  compacto/expandido.
+- **Fase 3 — celular** *(pronta no branch, 2026-10-01)*: gaveta inferior
+  com abas Camadas / Legenda / Ferramentas no lugar da barra de
+  ferramentas e dos painéis laterais (recolhida ~150px com resumo; aberta
+  até 60% da tela; some enquanto um cartão ou ferramenta usa o rodapé;
+  arrastar o mapa recolhe). Painel de talhão compacto (título, atalhos, 2
+  atributos — ~36% da tela) com "Ver todos os N atributos". Desktop sem
+  mudança.
 - **Fase 4 — apontamento de voo**: fluxo redesenhado (total em hectares,
   filtro por tipo junto da legenda, começar pelo talhão, escolha grande
   quando há 2+ pendências, data em 1 toque) **e fila offline**: sem sinal,
