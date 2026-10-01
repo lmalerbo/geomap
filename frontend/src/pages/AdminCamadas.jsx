@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { PMTiles } from "pmtiles";
 import {
@@ -14,7 +14,10 @@ import {
   buscarConfigAtributos,
   salvarConfigAtributos,
   duplicarCamadaAdmin,
+  listarVersoesCamadaAdmin,
+  restaurarVersaoCamadaAdmin,
 } from "../lib/api.js";
+import { useResumoAdmin } from "../components/LayoutAdmin.jsx";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 import { corDaCamada } from "../lib/paleta.js";
 import IconeLordicon from "../components/IconeLordicon.jsx";
@@ -30,6 +33,30 @@ import { lerValoresUnicos, lerValoresUnicosCombinados, lerMinMax, detectarTipoGe
 import { useAuth } from "../context/AuthContext.jsx";
 import { useJobs } from "../context/JobsContext.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
+
+// MapLibre só é baixado quando a prévia aparece de verdade.
+const PreviaCamada = lazy(() => import("../components/PreviaCamada.jsx"));
+
+const ABAS_EDITOR = [
+  { id: "estilo", rotulo: "Estilo" },
+  { id: "atributos", rotulo: "Atributos" },
+  { id: "arquivo", rotulo: "Arquivo e nome" },
+];
+
+const FMT_VERSAO = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "America/Sao_Paulo",
+});
+
+const SITUACAO_CAMADA = {
+  atrasada: { rotulo: "Atrasada", classe: "alerta" },
+  erro: { rotulo: "Falhou na conversão", classe: "erro" },
+  atualizando: { rotulo: "Atualizando…", classe: "andamento" },
+  em_dia: { rotulo: "Automação em dia", classe: "ok" },
+};
 
 const CAMADA_ROTULOS = "rotulos";
 const MAX_CATEGORIAS = 30;
@@ -81,7 +108,8 @@ function useAutoDismiss(valor, setValor, delayMs = 2500) {
 export default function AdminCamadas() {
   const { sessao } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { resumo, recarregarResumo } = useResumoAdmin();
 
   const [camadas, setCamadas] = useState([]);
   const [mapas, setMapas] = useState([]);
@@ -108,6 +136,15 @@ export default function AdminCamadas() {
   const [erroUpload, setErroUpload] = useState(null);
 
   const [camadaSelecionadaId, setCamadaSelecionadaId] = useState(null);
+  // Redesenho fase 5: editor em abas, prévia real no mapa e versões
+  // anteriores (restauráveis) da camada selecionada.
+  const [abaEditor, setAbaEditor] = useState("estilo");
+  const [previa, setPrevia] = useState(null); // { pmtiles, camadaPrincipal, temRotulos }
+  const [versoes, setVersoes] = useState([]);
+  const [restaurandoId, setRestaurandoId] = useState(null);
+  const [recargaDetalhe, setRecargaDetalhe] = useState(0);
+  const [estiloSalvoRef, setEstiloSalvoRef] = useState(null); // JSON do estilo como está salvo
+  const camadaDaUrlRef = useRef(searchParams.get("camada"));
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [erroDetalhe, setErroDetalhe] = useState(null);
   const [sujo, setSujo] = useState(false);
@@ -204,6 +241,8 @@ export default function AdminCamadas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultadosRecentes]);
 
+  const situacaoSelecionada = resumo?.automacao.camadas.find((c) => c.id === camadaSelecionadaId) || null;
+
   // Agrupa as camadas por mapa (ordenado pelo nome do mapa) — cada grupo vira
   // uma seção recolhível na lista, em vez da lista achatada de antes.
   const gruposPorMapa = useMemo(() => {
@@ -276,6 +315,11 @@ export default function AdminCamadas() {
       return;
     }
     setCamadaSelecionadaId(id);
+    const p = new URLSearchParams(searchParams);
+    if (id == null) p.delete("camada");
+    else p.set("camada", String(id));
+    p.delete("mapaId");
+    setSearchParams(p, { replace: true });
   }
 
   useEffect(() => {
@@ -284,6 +328,7 @@ export default function AdminCamadas() {
       setEstiloForm(null);
       setAtributosLinhas(null);
       detalheAtualRef.current = { pmtiles: null, sourceLayerId: null };
+      setPrevia(null);
       return;
     }
 
@@ -319,6 +364,7 @@ export default function AdminCamadas() {
         if (cancelado) return;
 
         detalheAtualRef.current = { pmtiles, sourceLayerId: camadaPrincipal?.id || null };
+        setPrevia(camadaPrincipal ? { pmtiles, camadaPrincipal, temRotulos } : null);
 
         setArquivoForm({ nome: camada?.nome || "" });
         setNovaVersao(camada?.versao || "");
@@ -348,7 +394,57 @@ export default function AdminCamadas() {
       cancelado = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camadaSelecionadaId, sessao.token]);
+  }, [camadaSelecionadaId, sessao.token, recargaDetalhe]);
+
+  // Estilo como está salvo (pra prévia dizer se há alteração pendente).
+  useEffect(() => {
+    if (estiloForm && !carregandoDetalhe && estiloSalvoRef === null) setEstiloSalvoRef(JSON.stringify(estiloForm));
+  }, [estiloForm, carregandoDetalhe, estiloSalvoRef]);
+  useEffect(() => {
+    setEstiloSalvoRef(null);
+  }, [camadaSelecionadaId, recargaDetalhe]);
+
+  // ?camada=ID (link vindo da tela de Mapas): seleciona assim que a lista
+  // de camadas chegou (o detalhe lê o nome dela).
+  useEffect(() => {
+    const id = Number(camadaDaUrlRef.current);
+    if (!id || camadas.length === 0) return;
+    camadaDaUrlRef.current = null;
+    if (camadas.some((c) => c.id === id)) setCamadaSelecionadaId(id);
+  }, [camadas]);
+
+  useEffect(() => {
+    if (camadaSelecionadaId == null) return setVersoes([]);
+    let cancelado = false;
+    listarVersoesCamadaAdmin(sessao.token, camadaSelecionadaId)
+      .then((v) => !cancelado && setVersoes(v))
+      .catch(() => !cancelado && setVersoes([]));
+    return () => {
+      cancelado = true;
+    };
+  }, [camadaSelecionadaId, sessao.token, recargaDetalhe]);
+
+  async function restaurarVersao(v) {
+    if (
+      !window.confirm(
+        `Voltar esta camada para a versão "${v.versao}"? O arquivo atual vira uma versão anterior (dá para desfazer) e os aparelhos baixam de novo no próximo sincronismo.`
+      )
+    ) {
+      return;
+    }
+    setRestaurandoId(v.id);
+    setErroDetalhe(null);
+    try {
+      await restaurarVersaoCamadaAdmin(sessao.token, camadaSelecionadaId, v.id);
+      await carregarCamadas();
+      setRecargaDetalhe((n) => n + 1);
+      recarregarResumo?.();
+    } catch (e) {
+      setErroDetalhe(e.message);
+    } finally {
+      setRestaurandoId(null);
+    }
+  }
 
   function atualizarArquivoFormCampo(valor) {
     setArquivoForm({ nome: valor });
@@ -649,6 +745,7 @@ export default function AdminCamadas() {
     try {
       await salvarConfigEstilo(sessao.token, camadaSelecionadaId, estiloForm);
       setSalvoEstiloEm(new Date());
+      setEstiloSalvoRef(null); // a prévia passa a comparar com o que acabou de ser salvo
       setSujo(false);
     } catch (e) {
       setErroDetalhe(e.message);
@@ -710,20 +807,21 @@ export default function AdminCamadas() {
   }
 
   return (
-    <div className="adm-pagina adm-pagina--legada">
+    <div className={`adm-pagina adm-camadas${camadaSelecionadaId != null ? " adm-camadas--detalhe" : ""}`}>
+      <header className="adm-cabecalho">
+        <div>
+          <h1>Camadas</h1>
+          <p>
+            {camadas.length} camadas em {mapas.length} mapas · escolha uma para ver a prévia e editar
+          </p>
+        </div>
+        <button type="button" className="botao-acao-primario" onClick={() => setMostrarUpload((v) => !v)}>
+          {mostrarUpload ? "Cancelar nova camada" : "+ Nova camada"}
+        </button>
+      </header>
 
-      <div className="workspace-camadas">
-        <aside className="lista-camadas-workspace">
-          <div className="cabecalho-lista-camadas">
-            <strong>Camadas</strong>
-            <button
-              type="button"
-              className="botao-secundario"
-              onClick={() => setMostrarUpload((v) => !v)}
-            >
-              {mostrarUpload ? "Cancelar" : "+ Nova camada"}
-            </button>
-          </div>
+      <div className="workspace-camadas adm-camadas-grade">
+        <aside className="lista-camadas-workspace adm-camadas-lista">
 
           {erroLista && <p className="erro">{erroLista}</p>}
 
@@ -867,20 +965,121 @@ export default function AdminCamadas() {
           </div>
         </aside>
 
-        <section className="detalhe-camada-workspace">
-          {camadaSelecionadaId == null && (
-            <p className="sem-dados-estatistica">
-              Selecione uma camada na lista à esquerda pra editar arquivo, estilo e atributos.
+        <section className="adm-camadas-centro" aria-label="Prévia e versões">
+          {camadaSelecionadaId == null ? (
+            <p className="adm-vazio adm-cartao">
+              <IconeEstadoVazio /> Escolha uma camada na lista para ver a prévia no mapa e editar.
+            </p>
+          ) : (
+            <>
+              <button type="button" className="adm-voltar-lista" onClick={() => selecionarCamada(null)}>
+                ← Camadas
+              </button>
+              <div className="adm-cartao adm-cartao-previa">
+                {previa && estiloForm && !carregandoDetalhe ? (
+                  <Suspense fallback={<div className="adm-previa adm-previa--carregando"><span className="spinner" aria-hidden="true" /></div>}>
+                    <PreviaCamada
+                      chave={camadaSelecionadaId}
+                      pmtiles={previa.pmtiles}
+                      camadaPrincipal={previa.camadaPrincipal}
+                      temRotulos={previa.temRotulos}
+                      estilo={estiloForm}
+                      ehPonto={ehPontoAtual}
+                      alterado={estiloSalvoRef !== null && estiloSalvoRef !== JSON.stringify(estiloForm)}
+                    />
+                  </Suspense>
+                ) : (
+                  <div className="adm-previa adm-previa--carregando">
+                    <span className="spinner" aria-hidden="true" /> {carregandoDetalhe ? "Baixando a camada…" : ""}
+                  </div>
+                )}
+              </div>
+
+              <div className="adm-cartao adm-versoes">
+                <div className="adm-cartao-titulo">
+                  <h2>Versões anteriores</h2>
+                  <small>até 3 por camada</small>
+                </div>
+                {versoes.length === 0 ? (
+                  <p className="adm-suave">
+                    Nenhuma ainda. Cada vez que o arquivo for atualizado, o anterior fica guardado aqui para poder voltar.
+                  </p>
+                ) : (
+                  <ul className="adm-lista-versoes">
+                    {versoes.map((v) => (
+                      <li key={v.id}>
+                        <span className="adm-ordem-nome">
+                          <span className="adm-forte">Versão {v.versao}</span>
+                          <small className="adm-suave">
+                            Substituída em {FMT_VERSAO.format(new Date(v.substituidaEm))}
+                            {v.usuarioNome ? ` · por ${v.usuarioNome}` : ""}
+                          </small>
+                        </span>
+                        <button
+                          type="button"
+                          className="botao-acao-secundario"
+                          onClick={() => restaurarVersao(v)}
+                          disabled={restaurandoId != null}
+                        >
+                          {restaurandoId === v.id && <span className="spinner" aria-hidden="true" />}
+                          Restaurar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {situacaoSelecionada?.situacao && situacaoSelecionada.automacao && (
+                  <p className="adm-suave adm-nota">
+                    Esta camada é atualizada pela automação diária: uma versão restaurada vale até a próxima atualização automática.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className="detalhe-camada-workspace adm-camadas-editor" aria-label="Editar camada">
+          {erroDetalhe && <p className="erro">{erroDetalhe}</p>}
+          {carregandoDetalhe && (
+            <p className="status-carregando-admin">
+              <span className="spinner" aria-hidden="true" /> Carregando…
             </p>
           )}
 
-          {erroDetalhe && <p className="erro">{erroDetalhe}</p>}
-          {carregandoDetalhe && <p>Carregando…</p>}
-
           {camadaSelecionadaId != null && !carregandoDetalhe && arquivoForm && (
             <>
+              <div className="adm-editor-titulo">
+                <h2>{camadas.find((c) => c.id === camadaSelecionadaId)?.nome}</h2>
+                <p className="adm-suave">
+                  {mapas.find((m) => m.id === camadas.find((c) => c.id === camadaSelecionadaId)?.mapa_id)?.nome} · versão {camadas.find((c) => c.id === camadaSelecionadaId)?.versao}
+                </p>
+                <span className="adm-chips">
+                  {ehPontoAtual && <span className="adm-etiqueta">Pontos</span>}
+                  {estiloForm?.tipoCamada === "voos" && <span className="adm-etiqueta">Apontamento de voo</span>}
+                  {situacaoSelecionada && SITUACAO_CAMADA[situacaoSelecionada.situacao] && (
+                    <span className={`adm-chip adm-chip--${SITUACAO_CAMADA[situacaoSelecionada.situacao].classe}`}>
+                      {SITUACAO_CAMADA[situacaoSelecionada.situacao].rotulo}
+                      {situacaoSelecionada.situacao === "atrasada" ? ` · ${situacaoSelecionada.diasAtraso} dias` : ""}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="segmentado adm-abas" role="tablist" aria-label="Partes da camada">
+                {ABAS_EDITOR.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={abaEditor === a.id}
+                    className={abaEditor === a.id ? "ativo" : ""}
+                    onClick={() => setAbaEditor(a.id)}
+                  >
+                    {a.rotulo}
+                  </button>
+                ))}
+              </div>
+              {abaEditor === "arquivo" && (
               <div className="cartao-form-admin">
-                <h2>Arquivo</h2>
                 <label className="campo-form-admin">
                   Nomenclatura
                   <input
@@ -968,9 +1167,10 @@ export default function AdminCamadas() {
                   {removendo ? "Removendo…" : "Remover camada"}
                 </button>
               </div>
+              )}
 
+              {abaEditor === "estilo" && (
               <div className="cartao-form-admin">
-                <h2>Estilo</h2>
 
                 {avisoEstilo && <p className="erro">{avisoEstilo}</p>}
 
@@ -1600,9 +1800,10 @@ export default function AdminCamadas() {
                   )}
                 </div>
               </div>
+              )}
 
+              {abaEditor === "atributos" && (
               <div className="cartao-form-admin">
-                <h2>Atributos</h2>
                 <p className="contagem-atributos">
                   {atributosLinhas.filter((l) => l.visivel).length} de {atributosLinhas.length} visíveis
                 </p>
@@ -1671,6 +1872,7 @@ export default function AdminCamadas() {
                   )}
                 </div>
               </div>
+              )}
             </>
           )}
         </section>

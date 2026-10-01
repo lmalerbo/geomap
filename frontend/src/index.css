@@ -5525,3 +5525,195 @@ input[type="file"]::file-selector-button:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* --- Admin: Camadas em 3 colunas (lista · prévia/versões · editor) --- */
+.adm-camadas-grade {
+  display: grid;
+  grid-template-columns: minmax(230px, 280px) minmax(320px, 1fr) minmax(360px, 440px);
+  grid-template-areas: "lista centro editor";
+  gap: 16px;
+  padding: 0;
+  overflow: visible;
+  align-items: start;
+}
+
+.adm-camadas-lista {
+  grid-area: lista;
+  top: 20px;
+}
+
+.adm-camadas-centro {
+  grid-area: centro;
+  position: sticky;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.adm-camadas-editor {
+  grid-area: editor;
+  gap: 12px;
+}
+
+.adm-camadas-editor .cartao-form-admin {
+  background: #fff;
+  border-color: var(--adm-borda);
+  border-radius: 14px;
+}
+
+.adm-camadas .lista-camadas-agrupada,
+.adm-camadas .form-upload-camada {
+  background: #fff;
+  border: 1px solid var(--adm-borda);
+  border-radius: 14px;
+}
+
+.adm-camadas .lista-camadas-agrupada {
+  padding: 6px;
+  max-height: calc(100vh - 170px);
+  overflow-y: auto;
+}
+
+.adm-cartao-previa {
+  padding: 0;
+  overflow: hidden;
+}
+
+.adm-previa {
+  position: relative;
+  height: min(460px, 56vh);
+}
+
+/* Prefixo .adm-previa: o CSS do MapLibre (carregado depois) põe
+   position: relative em .maplibregl-map e ganharia o empate. */
+.adm-previa .adm-previa-mapa {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.adm-previa--carregando {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  background: #eef2ee;
+}
+
+.adm-previa-selo {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.15);
+  font-size: 12px;
+  font-weight: 600;
+  color: #3b4754;
+}
+
+.adm-previa-selo--alterado {
+  background: #fff7e6;
+  color: #8a5a00;
+}
+
+.adm-previa-dica {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(31, 41, 51, 0.8);
+  color: #fff;
+  font-size: 12px;
+}
+
+.adm-lista-versoes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.adm-lista-versoes li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--adm-linha);
+}
+
+.adm-lista-versoes li:last-child {
+  border-bottom: none;
+}
+
+.adm-nota {
+  margin: 8px 0 0;
+}
+
+.adm-editor-titulo h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.adm-editor-titulo p {
+  margin: 2px 0 8px;
+}
+
+.adm-camadas-editor .adm-abas {
+  margin-bottom: 0;
+}
+
+/* Telas médias: prévia e versões sobem pra cima do editor. */
+@media (max-width: 1320px) {
+  .adm-camadas-grade {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+    grid-template-areas:
+      "lista centro"
+      "lista editor";
+  }
+
+  .adm-camadas-centro {
+    position: static;
+  }
+}
+
+@media (max-width: 900px) {
+  .adm-camadas-grade {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "lista"
+      "centro"
+      "editor";
+  }
+
+  .adm-camadas-lista {
+    position: static;
+  }
+
+  .adm-camadas .lista-camadas-agrupada {
+    max-height: none;
+  }
+
+  /* Um de cada vez: com uma camada escolhida, some a lista. */
+  .adm-camadas--detalhe .adm-camadas-lista,
+  .adm-camadas--detalhe .adm-cabecalho {
+    display: none;
+  }
+
+  .adm-camadas:not(.adm-camadas--detalhe) .adm-camadas-centro,
+  .adm-camadas:not(.adm-camadas--detalhe) .adm-camadas-editor {
+    display: none;
+  }
+
+  .adm-previa {
+    height: 300px;
+  }
+}
