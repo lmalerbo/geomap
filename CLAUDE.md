@@ -2672,6 +2672,23 @@ Detalhe de ambiente: um build de produção servido localmente (porta
 4180) não carrega camadas porque o download redireciona pro R2, cujo
 CORS só libera a porta 5173 e o GitHub Pages — testar no dev (5173).
 
+**Falhas Soca: estágios por safra (2026-10-01)**: a regra de pendente de
+Falhas Soca deixou de ser "02º ou 03º Corte em qualquer safra" e passou a
+depender da safra do talhão (`layerDetails.harvest`) — safra 2026:
+INVERNO, ANO, 18 MESES, 18 MESES FORMAÇÃO e 02º CORTE; safra 2027: 02º e
+03º CORTE. Regra em `estagioValidoParaFalhasSoca`
+(`backend/src/lib/regrasApontamento.js`, com teste). Os códigos de estágio
+(`layerDetails.internship`) foram descobertos cruzando o ESTAGIO da
+camada Talhões publicada com os registros do DroneManagement (só
+leitura): 2, 3, 41 (ANO), 50 (18 MESES FORMAÇÃO), 51 (18 MESES), 61
+(INVERNO). Ficaram de fora, sem código confirmado porque nenhum talhão
+nesses estágios tinha cadastro no DroneManagement: INVERNO FORMAÇÃO e ANO
+FORMAÇÃO (pelo padrão, provavelmente 60 e 40) e REMAN-02°/REMAN-03° —
+entram quando aparecer um caso real. O cache `voos_pendentes_cache`
+agora guarda `{regra, itens}` com `VERSAO_REGRA_PENDENTES`: mudar a regra
+exige mudar esse texto, senão o cache antigo continua valendo até a
+contagem do DroneManagement mudar por outro motivo.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

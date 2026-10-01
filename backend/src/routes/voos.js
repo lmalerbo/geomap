@@ -3,7 +3,12 @@ import { pool } from "../db/pool.js";
 import { exigirAutenticacao } from "../middleware/auth.js";
 import { chamarApi } from "../lib/dronemgmt.js";
 import { usuarioTemPermissaoMapa } from "../lib/permissoes.js";
-import { CONTROL_STATUS_A_VOAR, motivoParaNaoApontar } from "../lib/regrasApontamento.js";
+import {
+  CONTROL_STATUS_A_VOAR,
+  motivoParaNaoApontar,
+  estagioValidoParaFalhasSoca,
+  VERSAO_REGRA_PENDENTES,
+} from "../lib/regrasApontamento.js";
 
 // Proxy pra integração DroneManagement (apontamento de voo pelo mapa) —
 // ver docs/INTEGRACAO_DRONEMANAGEMENT.md pro contrato completo da API de
@@ -27,13 +32,11 @@ const UNIT_ID = process.env.DRONEMGMT_UNIT_ID || "";
 // foi exatamente o que o Leo pediu ao descrever a regra.
 const VERIFY_FLIGHT_SIZE_PRONTOS = [5, 6]; // "Verificar Porte" = Voo liberado, Voar urgente
 
-// Falhas Soca tem uma trava extra: só considerar pendente quem está em
-// 02º ou 03º Corte (layerDetails.internship) — mesmo critério de negócio
-// já usado nos scripts de limpeza desta sessão (ver
-// backend/_cancelar_estagio_soca.mjs), agora também aplicado no que o
-// piloto vê no mapa, não só na limpeza administrativa.
+// Falhas Soca tem uma trava extra: só considerar pendente quem está nos
+// estágios permitidos pra safra do talhão (layerDetails.harvest +
+// layerDetails.internship) — ver estagioValidoParaFalhasSoca em
+// lib/regrasApontamento.js. Antes era só 02º/03º Corte em qualquer safra.
 const FINALIDADE_FALHAS_SOCA = "Falhas Soca";
-const ESTAGIOS_FALHAS_SOCA = new Set([2, 3]); // 02º Corte, 03º Corte
 
 // Falhas Soca também não voa em área de fornecedor (Propriedade =
 // layerDetails.transferProperty) — pedido do Leo (2026-09-24), mesmo
@@ -122,8 +125,11 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
         "SELECT count_dronemgmt, registros FROM voos_pendentes_cache WHERE mapa_id = $1",
         [mapaId]
       );
-      if (rows[0] && rows[0].count_dronemgmt === countAtual) {
-        return res.json(rows[0].registros);
+      // Cache novo guarda {regra, itens}; o formato antigo (array puro) ou
+      // uma regra diferente da atual contam como cache vencido.
+      const cache = rows[0]?.registros;
+      if (rows[0]?.count_dronemgmt === countAtual && cache?.regra === VERSAO_REGRA_PENDENTES) {
+        return res.json(cache.itens);
       }
     }
 
@@ -145,14 +151,14 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
       for (const dados of resultados) registrosBrutos.push(...(dados.value || []));
     }
 
-    // Falhas Soca fora de 02º/03º Corte ou em área de fornecedor não conta
-    // como pendente de verdade (ver ESTAGIOS_FALHAS_SOCA e
-    // PROPRIEDADES_FORNECEDOR acima) — as outras finalidades não têm essas
-    // travas extras.
+    // Falhas Soca fora dos estágios permitidos pra safra ou em área de
+    // fornecedor não conta como pendente de verdade (ver
+    // estagioValidoParaFalhasSoca e PROPRIEDADES_FORNECEDOR acima) — as
+    // outras finalidades não têm essas travas extras.
     const registrosFiltrados = registrosBrutos.filter((r) => {
       if (r.flightProjectDetails?.description === FINALIDADE_FALHAS_SOCA) {
         return (
-          ESTAGIOS_FALHAS_SOCA.has(r.layerDetails?.internship) &&
+          estagioValidoParaFalhasSoca(r.layerDetails) &&
           !PROPRIEDADES_FORNECEDOR.has(r.layerDetails?.transferProperty)
         );
       }
@@ -164,7 +170,7 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
       `INSERT INTO voos_pendentes_cache (mapa_id, count_dronemgmt, registros, atualizado_em)
        VALUES ($1, $2, $3, now())
        ON CONFLICT (mapa_id) DO UPDATE SET count_dronemgmt = $2, registros = $3, atualizado_em = now()`,
-      [mapaId, count, JSON.stringify(registros)]
+      [mapaId, count, JSON.stringify({ regra: VERSAO_REGRA_PENDENTES, itens: registros })]
     );
     res.json(registros);
   } catch (err) {

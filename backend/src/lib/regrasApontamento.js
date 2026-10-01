@@ -18,3 +18,38 @@ export function motivoParaNaoApontar(registroAtual) {
   }
   return null;
 }
+
+// Falhas Soca só é voada em certos estágios, que dependem da safra do
+// talhão (pedido do Leo, 2026-10-01). Códigos de estágio do DroneManagement
+// (layerDetails.internship) confirmados cruzando o ESTAGIO da camada
+// Talhões publicada com os registros do DroneManagement.
+//
+// Ainda sem código confirmado (nenhum talhão nesses estágios tinha
+// cadastro no DroneManagement em 2026-10-01): INVERNO FORMAÇÃO e ANO
+// FORMAÇÃO (safra 2026), REMAN-02° (2026 e 2027) e REMAN-03° (2027). Pelo
+// padrão observado (18 MESES = 51, 18 MESES FORMAÇÃO = 50), os de formação
+// devem ser 60 e 40 — entram aqui quando houver um caso real que confirme.
+export const ESTAGIO = {
+  CORTE_02: 2,
+  CORTE_03: 3,
+  ANO: 41,
+  DEZOITO_MESES_FORMACAO: 50,
+  DEZOITO_MESES: 51,
+  INVERNO: 61,
+};
+
+export const ESTAGIOS_FALHAS_SOCA_POR_SAFRA = {
+  2026: new Set([ESTAGIO.INVERNO, ESTAGIO.ANO, ESTAGIO.DEZOITO_MESES, ESTAGIO.DEZOITO_MESES_FORMACAO, ESTAGIO.CORTE_02]),
+  2027: new Set([ESTAGIO.CORTE_02, ESTAGIO.CORTE_03]),
+};
+
+// Muda sempre que a regra acima mudar: o cache de pendências
+// (voos_pendentes_cache) guarda esse texto e é descartado quando não bate,
+// senão a regra nova só valeria quando a contagem do DroneManagement
+// mudasse por outro motivo.
+export const VERSAO_REGRA_PENDENTES = "falhas-soca-safra-v1";
+
+export function estagioValidoParaFalhasSoca(layerDetails) {
+  const permitidos = ESTAGIOS_FALHAS_SOCA_POR_SAFRA[layerDetails?.harvest];
+  return Boolean(permitidos?.has(layerDetails?.internship));
+}
