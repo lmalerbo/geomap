@@ -1878,42 +1878,120 @@ input[type="file"]::file-selector-button:hover {
   padding: 4px 8px;
 }
 
-/* Botão + menu suspenso pra abrir o ponto marcado (painel de atributos) em
-   apps de navegação externos — ao lado do "fechar", mesmo tamanho de alvo
-   de toque. Menu simples (sem animação/painel-flutuante próprio): abre e
-   fecha instantâneo, é só uma lista curta de links. */
-.compartilhar-localizacao {
-  position: absolute;
-  top: 8px;
-  right: 44px;
+/* ===== Painel de atributos (redesenho, fase 2) =====
+   Cabeçalho: camada + paginação entre feições sobrepostas + fechar numa
+   linha; título grande ("Talhão N"); atalhos (Centralizar, Como chegar,
+   Compartilhar); grade de atributos; coordenada. */
+.cabecalho-atributos {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px -8px 2px 0;
 }
 
-.botao-compartilhar-localizacao {
-  min-height: 36px;
-  min-width: 36px;
-  padding: 4px 8px;
+.sobretitulo-atributos {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sobretitulo-atributos .swatch-camada {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+.botao-fechar-atributos {
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
   border: none;
-  background: none;
-  color: var(--text-muted);
+  border-radius: 50%;
+  background: transparent;
+  color: #52606d;
+  flex-shrink: 0;
 }
 
-.botao-compartilhar-localizacao:hover {
+.botao-fechar-atributos:hover {
+  background: #f1f4f2;
   color: var(--text);
 }
 
-.menu-compartilhar-localizacao {
-  position: absolute;
-  top: 40px;
-  right: 0;
-  z-index: 1;
+.painel-atributos .titulo-atributos {
+  display: block;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.25;
+}
+
+.subtitulo-atributos {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.atalhos-atributos {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 6px;
+}
+
+.atalhos-atributos button {
+  width: 100%;
+  height: 60px;
+  min-height: 0;
+  padding: 0 4px;
   display: flex;
   flex-direction: column;
-  min-width: 190px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid #e3e8eb;
+  border-radius: 12px;
   background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.atalhos-atributos button:hover {
+  background: #f5f8f6;
+}
+
+.atalho-como-chegar {
+  position: relative;
+}
+
+/* Menu "Como chegar" — abre logo abaixo do atalho, mesmo tamanho de alvo
+   de toque da lista. Abre e fecha instantâneo (é só uma lista curta). */
+.menu-compartilhar-localizacao {
+  position: absolute;
+  top: 64px;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid var(--cartao-borda);
+  border-radius: 12px;
+  box-shadow: var(--cartao-sombra-forte);
   overflow: hidden;
+  animation: entrada var(--dur-hover) var(--ease-saida);
 }
 
 .menu-compartilhar-localizacao a,
@@ -2363,24 +2441,32 @@ input[type="file"]::file-selector-button:hover {
   background: #fdecea;
 }
 
+/* Paginação entre feições sobrepostas (ex: Talhão + Limite no mesmo
+   ponto) — no cabeçalho do painel desde a fase 2 do redesenho (antes ficava
+   no rodapé, fácil de não ver). */
 .paginacao-atributos {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  font-size: 14px;
+  gap: 2px;
+  font-size: 12.5px;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .paginacao-atributos button {
-  min-height: 36px;
-  min-width: 36px;
-  padding: 4px 12px;
-  font-size: 18px;
-  line-height: 1;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #52606d;
+}
+
+.paginacao-atributos button:hover {
+  background: #f1f4f2;
 }
 
 /* Controles de navegação do MapLibre (zoom, bússola, localização, ver
@@ -2961,9 +3047,10 @@ input[type="file"]::file-selector-button:hover {
      :has() é progressive enhancement — sem suporte, some a garantia extra
      mas nada quebra (mesmo overlap de antes, não pior). */
   .area-mapa:has(.painel-atributos.aberto) .pilha-apontamento,
-  .area-mapa:has(.painel-atributos.aberto) .painel-track.aberto {
+  .area-mapa:has(.painel-atributos.aberto) .pilha-acoes {
     display: none;
   }
+
 }
 
 .painel-atributos dl {
@@ -3054,37 +3141,202 @@ input[type="file"]::file-selector-button:hover {
   flex: 1;
 }
 
-/* Rodapé central (redesenho, fase 1) — antes ficava no topo, onde agora
-   mora a busca. É o lugar das barras de ação (medir/percurso/anotar) da
-   fase 2, ver docs/REDESENHO_FRONTEND.md. */
-.barra-anotar {
+/* ===== Barras de ação no rodapé central (redesenho, fase 2) =====
+   Medir, percurso e anotar — o valor/estado fica no meio da tela, perto
+   de onde o usuário está tocando, e os cantos ficam livres pros painéis.
+   Se mais de uma ferramenta estiver ativa ao mesmo tempo (ex: gravando
+   percurso enquanto mede), as barras empilham em vez de se sobrepor. */
+.pilha-acoes {
   position: absolute;
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  /* Sem isso, left:50% limita a largura disponível à metade da tela e a
-     barra quebrava em 3 linhas no celular (achado no teste de 390px). */
+  /* Sem width:max-content, left:50% limita a largura disponível à metade
+     da tela e as barras quebravam em várias linhas no celular. */
   width: max-content;
+  max-width: calc(100vw - 32px);
   z-index: 6;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  pointer-events: none;
+}
+
+.pilha-acoes > * {
+  pointer-events: auto;
+}
+
+.barra-acao {
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 8px 8px 14px;
   background: #fff;
   border: 1px solid var(--cartao-borda);
   border-radius: 16px;
   box-shadow: var(--cartao-sombra-forte);
-  max-width: calc(100vw - 32px);
+  animation: entrada var(--dur-painel) var(--ease-saida);
+}
+
+.linha-barra-acao {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 8px 12px;
 }
-.barra-anotar .ativo {
-  outline: 2px solid var(--accent);
+
+.valor-barra-acao {
+  display: flex;
+  flex-direction: column;
+  min-width: 110px;
+  max-width: 260px;
+  line-height: 1.25;
 }
-.barra-anotar .fechar {
-  background: none;
-  color: inherit;
-  padding: 0 6px;
-  font-size: 18px;
+
+.valor-barra-acao strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.valor-barra-acao span {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.acoes-barra-acao {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.segmentado {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: #f1f4f6;
+  border-radius: 10px;
+}
+
+.segmentado button {
+  height: 36px;
+  min-height: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #3b4754;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.segmentado button:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.segmentado button.ativo {
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.15);
+}
+
+.botao-acao-primario,
+.botao-acao-secundario,
+.botao-acao-perigo {
+  height: 40px;
+  min-height: 0;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.botao-acao-secundario {
+  background: #fff;
+  border: 1px solid #d9e2e6;
+  color: #3b4754;
+}
+
+.botao-acao-secundario:hover {
+  background: #f5f8f6;
+}
+
+.botao-acao-perigo {
+  background: #d6336c;
+  border: none;
+  color: #fff;
+}
+
+.botao-acao-perigo:hover {
+  background: #be2a5d;
+}
+
+.botao-acao-icone {
+  width: 40px;
+  height: 40px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #52606d;
+}
+
+.botao-acao-icone:hover {
+  background: #f1f4f2;
+  color: var(--text);
+}
+
+.opcao-barra-acao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #3b4754;
+  white-space: nowrap;
+}
+
+.aviso-barra-acao {
+  margin: 0 0 8px -6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #7c2d12;
+  font-size: 12.5px;
+}
+
+.aviso-barra-acao--erro {
+  background: #fde4e1;
+  color: #b42318;
+}
+
+.ponto-gravando {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #d6336c;
+  flex-shrink: 0;
+  animation: pulso-gravando 1.6s ease-out infinite;
+}
+
+.ponto-gravando--pausado {
+  background: #9aa5ae;
+  animation: none;
+}
+
+@keyframes pulso-gravando {
+  0% {
+    box-shadow: 0 0 0 0 rgba(214, 51, 108, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(214, 51, 108, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(214, 51, 108, 0);
+  }
 }
 .painel-formulario-pin {
   right: 16px;
@@ -3189,6 +3441,29 @@ input[type="file"]::file-selector-button:hover {
   .texto-status-sync,
   .rotulo-app,
   .divisor-vertical {
+    display: none;
+  }
+}
+
+/* Barras de ação no celular (redesenho, fase 2) — precisa ficar DEPOIS
+   das regras base de .pilha-acoes/.barra-acao (mesma especificidade: a
+   ordem no arquivo decide; dentro do bloco <=640px lá em cima, perdia o
+   desempate e a barra ficava com a largura de desktop). Largura quase
+   cheia no rodapé; enquanto uma ferramenta está ativa o botão "Apontar
+   voo" (mesmo rodapé) some — o usuário já está fazendo outra coisa. A
+   gravação de percurso continua por trás mesmo com a barra escondida. */
+@media (max-width: 640px) {
+  .pilha-acoes {
+    bottom: 12px;
+    width: calc(100vw - 16px);
+    max-width: none;
+  }
+
+  .barra-acao {
+    width: 100%;
+  }
+
+  .area-mapa:has(.pilha-acoes > *) .pilha-apontamento {
     display: none;
   }
 }

@@ -57,8 +57,19 @@ import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao
 import CartaoPonto from "../components/CartaoPonto.jsx";
 import CartaoPin from "../components/pins/CartaoPin.jsx";
 import BarraAnotar from "../components/pins/BarraAnotar.jsx";
+import BarraAcaoMedicao from "../components/BarraAcaoMedicao.jsx";
+import BarraAcaoPercurso from "../components/BarraAcaoPercurso.jsx";
+import {
+  IconeCentralizar,
+  IconeComoChegar,
+  IconeCompartilhar,
+  IconeAnterior,
+  IconeProximo,
+  IconeFechar,
+} from "../components/IconesAcao.jsx";
 import FormularioPin from "../components/pins/FormularioPin.jsx";
 import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
+import { copiarTexto } from "../lib/coordenadas.js";
 import { useJobs } from "../context/JobsContext.jsx";
 
 // Marca do app no cartão de identidade da barra superior (pino de mapa).
@@ -897,6 +908,9 @@ export default function Mapa() {
   // de informação aberto por vez.
   const [pontoSelecionado, setPontoSelecionado] = useState(null);
   const [mostrarMenuCompartilhar, setMostrarMenuCompartilhar] = useState(false);
+  // Sem Web Share API (desktop), "Compartilhar" copia o link do ponto — o
+  // botão confirma por 2s ("Link copiado").
+  const [linkCopiado, setLinkCopiado] = useState(false);
   // Recolhido por padrão em qualquer tamanho de tela — antes só recolhia
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
   // entre plataformas.
@@ -1020,7 +1034,14 @@ export default function Mapa() {
   // painel) — sem isso o menu ficava aberto apontando pro ponto antigo.
   useEffect(() => {
     setMostrarMenuCompartilhar(false);
+    setLinkCopiado(false);
   }, [selecao]);
+
+  useEffect(() => {
+    if (!linkCopiado) return;
+    const t = setTimeout(() => setLinkCopiado(false), 2000);
+    return () => clearTimeout(t);
+  }, [linkCopiado]);
 
   // 1) cria o mapa uma única vez, com controles de navegação e localização
   useEffect(() => {
@@ -1545,6 +1566,7 @@ export default function Mapa() {
           camada: info?.nome,
           cor: info?.cor,
           propriedades: aplicarConfigAtributos(feature.properties, info?.atributosConfig),
+          bruto: feature.properties,
           grupoFiltro: construirFiltroGrupo(feature.properties),
         });
       }
@@ -1785,6 +1807,7 @@ export default function Mapa() {
           camada: info?.nome,
           cor: info?.cor,
           propriedades: item.propriedades,
+          bruto: { TALHAO: item.talhao, SECAO: item.secao, DESC_SECAO: buscaSelecionada?.nomeBase },
           grupoFiltro: construirFiltroGrupo({ TALHAO: item.talhao, SECAO: item.secao }),
         },
       ],
@@ -1811,6 +1834,54 @@ export default function Mapa() {
   }
 
   const itemSelecionado = selecao?.itens[selecao.indice];
+
+  // Título do painel de atributos (redesenho, fase 2): "Talhão N" e a
+  // fazenda/código em destaque quando a feição tem esses campos — lidos das
+  // propriedades brutas (`bruto`), não da lista configurada pelo admin, que
+  // pode ter escondido TALHAO/SECAO da grade. Sem esses campos, o nome da
+  // camada vira o título.
+  const cabecalhoSelecao = (() => {
+    const b = itemSelecionado?.bruto || {};
+    const temValor = (v) => v !== undefined && v !== null && v !== "";
+    if (temValor(b.TALHAO)) {
+      const sub = [b.DESC_SECAO, temValor(b.SECAO) ? `cód. ${b.SECAO}` : null].filter(Boolean).join(" · ");
+      return { titulo: `Talhão ${b.TALHAO}`, subtitulo: sub };
+    }
+    if (temValor(b.DESC_SECAO)) {
+      return { titulo: b.DESC_SECAO, subtitulo: temValor(b.SECAO) ? `cód. ${b.SECAO}` : "" };
+    }
+    return { titulo: itemSelecionado?.camada || "", subtitulo: "" };
+  })();
+
+  // Centraliza no ponto clicado deixando livre a área que o próprio painel
+  // ocupa (direita no desktop, rodapé no celular) — senão o ponto ficava
+  // escondido atrás dele.
+  function centralizarSelecao() {
+    const map = mapRef.current;
+    if (!map || !selecao) return;
+    const celular = window.matchMedia("(max-width: 640px)").matches;
+    map.flyTo({
+      center: selecao.lngLat,
+      zoom: Math.max(map.getZoom(), 15),
+      padding: celular ? { bottom: Math.round(window.innerHeight * 0.4) } : { right: 420 },
+      duration: 800,
+    });
+  }
+
+  async function compartilharSelecao() {
+    if (!selecao) return;
+    const { lat, lng } = selecao.lngLat;
+    const titulo = [cabecalhoSelecao.titulo, cabecalhoSelecao.subtitulo].filter(Boolean).join(" — ");
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await compartilharLocalizacao(lat, lng, titulo);
+      } catch (erro) {
+        console.error("Falha ao compartilhar localização:", erro);
+      }
+      return;
+    }
+    setLinkCopiado(await copiarTexto(linkGoogleMaps(lat, lng)));
+  }
 
   // Separado por ";" busca várias fazendas de uma vez (ex: "10003;10004" ou
   // "PEDRA;SANTA MARIANA") — cada termo é resolvido independente (mesmo
@@ -1938,7 +2009,9 @@ export default function Mapa() {
         rotulo: "Percurso",
         rotuloCompleto: "Gravar percurso",
         icone: <IconeDockPercurso />,
-        ativo: track.mostrarPainelTrack,
+        // Gravando com a barra escondida continua marcado — o GPS segue
+        // gravando por trás, e é por aqui que o usuário reabre a barra.
+        ativo: track.mostrarPainelTrack || track.gravandoPercurso,
         aoClicar: () => track.setMostrarPainelTrack((m) => !m),
       },
       {
@@ -2401,104 +2474,31 @@ export default function Mapa() {
           </p>
         )}
 
-        <aside className={`painel-flutuante painel-medicao${medicao.medindo ? " aberto" : ""}`}>
-          {medicao.medindo && (
-            <>
-              <div className="cabecalho-painel-medicao">
-                <h3>Medição</h3>
-                <button
-                  type="button"
-                  className="fechar"
-                  onClick={() => medicao.setMedindo(false)}
-                  aria-label="Fechar medição"
-                  title="Fechar medição"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="opcoes-modo-medicao">
-                <button
-                  type="button"
-                  className={medicao.modoMedicao === "distancia" ? "ativo" : ""}
-                  onClick={() => medicao.trocarModoMedicao("distancia")}
-                >
-                  Distância
-                </button>
-                <button
-                  type="button"
-                  className={medicao.modoMedicao === "area" ? "ativo" : ""}
-                  onClick={() => medicao.trocarModoMedicao("area")}
-                >
-                  Área
-                </button>
-              </div>
-
-              <div className="opcoes-modo-medicao">
-                <button
-                  type="button"
-                  className={medicao.origemPontos === "clique" ? "ativo" : ""}
-                  onClick={() => medicao.trocarOrigemPontos("clique")}
-                >
-                  Clique no mapa
-                </button>
-                <button
-                  type="button"
-                  className={medicao.origemPontos === "gps" ? "ativo" : ""}
-                  onClick={() => medicao.trocarOrigemPontos("gps")}
-                >
-                  📍 Captura por GPS
-                </button>
-              </div>
-
-              {medicao.origemPontos === "gps" && (
-                <>
-                  {medicao.capturandoGps && (
-                    <p className="aviso-track">
-                      Mantenha o app aberto — trocar de app ou travar a tela manualmente interrompe a captura.
-                    </p>
-                  )}
-                  {!medicao.capturandoGps ? (
-                    <button type="button" onClick={medicao.iniciarCapturaGps}>
-                      {medicao.modoMedicao === "area" ? "Iniciar captura do perímetro" : "Iniciar captura do trajeto"}
-                    </button>
-                  ) : (
-                    <button type="button" className="botao-track-gravando" onClick={medicao.pararCapturaGps}>
-                      ● Parar captura
-                    </button>
-                  )}
-                  {medicao.erroGps && <p className="erro">{medicao.erroGps}</p>}
-                </>
-              )}
-
-              <p className={`resultado-medicao${medicao.capturandoGps ? " resultado-track-ativo" : ""}`}>
-                {medicao.resultadoMedicaoAtual ??
-                  (medicao.origemPontos === "gps"
-                    ? medicao.capturandoGps
-                      ? "Capturando pontos, ande normalmente…"
-                      : "Inicie a captura pra andar o trajeto/perímetro"
-                    : medicao.modoMedicao === "area"
-                      ? "Clique pra marcar o polígono (mín. 3 pontos)"
-                      : "Clique pra marcar os pontos")}
-              </p>
-
-              {medicao.resultadoMedicaoAtual && !medicao.capturandoGps && (
-                <button type="button" className="botao-secundario" onClick={() => medicao.exportarMedicaoZip()}>
-                  Exportar relatório
-                </button>
-              )}
-
-              {medicao.pontosMedicao.length > 0 && !medicao.capturandoGps && (
-                <button
-                  type="button"
-                  className="botao-limpar-medicao"
-                  onClick={() => medicao.setPontosMedicao([])}
-                >
-                  Limpar
-                </button>
-              )}
-            </>
+        <div className="pilha-acoes">
+          {track.mostrarPainelTrack && (
+            <BarraAcaoPercurso
+              track={track}
+              aoVerNoMapa={() =>
+                temporaria.definirArquivoTemporario(
+                  `Percurso — ${new Date().toLocaleString("pt-BR")}`,
+                  track.geojsonPercursoAtual
+                )
+              }
+            />
           )}
-        </aside>
+          {medicao.medindo && <BarraAcaoMedicao medicao={medicao} />}
+          <BarraAnotar
+            aberta={barraAnotarAberta}
+            modoAdicionar={pins.modoAdicionar}
+            obtendoGps={pins.obtendoGps}
+            movendo={Boolean(pins.movendoId)}
+            aoTocarNoMapa={() => pins.setModoAdicionar((m) => !m)}
+            aoMinhaLocalizacao={pins.adicionarNaMinhaLocalizacao}
+            aoConfirmarMover={pins.confirmarMover}
+            aoCancelarMover={pins.cancelarMover}
+            aoFechar={() => setBarraAnotarAberta(false)}
+          />
+        </div>
 
         {voosInfo && !apontamento.modoApontamento && (
           // Botão "Apontar voo" no mesmo esquema círculo⇄cartão de
@@ -2673,175 +2673,72 @@ export default function Mapa() {
           </aside>
         )}
 
-        <aside className={`painel-flutuante painel-track${track.mostrarPainelTrack ? " aberto" : ""}`}>
-          {track.mostrarPainelTrack && (
-            <>
-              <div className="cabecalho-painel-track">
-                <h3>Gravar percurso</h3>
-                <button
-                  type="button"
-                  className="fechar"
-                  onClick={() => track.setMostrarPainelTrack(false)}
-                  aria-label="Fechar gravação de percurso"
-                  title="Fechar gravação de percurso"
-                >
-                  ×
-                </button>
-              </div>
-
-              {track.gravandoPercurso && (
-                <p className="aviso-track">
-                  Mantenha o app aberto — trocar de app ou travar a tela manualmente interrompe a gravação.
-                </p>
-              )}
-
-              {track.gravandoPercurso && (
-                <label className="opcao-seguir-camera">
-                  <input
-                    type="checkbox"
-                    checked={track.seguirCamera}
-                    onChange={() => track.setSeguirCamera((s) => !s)}
-                  />
-                  📍 Seguir minha localização
-                </label>
-              )}
-
-              {!track.gravandoPercurso ? (
-                <button type="button" onClick={track.iniciarGravacaoPercurso}>
-                  Iniciar gravação
-                </button>
-              ) : (
-                <div className="acoes-painel-track">
-                  {track.pausado ? (
-                    <button type="button" onClick={track.continuarGravacaoPercurso}>
-                      ▶ Continuar
-                    </button>
-                  ) : (
-                    <button type="button" className="botao-secundario" onClick={track.pausarGravacaoPercurso}>
-                      ⏸ Pausar
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={track.pausado ? "botao-secundario" : "botao-track-gravando"}
-                    onClick={track.pararGravacaoPercurso}
-                  >
-                    ● Parar gravação
-                  </button>
-                </div>
-              )}
-
-              <p className={`resultado-medicao${track.gravandoPercurso ? " resultado-track-ativo" : ""}`}>
-                {track.gravandoPercurso
-                  ? `${track.pausado ? "Pausado…" : "Gravando…"} ${track.distanciaPercursoAtual ?? "0 m"}`
-                  : track.distanciaPercursoAtual
-                    ? `Percurso gravado: ${track.distanciaPercursoAtual}`
-                    : "Clique em \"Iniciar gravação\" e mantenha o app aberto durante o percurso."}
-              </p>
-              {track.erroTrack && <p className="erro">{track.erroTrack}</p>}
-              {track.avisoCompartilhar && <p className="aviso-track">{track.avisoCompartilhar}</p>}
-              {!track.gravandoPercurso && track.distanciaPercursoAtual && (
-                <div className="acoes-painel-track acoes-painel-track--grade">
-                  <button type="button" className="botao-secundario" onClick={track.exportarPercurso}>
-                    Exportar KML
-                  </button>
-                  <button type="button" className="botao-secundario" onClick={track.compartilharPercurso}>
-                    Compartilhar
-                  </button>
-                  <button
-                    type="button"
-                    className="botao-secundario"
-                    onClick={() =>
-                      temporaria.definirArquivoTemporario(
-                        `Percurso — ${new Date().toLocaleString("pt-BR")}`,
-                        track.geojsonPercursoAtual
-                      )
-                    }
-                  >
-                    Ver no mapa
-                  </button>
-                  <button type="button" className="botao-limpar-medicao" onClick={track.limparPercurso}>
-                    Limpar
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </aside>
-
-        <aside className={`painel-flutuante painel-atributos${selecao ? " aberto" : ""}`}>
+        <aside className={`painel-flutuante painel-atributos${selecao ? " aberto" : ""}`} aria-label="Atributos">
           {itemSelecionado && (
             <>
-              <button
-                type="button"
-                className="fechar"
-                onClick={() => setSelecao(null)}
-                aria-label="Fechar painel de atributos"
-                title="Fechar painel de atributos"
-              >
-                ×
-              </button>
-              <div className="compartilhar-localizacao">
+              <div className="cabecalho-atributos">
+                <span className="sobretitulo-atributos">
+                  <span className="swatch-camada" style={{ backgroundColor: itemSelecionado.cor }} />
+                  {itemSelecionado.camada}
+                </span>
+                {selecao.itens.length > 1 && (
+                  <span className="paginacao-atributos">
+                    <button type="button" onClick={() => irParaItem(-1)} aria-label="Feição anterior">
+                      <IconeAnterior />
+                    </button>
+                    <span>
+                      {selecao.indice + 1} de {selecao.itens.length}
+                    </span>
+                    <button type="button" onClick={() => irParaItem(1)} aria-label="Próxima feição">
+                      <IconeProximo />
+                    </button>
+                  </span>
+                )}
                 <button
                   type="button"
-                  className="botao-compartilhar-localizacao"
-                  onClick={() => setMostrarMenuCompartilhar((v) => !v)}
-                  aria-label="Compartilhar localização deste ponto"
-                  title="Compartilhar localização deste ponto"
+                  className="botao-fechar-atributos"
+                  onClick={() => setSelecao(null)}
+                  aria-label="Fechar painel de atributos"
+                  title="Fechar"
                 >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="18" cy="5" r="3" />
-                    <circle cx="6" cy="12" r="3" />
-                    <circle cx="18" cy="19" r="3" />
-                    <line x1="8.6" y1="10.6" x2="15.4" y2="6.4" />
-                    <line x1="8.6" y1="13.4" x2="15.4" y2="17.6" />
-                  </svg>
+                  <IconeFechar />
                 </button>
-                {mostrarMenuCompartilhar && (
-                  <div className="menu-compartilhar-localizacao">
-                    <a
-                      href={linkGoogleMaps(selecao.lngLat.lat, selecao.lngLat.lng)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Abrir no Google Maps
-                    </a>
-                    <a href={linkWaze(selecao.lngLat.lat, selecao.lngLat.lng)} target="_blank" rel="noopener noreferrer">
-                      Abrir no Waze
-                    </a>
-                    <a
-                      href={linkAppleMaps(selecao.lngLat.lat, selecao.lngLat.lng)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Abrir no Apple Maps
-                    </a>
-                    {typeof navigator !== "undefined" && navigator.share && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          compartilharLocalizacao(selecao.lngLat.lat, selecao.lngLat.lng, itemSelecionado.camada)
-                        }
-                      >
-                        Compartilhar…
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
-              <h2>
-                <span className="swatch-camada" style={{ backgroundColor: itemSelecionado.cor }} />
-                {itemSelecionado.camada}
-              </h2>
+              <h2 className="titulo-atributos">{cabecalhoSelecao.titulo}</h2>
+              {cabecalhoSelecao.subtitulo && <p className="subtitulo-atributos">{cabecalhoSelecao.subtitulo}</p>}
+              <div className="atalhos-atributos">
+                <button type="button" onClick={centralizarSelecao}>
+                  <IconeCentralizar />
+                  Centralizar
+                </button>
+                <div className="atalho-como-chegar">
+                  <button
+                    type="button"
+                    onClick={() => setMostrarMenuCompartilhar((v) => !v)}
+                    aria-expanded={mostrarMenuCompartilhar}
+                  >
+                    <IconeComoChegar />
+                    Como chegar
+                  </button>
+                  {mostrarMenuCompartilhar && (
+                    <div className="menu-compartilhar-localizacao">
+                      <a href={linkGoogleMaps(selecao.lngLat.lat, selecao.lngLat.lng)} target="_blank" rel="noopener noreferrer">
+                        Google Maps
+                      </a>
+                      <a href={linkWaze(selecao.lngLat.lat, selecao.lngLat.lng)} target="_blank" rel="noopener noreferrer">
+                        Waze
+                      </a>
+                      <a href={linkAppleMaps(selecao.lngLat.lat, selecao.lngLat.lng)} target="_blank" rel="noopener noreferrer">
+                        Apple Maps
+                      </a>
+                    </div>
+                  )}
+                </div>
+                <button type="button" onClick={compartilharSelecao}>
+                  <IconeCompartilhar />
+                  {linkCopiado ? "Link copiado" : "Compartilhar"}
+                </button>
+              </div>
               <dl className="atributos-grid" key={selecao.indice}>
                 {itemSelecionado.propriedades.map(({ campo, rotulo, valor }) => (
                   <div key={campo} className="linha-atributo">
@@ -2851,19 +2748,6 @@ export default function Mapa() {
                 ))}
               </dl>
               <LinhaCoordenada lngLat={selecao.lngLat} />
-              {selecao.itens.length > 1 && (
-                <div className="paginacao-atributos">
-                  <button type="button" onClick={() => irParaItem(-1)} aria-label="Feição anterior">
-                    ‹
-                  </button>
-                  <span>
-                    {selecao.indice + 1} / {selecao.itens.length}
-                  </span>
-                  <button type="button" onClick={() => irParaItem(1)} aria-label="Próxima feição">
-                    ›
-                  </button>
-                </div>
-              )}
             </>
           )}
         </aside>
@@ -2892,17 +2776,6 @@ export default function Mapa() {
           aoFechar={pins.fecharPin}
         />
 
-        <BarraAnotar
-          aberta={barraAnotarAberta}
-          modoAdicionar={pins.modoAdicionar}
-          obtendoGps={pins.obtendoGps}
-          movendo={Boolean(pins.movendoId)}
-          aoTocarNoMapa={() => pins.setModoAdicionar((m) => !m)}
-          aoMinhaLocalizacao={pins.adicionarNaMinhaLocalizacao}
-          aoConfirmarMover={pins.confirmarMover}
-          aoCancelarMover={pins.cancelarMover}
-          aoFechar={() => setBarraAnotarAberta(false)}
-        />
         {pins.rascunho && (
           <FormularioPin
             key={pins.rascunho.id || "novo"}

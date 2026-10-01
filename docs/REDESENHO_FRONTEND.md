@@ -52,15 +52,18 @@ referência visual, este arquivo é a referência do "por quê".
 
 ## Fases (cada uma publicável sozinha)
 
-- **Fase 1 — estrutura da tela do mapa**: fonte e tokens; cabeçalho vira
+- **Fase 1 — estrutura da tela do mapa** *(pronta no branch, 2026-09-30)*: fonte e tokens; cabeçalho vira
   barra flutuante; dock de ferramentas substitui os controles Medir /
   Percurso / Anotar do MapLibre e os botões circulares de Camadas / Tipo de
   voo; controles de navegação reestilizados; painel de atributos à direita
   com os controles deslizando ao abrir.
-- **Fase 2 — barras de ação**: medir, percurso e anotar viram barra de ação
-  no rodapé central, com o valor ao vivo e Concluir/Cancelar; painel de
-  atributos com atalhos (Centralizar, Como chegar, Compartilhar) e
-  coordenada copiável.
+- **Fase 2 — barras de ação** *(pronta no branch, 2026-10-01)*: medir,
+  percurso e anotar viram barra de ação no rodapé central, com o valor ao
+  vivo; se mais de uma estiver ativa, empilham. Painel de atributos com
+  cabeçalho ("Talhão N", fazenda · código, paginação entre feições
+  sobrepostas) e atalhos (Centralizar, Como chegar, Compartilhar — sem
+  Web Share API, copia o link do Google Maps). As fases 1 e 2 vão juntas
+  pra produção, pra os pilotos se adaptarem a uma mudança só.
 - **Fase 3 — celular**: gaveta inferior com abas; painel de talhão
   compacto/expandido.
 - **Fase 4 — apontamento de voo**: fluxo redesenhado (total em hectares,

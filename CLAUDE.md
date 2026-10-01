@@ -2547,6 +2547,43 @@ arquivos atuais do mapa Geral no R2 (leitura) e um grupo temporário deu
 acesso ao `admin@geoportal.local` — tudo restaurado/removido ao final,
 e os servidores/Postgres local desligados de novo.
 
+**Redesenho do frontend, fase 2 — barras de ação e painel de atributos
+(2026-10-01)**, mesmo branch (fases 1 e 2 vão juntas pra produção, pra os
+pilotos se adaptarem a uma mudança só):
+- `BarraAcaoMedicao.jsx`, `BarraAcaoPercurso.jsx` (novos) e
+  `pins/BarraAnotar.jsx` (reescrito) viram barras no rodapé central dentro
+  de `.pilha-acoes` — substituem os cartões `.painel-medicao` (canto
+  direito) e `.painel-track` (canto esquerdo). Mais de uma ativa ao mesmo
+  tempo (ex: gravando percurso enquanto mede) empilham. Ícones
+  compartilhados em `IconesAcao.jsx`. Medição ganhou "Desfazer último
+  ponto" (`setPontosMedicao(p => p.slice(0, -1))`, sem mudança no hook).
+- Esconder a barra de percurso durante a gravação só esconde — o GPS
+  continua; por isso o botão "Percurso" da barra de ferramentas fica
+  marcado com `mostrarPainelTrack || gravandoPercurso`.
+- Painel de atributos: cabeçalho com camada + paginação (subiu do rodapé)
+  + fechar; título "Talhão N" e "fazenda · cód." lidos de `item.bruto`
+  (propriedades cruas, adicionadas nas duas montagens de item — a lista
+  configurada pelo admin pode esconder TALHAO/SECAO); atalhos
+  Centralizar (`flyTo` com `padding` pra o ponto não ficar atrás do
+  painel), Como chegar (o menu de Google Maps/Waze/Apple Maps de antes) e
+  Compartilhar (Web Share quando existe; senão copia o link do Google
+  Maps e o botão mostra "Link copiado").
+- No celular as barras ocupam a largura toda; somem enquanto um cartão
+  de informação está aberto e escondem o botão "Apontar voo" enquanto
+  estão ativas. Pegadinha encontrada testando: as regras de celular das
+  barras ficavam DENTRO do bloco `@media (max-width: 640px)` que vem
+  antes das regras base no arquivo e perdiam o desempate — ficaram num
+  bloco próprio no fim do `index.css`.
+
+Verificado com Playwright (mesmo esquema de ambiente local da fase 1,
+desfeito no final): 26 checagens passando — medir (pontos, desfazer,
+área em hectares, limpar), percurso com GPS simulado (gravar, esconder
+com o botão continuando marcado, pausar/continuar, parar, ações finais),
+as duas barras empilhadas sem sobreposição, anotar, atributos (título,
+subtítulo, centralizar, menu Como chegar, link copiado) e celular
+(largura da barra, atributos em 34% da altura, barras escondidas com o
+painel aberto); zero erro de console.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
