@@ -1,498 +1,629 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   listarUsuariosAdmin,
   criarUsuarioAdmin,
   atualizarUsuarioAdmin,
   redefinirSenhaUsuarioAdmin,
   removerUsuarioAdmin,
+  vincularPilotoAdmin,
   listarGruposAdmin,
+  listarMapasAdmin,
   criarGrupoAdmin,
   renomearGrupoAdmin,
   removerGrupoAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import IconeLordicon from "../components/IconeLordicon.jsx";
+import { iniciaisDoNome } from "../components/LayoutAdmin.jsx";
+import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 
-const FORM_USUARIO_VAZIO = {
-  nome: "",
-  email: "",
-  departamento: "",
-  papel: "usuario",
-  grupoIds: [],
-};
+// Usuários e grupos (redesenho do admin, fase 5): tabela com filtros rápidos
+// e o painel da pessoa escolhida à direita; aba Grupos mostra membros e os
+// mapas que cada grupo vê. Vínculo com o piloto do DroneManagement (antes só
+// direto no banco) agora é feito aqui.
 
-// Só pra exibir na tela (nunca enviada pra API) — precisa bater com
+// Só pra exibir (nunca enviada pra API) — precisa bater com
 // SENHA_TEMPORARIA_PADRAO em backend/src/lib/senhaTemporaria.js.
 const SENHA_TEMPORARIA_EXIBIDA = "usina123";
 
+const NOVO_VAZIO = { nome: "", email: "", departamento: "", papel: "usuario", grupoIds: [] };
+
+const FMT_DIA = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "America/Sao_Paulo" });
+const FMT_HORA = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
+
+function ultimoAcesso(data) {
+  if (!data) return "Nunca";
+  const d = new Date(data);
+  const hoje = FMT_DIA.format(new Date());
+  const ontem = FMT_DIA.format(new Date(Date.now() - 86400000));
+  const dia = FMT_DIA.format(d);
+  if (dia === hoje) return `Hoje · ${FMT_HORA.format(d)}`;
+  if (dia === ontem) return `Ontem · ${FMT_HORA.format(d)}`;
+  return dia;
+}
+
+// Cor estável por pessoa (avatar), a partir do id.
+const CORES_AVATAR = ["#2c6b47", "#7c5cc4", "#b76e2a", "#2f6fae", "#a33d6b", "#3f7f7a", "#6b7280"];
+
+function plural(n, um, varios) {
+  return `${n} ${n === 1 ? um : varios}`;
+}
+
 export default function AdminUsuarios() {
   const { sessao } = useAuth();
-  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
   const [usuarios, setUsuarios] = useState([]);
   const [grupos, setGrupos] = useState([]);
-  const [erro, setErro] = useState(null);
-
-  const [form, setForm] = useState(FORM_USUARIO_VAZIO);
-  const [enviando, setEnviando] = useState(false);
-
-  const [editandoId, setEditandoId] = useState(null);
-  const [formEdicao, setFormEdicao] = useState(null);
-  const [salvandoEdicaoId, setSalvandoEdicaoId] = useState(null);
-
-  const [redefinindoId, setRedefinindoId] = useState(null);
-  const [excluindoId, setExcluindoId] = useState(null);
-
-  const [novoGrupoNome, setNovoGrupoNome] = useState("");
-  const [criandoGrupo, setCriandoGrupo] = useState(false);
-  const [editandoGrupoId, setEditandoGrupoId] = useState(null);
-  const [nomeGrupoEdicao, setNomeGrupoEdicao] = useState("");
-  const [removendoGrupoId, setRemovendoGrupoId] = useState(null);
+  const [mapas, setMapas] = useState([]);
   const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [aviso, setAviso] = useState(null);
+  const [busca, setBusca] = useState("");
+  const [filtro, setFiltro] = useState("todos");
+  const [ocupado, setOcupado] = useState(null);
+  const [rascunho, setRascunho] = useState(null);
+  const [piloto, setPiloto] = useState("");
+  const [novo, setNovo] = useState(NOVO_VAZIO);
+  const [novoGrupo, setNovoGrupo] = useState("");
+  const [renomeando, setRenomeando] = useState(null); // {id, nome}
 
-  function carregarUsuarios() {
-    return listarUsuariosAdmin(sessao.token).then(setUsuarios);
-  }
+  const aba = params.get("aba") === "grupos" ? "grupos" : "usuarios";
+  const selecionado = params.get("usuario");
+  const usuario = usuarios.find((u) => String(u.id) === selecionado) || null;
+  const ehVoce = usuario && usuario.id === sessao.usuario.id;
 
-  function carregarGrupos() {
-    return listarGruposAdmin(sessao.token).then(setGrupos);
+  async function carregar() {
+    const [u, g, m] = await Promise.all([
+      listarUsuariosAdmin(sessao.token),
+      listarGruposAdmin(sessao.token),
+      listarMapasAdmin(sessao.token),
+    ]);
+    setUsuarios(u);
+    setGrupos(g);
+    setMapas(m);
   }
 
   useEffect(() => {
-    Promise.allSettled([
-      carregarUsuarios().catch((e) => setErro(e.message)),
-      carregarGrupos().catch((e) => setErro(e.message)),
-    ]).then(() => setCarregando(false));
+    carregar()
+      .catch((e) => setErro(e.message))
+      .finally(() => setCarregando(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
 
-  function nomeDoGrupo(grupoId) {
-    return grupos.find((g) => g.id === grupoId)?.nome || "—";
-  }
-
-  function atualizarCampo(campo, valor) {
-    setForm((atual) => ({ ...atual, [campo]: valor }));
-  }
-
-  function alternarGrupo(grupoId) {
-    setForm((atual) => {
-      const jaTem = atual.grupoIds.includes(grupoId);
-      return {
-        ...atual,
-        grupoIds: jaTem ? atual.grupoIds.filter((g) => g !== grupoId) : [...atual.grupoIds, grupoId],
-      };
-    });
-  }
-
-  async function criar(e) {
-    e.preventDefault();
-    setEnviando(true);
-    setErro(null);
-    try {
-      await criarUsuarioAdmin(sessao.token, form);
-      setForm(FORM_USUARIO_VAZIO);
-      await carregarUsuarios();
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  function abrirEdicao(usuario) {
-    setEditandoId(usuario.id);
-    setFormEdicao({
-      nome: usuario.nome,
+  useEffect(() => {
+    if (!usuario) return setRascunho(null);
+    setRascunho({
       departamento: usuario.departamento || "",
       papel: usuario.papel,
       status: usuario.status,
       grupoIds: usuario.grupoIds || [],
     });
+    setPiloto(usuario.pilotUserADId || "");
     setErro(null);
+  }, [usuario]);
+
+  useEffect(() => {
+    if (!aviso) return;
+    const id = setTimeout(() => setAviso(null), 3000);
+    return () => clearTimeout(id);
+  }, [aviso]);
+
+  // Mapas que cada grupo vê (e se anota), pra mostrar ao lado do grupo.
+  const mapasPorGrupo = useMemo(() => {
+    const r = new Map();
+    for (const m of mapas) {
+      for (const p of m.permissoes || []) {
+        if (!r.has(p.grupoId)) r.set(p.grupoId, []);
+        r.get(p.grupoId).push({ nome: m.nome, anota: p.podeEditar });
+      }
+    }
+    return r;
+  }, [mapas]);
+
+  const nomeGrupo = (id) => grupos.find((g) => g.id === id)?.nome || "—";
+
+  const FILTROS = [
+    { id: "todos", rotulo: "Todos", testa: () => true },
+    { id: "admins", rotulo: "Admins", testa: (u) => u.papel === "admin" },
+    { id: "semgrupo", rotulo: "Sem grupo", testa: (u) => u.status === "ativo" && (u.grupoIds || []).length === 0 },
+    { id: "primeiro", rotulo: "Aguardando 1º acesso", testa: (u) => u.precisa_trocar_senha },
+    { id: "inativos", rotulo: "Inativos", testa: (u) => u.status === "inativo" },
+  ];
+  const filtroAtual = FILTROS.find((f) => f.id === filtro);
+  const termo = busca.trim().toLowerCase();
+  const lista = usuarios.filter(
+    (u) => filtroAtual.testa(u) && (!termo || u.nome.toLowerCase().includes(termo) || u.email.toLowerCase().includes(termo))
+  );
+
+  function mudarParams(novos) {
+    const p = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(novos)) {
+      if (v == null) p.delete(k);
+      else p.set(k, v);
+    }
+    setParams(p);
   }
 
-  function fecharEdicao() {
-    setEditandoId(null);
-    setFormEdicao(null);
-  }
-
-  function alternarGrupoEdicao(grupoId) {
-    setFormEdicao((atual) => {
-      const jaTem = atual.grupoIds.includes(grupoId);
-      return {
-        ...atual,
-        grupoIds: jaTem ? atual.grupoIds.filter((g) => g !== grupoId) : [...atual.grupoIds, grupoId],
-      };
-    });
-  }
-
-  async function salvarEdicao(e, usuarioId) {
-    e.preventDefault();
-    setSalvandoEdicaoId(usuarioId);
+  async function executar(tipo, acao, mensagem) {
+    setOcupado(tipo);
     setErro(null);
     try {
-      await atualizarUsuarioAdmin(sessao.token, usuarioId, formEdicao);
-      fecharEdicao();
-      await carregarUsuarios();
-    } catch (err) {
-      setErro(err.message);
+      await acao();
+      if (mensagem) setAviso(mensagem);
+    } catch (e) {
+      setErro(e.message);
     } finally {
-      setSalvandoEdicaoId(null);
+      setOcupado(null);
     }
   }
 
-  // Não pede mais uma senha nova escolhida pelo admin — reseta direto pra
-  // senha temporária fixa (o backend cuida disso); o usuário define a senha
-  // própria dele no próximo login, na mesma tela do 1º acesso.
-  async function redefinirSenha(usuario) {
-    if (
-      !window.confirm(
-        `Redefinir a senha de "${usuario.nome}" pra senha temporária? Ele(a) vai precisar definir uma nova senha no próximo login.`
-      )
-    ) {
-      return;
-    }
-    setRedefinindoId(usuario.id);
-    setErro(null);
-    try {
+  const mudou =
+    usuario &&
+    rascunho &&
+    (rascunho.departamento !== (usuario.departamento || "") ||
+      rascunho.papel !== usuario.papel ||
+      rascunho.status !== usuario.status ||
+      [...rascunho.grupoIds].sort().join() !== [...(usuario.grupoIds || [])].sort().join());
+
+  const salvar = (extra = {}) =>
+    executar(
+      "salvar",
+      async () => {
+        await atualizarUsuarioAdmin(sessao.token, usuario.id, { nome: usuario.nome, ...rascunho, ...extra });
+        await carregar();
+      },
+      "Alterações salvas"
+    );
+
+  const alternarStatus = () => {
+    const novoStatus = usuario.status === "ativo" ? "inativo" : "ativo";
+    if (novoStatus === "inativo" && !window.confirm(`Desativar "${usuario.nome}"? A pessoa não consegue mais entrar no GeoMap.`)) return;
+    salvar({ status: novoStatus });
+  };
+
+  const redefinir = () => {
+    if (!window.confirm(`Redefinir a senha de "${usuario.nome}" para a temporária (${SENHA_TEMPORARIA_EXIBIDA})? A pessoa escolhe outra no próximo acesso.`)) return;
+    executar("senha", async () => {
       await redefinirSenhaUsuarioAdmin(sessao.token, usuario.id);
-      await carregarUsuarios();
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setRedefinindoId(null);
-    }
-  }
+      await carregar();
+    }, `Senha redefinida para ${SENHA_TEMPORARIA_EXIBIDA}`);
+  };
 
-  // Exclusão de verdade (não só desativar) — o backend já recusa se for a
-  // própria conta ou o último admin ativo, mas confirma explicitamente
-  // aqui porque, diferente de desativar, não tem volta (logs de quem já
-  // baixou/logou ficam mantidos, só perdem a referência ao usuário).
-  async function excluirUsuario(usuario) {
-    if (
-      !window.confirm(
-        `Excluir "${usuario.nome}" (${usuario.email})? Isso não pode ser desfeito — diferente de "Inativo", a conta deixa de existir.`
-      )
-    ) {
-      return;
-    }
-    setExcluindoId(usuario.id);
-    setErro(null);
-    try {
+  const excluir = () => {
+    if (!window.confirm(`Excluir "${usuario.nome}" (${usuario.email})? Não dá para desfazer — para só bloquear o acesso, use Desativar.`)) return;
+    executar("excluir", async () => {
       await removerUsuarioAdmin(sessao.token, usuario.id);
-      await carregarUsuarios();
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setExcluindoId(null);
-    }
+      await carregar();
+      mudarParams({ usuario: null });
+    }, "Usuário excluído");
+  };
+
+  const salvarPiloto = () =>
+    executar("piloto", async () => {
+      await vincularPilotoAdmin(sessao.token, usuario.id, piloto.trim());
+      await carregar();
+    }, piloto.trim() ? "Piloto vinculado" : "Vínculo de piloto removido");
+
+  async function criarUsuario(e) {
+    e.preventDefault();
+    await executar("criar", async () => {
+      const criado = await criarUsuarioAdmin(sessao.token, novo);
+      setNovo(NOVO_VAZIO);
+      await carregar();
+      mudarParams({ usuario: String(criado.id) });
+    }, `Usuário criado · senha temporária ${SENHA_TEMPORARIA_EXIBIDA}`);
   }
 
   async function criarGrupo(e) {
     e.preventDefault();
-    if (!novoGrupoNome.trim()) return;
-    setCriandoGrupo(true);
-    setErro(null);
-    try {
-      await criarGrupoAdmin(sessao.token, novoGrupoNome.trim());
-      setNovoGrupoNome("");
-      await carregarGrupos();
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setCriandoGrupo(false);
-    }
+    if (!novoGrupo.trim()) return;
+    await executar("grupo", async () => {
+      await criarGrupoAdmin(sessao.token, novoGrupo.trim());
+      setNovoGrupo("");
+      await carregar();
+    }, "Grupo criado");
   }
 
-  function abrirEdicaoGrupo(grupo) {
-    setEditandoGrupoId(grupo.id);
-    setNomeGrupoEdicao(grupo.nome);
-  }
-
-  async function salvarEdicaoGrupo(e, grupoId) {
+  async function renomearGrupo(e) {
     e.preventDefault();
-    setErro(null);
-    try {
-      await renomearGrupoAdmin(sessao.token, grupoId, nomeGrupoEdicao);
-      setEditandoGrupoId(null);
-      await carregarGrupos();
-    } catch (err) {
-      setErro(err.message);
-    }
+    await executar("grupo", async () => {
+      await renomearGrupoAdmin(sessao.token, renomeando.id, renomeando.nome);
+      setRenomeando(null);
+      await carregar();
+    }, "Grupo renomeado");
   }
 
-  async function removerGrupo(grupo) {
-    const usadoPorAlguem = usuarios.some((u) => (u.grupoIds || []).includes(grupo.id));
-    const aviso = usadoPorAlguem
-      ? `O grupo "${grupo.nome}" tem usuários vinculados a ele — removê-lo tira o acesso deles a qualquer mapa que dependa desse grupo. Continuar?`
-      : `Remover o grupo "${grupo.nome}"?`;
-    if (!window.confirm(aviso)) return;
+  const removerGrupo = (g, membros) => {
+    const msg = membros > 0
+      ? `O grupo "${g.nome}" tem ${plural(membros, "membro", "membros")} — eles perdem o acesso aos mapas que dependem dele. Remover mesmo assim?`
+      : `Remover o grupo "${g.nome}"?`;
+    if (!window.confirm(msg)) return;
+    executar("grupo", async () => {
+      await removerGrupoAdmin(sessao.token, g.id);
+      await carregar();
+    }, "Grupo removido");
+  };
 
-    setRemovendoGrupoId(grupo.id);
-    setErro(null);
-    try {
-      await removerGrupoAdmin(sessao.token, grupo.id);
-      await Promise.all([carregarGrupos(), carregarUsuarios()]);
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setRemovendoGrupoId(null);
-    }
+  function gruposDoUsuario(valor, aoMudar) {
+    if (grupos.length === 0) return <p className="adm-suave">Nenhum grupo criado ainda.</p>;
+    return (
+      <ul className="adm-lista-acesso">
+        {grupos.map((g) => {
+          const marcado = valor.includes(g.id);
+          const veMapas = mapasPorGrupo.get(g.id) || [];
+          return (
+            <li key={g.id} className={marcado ? "ativo" : ""}>
+              <label className="adm-acesso-grupo">
+                <input
+                  type="checkbox"
+                  checked={marcado}
+                  onChange={() => aoMudar(marcado ? valor.filter((id) => id !== g.id) : [...valor, g.id])}
+                />
+                <span className="adm-acesso-texto">
+                  <span className="adm-forte">{g.nome}</span>
+                  <small className="adm-suave">
+                    {veMapas.length ? `Vê: ${veMapas.map((m) => `${m.nome}${m.anota ? " (anota)" : ""}`).join(", ")}` : "Ainda não vê nenhum mapa"}
+                  </small>
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    );
   }
+
+  const contagem = (f) => usuarios.filter(f.testa).length;
 
   return (
-    <div className="adm-pagina adm-pagina--legada">
-
-      <div className="painel-admin-conteudo painel-admin-conteudo--largo">
-        {erro && <p className="erro">{erro}</p>}
-        {carregando && (
-          <p className="status-carregando-admin">
-            <span className="spinner" aria-hidden="true" /> Carregando…
-          </p>
+    <div className={`adm-pagina adm-usuarios${aba === "usuarios" && selecionado ? " adm-usuarios--detalhe" : ""}`}>
+      <header className="adm-cabecalho">
+        <div>
+          <h1>Usuários e grupos</h1>
+          <p>Quem entra no GeoMap e quais mapas cada grupo vê</p>
+        </div>
+        {aba === "usuarios" && (
+          <button type="button" className="botao-acao-primario" onClick={() => mudarParams({ usuario: "novo" })}>
+            + Novo usuário
+          </button>
         )}
+      </header>
 
-        <form onSubmit={criar} className="cartao-form-admin">
-          <h2>Novo usuário</h2>
+      <div className="segmentado adm-abas" role="tablist" aria-label="Usuários ou grupos">
+        <button type="button" role="tab" aria-selected={aba === "usuarios"} className={aba === "usuarios" ? "ativo" : ""} onClick={() => mudarParams({ aba: null })}>
+          Usuários · {usuarios.length}
+        </button>
+        <button type="button" role="tab" aria-selected={aba === "grupos"} className={aba === "grupos" ? "ativo" : ""} onClick={() => mudarParams({ aba: "grupos", usuario: null })}>
+          Grupos · {grupos.length}
+        </button>
+      </div>
 
-          <label className="campo-form-admin">
-            Nome
+      {erro && <p className="erro">{erro}</p>}
+      {aviso && (
+        <p className="adm-toast" role="status">
+          {aviso}
+        </p>
+      )}
+      {carregando && (
+        <p className="status-carregando-admin">
+          <span className="spinner" aria-hidden="true" /> Carregando…
+        </p>
+      )}
+
+      {aba === "usuarios" && !carregando && (
+        <div className="adm-mestre-detalhe adm-mestre-detalhe--painel-direita">
+          <section className="adm-mestre" aria-label="Lista de usuários">
             <input
-              type="text"
-              required
-              value={form.nome}
-              onChange={(e) => atualizarCampo("nome", e.target.value)}
+              type="search"
+              className="adm-busca"
+              placeholder="Buscar por nome ou e-mail"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              aria-label="Buscar usuário"
             />
-          </label>
-
-          <label className="campo-form-admin">
-            Email
-            <input
-              type="email"
-              required
-              value={form.email}
-              onChange={(e) => atualizarCampo("email", e.target.value)}
-            />
-          </label>
-
-          <p className="ajuda-campo-form-admin">
-            A senha temporária de acesso já é fixa ("{SENHA_TEMPORARIA_EXIBIDA}") — o usuário
-            define a senha própria dele no primeiro login.
-          </p>
-
-          <label className="campo-form-admin">
-            Departamento
-            <input
-              type="text"
-              value={form.departamento}
-              onChange={(e) => atualizarCampo("departamento", e.target.value)}
-            />
-          </label>
-
-          <label className="campo-form-admin">
-            Papel
-            <select value={form.papel} onChange={(e) => atualizarCampo("papel", e.target.value)}>
-              <option value="usuario">Usuário</option>
-              <option value="admin">Admin</option>
-            </select>
-          </label>
-
-          <div className="campo-form-admin">
-            Grupos
-            <div className="lista-grupos-checkbox">
-              {grupos.map((g) => (
-                <label key={g.id} className="opcao-grupo">
-                  <input
-                    type="checkbox"
-                    checked={form.grupoIds.includes(g.id)}
-                    onChange={() => alternarGrupo(g.id)}
-                  />
-                  {g.nome}
-                </label>
+            <div className="adm-filtros" role="group" aria-label="Filtrar usuários">
+              {FILTROS.map((f) => (
+                <button key={f.id} type="button" className={`adm-filtro${filtro === f.id ? " ativo" : ""}`} aria-pressed={filtro === f.id} onClick={() => setFiltro(f.id)}>
+                  {f.rotulo} · {contagem(f)}
+                </button>
               ))}
             </div>
-          </div>
-
-          <button type="submit" disabled={enviando}>
-            {enviando && <span className="spinner" aria-hidden="true" />}
-            {enviando ? "Criando…" : "Criar usuário"}
-          </button>
-        </form>
-
-        <h2 className="titulo-lista-mapas">Usuários existentes</h2>
-        <ul className="lista-mapas-admin">
-          {usuarios.map((u) => {
-            const ehVoce = u.id === sessao.usuario.id;
-            return (
-              <li key={u.id} className="item-mapa-admin">
-                <div className="linha-mapa-admin">
-                  <div className="info-mapa-admin">
-                    <strong>
-                      {u.nome} {ehVoce && "(você)"}
-                    </strong>
-                    <span className="detalhe-mapa-admin">
-                      {u.email} · {u.departamento || "sem departamento"}
-                    </span>
-                    <span className="linha-badges">
-                      <span className={`badge badge--papel-${u.papel}`}>{u.papel}</span>
-                      <span className={`badge badge--status-${u.status}`}>{u.status}</span>
-                      {u.precisa_trocar_senha && (
-                        <span className="badge badge--aviso" title="Ainda não trocou a senha temporária">
-                          aguardando 1º login
+            <div className="adm-cartao adm-tabela-usuarios" role="table" aria-label="Usuários">
+              <div className="adm-tabela-cabecalho" role="row">
+                <span role="columnheader">Pessoa</span>
+                <span role="columnheader">Grupos</span>
+                <span role="columnheader">Papel</span>
+                <span role="columnheader">Último acesso</span>
+              </div>
+              {lista.length === 0 ? (
+                <p className="adm-vazio adm-vazio--tabela">
+                  <IconeEstadoVazio /> Ninguém nesse filtro.
+                </p>
+              ) : (
+                lista.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    role="row"
+                    className={`adm-tabela-linha adm-linha-usuario${String(u.id) === selecionado ? " selecionada" : ""}${u.status === "inativo" ? " inativa" : ""}`}
+                    onClick={() => mudarParams({ usuario: String(u.id) })}
+                  >
+                    <span role="cell" className="adm-pessoa">
+                      <span className="adm-avatar" style={{ background: CORES_AVATAR[u.id % CORES_AVATAR.length] }} aria-hidden="true">
+                        {iniciaisDoNome(u.nome)}
+                      </span>
+                      <span className="adm-pessoa-texto">
+                        <span className="adm-forte">
+                          {u.nome}
+                          {u.id === sessao.usuario.id && <small className="adm-suave"> (você)</small>}
                         </span>
-                      )}
-                      {(u.grupoIds || []).map((id) => (
-                        <span key={id} className="badge badge--grupo">
-                          {nomeDoGrupo(id)}
-                        </span>
-                      ))}
+                        <small className="adm-suave">{u.email}</small>
+                      </span>
                     </span>
+                    <span role="cell" className="adm-suave">
+                      {(u.grupoIds || []).length ? u.grupoIds.map(nomeGrupo).join(", ") : <span className="adm-texto-alerta">Sem grupo</span>}
+                    </span>
+                    <span role="cell">
+                      {u.papel === "admin" ? <span className="adm-etiqueta adm-etiqueta--admin">Admin</span> : <span className="adm-suave">Usuário</span>}
+                      {u.status === "inativo" && <span className="adm-etiqueta"> Inativo</span>}
+                    </span>
+                    <span role="cell" className="adm-suave">
+                      {u.precisa_trocar_senha ? "Aguardando 1º acesso" : ultimoAcesso(u.ultimoAcesso)}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="adm-detalhe" aria-label="Pessoa selecionada">
+            {selecionado === "novo" ? (
+              <form className="adm-cartao adm-form" onSubmit={criarUsuario}>
+                <button type="button" className="adm-voltar-lista" onClick={() => mudarParams({ usuario: null })}>
+                  ← Usuários
+                </button>
+                <h2>Novo usuário</h2>
+                <label className="adm-campo">
+                  Nome
+                  <input type="text" required value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} />
+                </label>
+                <label className="adm-campo">
+                  E-mail
+                  <input type="email" required value={novo.email} onChange={(e) => setNovo({ ...novo, email: e.target.value })} />
+                </label>
+                <label className="adm-campo">
+                  Departamento
+                  <input type="text" value={novo.departamento} onChange={(e) => setNovo({ ...novo, departamento: e.target.value })} />
+                </label>
+                <div className="adm-campo">
+                  Papel
+                  <div className="segmentado" role="group" aria-label="Papel">
+                    {[["usuario", "Usuário"], ["admin", "Administrador"]].map(([v, r]) => (
+                      <button key={v} type="button" className={novo.papel === v ? "ativo" : ""} aria-pressed={novo.papel === v} onClick={() => setNovo({ ...novo, papel: v })}>
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="adm-campo">
+                  Grupos
+                  {gruposDoUsuario(novo.grupoIds, (ids) => setNovo({ ...novo, grupoIds: ids }))}
+                </div>
+                <p className="adm-suave">
+                  Senha do primeiro acesso: <strong>{SENHA_TEMPORARIA_EXIBIDA}</strong> — a pessoa escolhe a dela ao entrar.
+                </p>
+                <div className="adm-acoes-form">
+                  <button type="submit" className="botao-acao-primario" disabled={ocupado === "criar"}>
+                    {ocupado === "criar" && <span className="spinner" aria-hidden="true" />}
+                    Criar usuário
+                  </button>
+                </div>
+              </form>
+            ) : !usuario || !rascunho ? (
+              <p className="adm-vazio adm-cartao">
+                <IconeEstadoVazio /> Escolha uma pessoa na lista.
+              </p>
+            ) : (
+              <div className="adm-cartao adm-form adm-painel-usuario">
+                <button type="button" className="adm-voltar-lista" onClick={() => mudarParams({ usuario: null })}>
+                  ← Usuários
+                </button>
+                <div className="adm-pessoa adm-pessoa--grande">
+                  <span className="adm-avatar" style={{ background: CORES_AVATAR[usuario.id % CORES_AVATAR.length] }} aria-hidden="true">
+                    {iniciaisDoNome(usuario.nome)}
+                  </span>
+                  <span className="adm-pessoa-texto">
+                    <h2>{usuario.nome}</h2>
+                    <small className="adm-suave">{usuario.email}</small>
+                  </span>
+                </div>
+
+                {usuario.status === "inativo" && <p className="adm-aviso-linha">Conta desativada: essa pessoa não consegue entrar.</p>}
+                {usuario.status === "ativo" && rascunho.grupoIds.length === 0 && (
+                  <p className="adm-aviso-linha">Sem grupo: essa pessoa entra, mas não vê nenhum mapa.</p>
+                )}
+
+                <label className="adm-campo">
+                  Departamento
+                  <input type="text" value={rascunho.departamento} onChange={(e) => setRascunho({ ...rascunho, departamento: e.target.value })} />
+                </label>
+
+                <div className="adm-campo">
+                  Papel
+                  <div className="segmentado" role="group" aria-label="Papel">
+                    {[["usuario", "Usuário"], ["admin", "Administrador"]].map(([v, r]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        disabled={ehVoce}
+                        className={rascunho.papel === v ? "ativo" : ""}
+                        aria-pressed={rascunho.papel === v}
+                        onClick={() => setRascunho({ ...rascunho, papel: v })}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  {ehVoce && <small className="adm-suave">Você não pode mudar o próprio papel nem se desativar.</small>}
+                </div>
+
+                <div className="adm-campo">
+                  Grupos
+                  {gruposDoUsuario(rascunho.grupoIds, (ids) => setRascunho({ ...rascunho, grupoIds: ids }))}
+                </div>
+
+                {mudou && (
+                  <div className="adm-barra-pendente" role="status">
+                    <span>Alterações não salvas</span>
+                    <button type="button" className="botao-acao-secundario" onClick={() => setRascunho({ departamento: usuario.departamento || "", papel: usuario.papel, status: usuario.status, grupoIds: usuario.grupoIds || [] })}>
+                      Descartar
+                    </button>
+                    <button type="button" className="botao-acao-primario" onClick={() => salvar()} disabled={ocupado === "salvar"}>
+                      {ocupado === "salvar" && <span className="spinner" aria-hidden="true" />}
+                      Salvar
+                    </button>
+                  </div>
+                )}
+
+                <div className="adm-bloco-acao">
+                  <div>
+                    <strong>Piloto no DroneManagement</strong>
+                    <span className="adm-suave">
+                      {usuario.pilotUserADId ? "Vinculado — pode apontar voos pelo mapa Voos." : "Necessário para apontar voos pelo mapa Voos."}
+                    </span>
+                    <input
+                      type="text"
+                      className="adm-entrada-piloto"
+                      placeholder="Id do piloto (00000000-0000-0000-0000-000000000000)"
+                      value={piloto}
+                      onChange={(e) => setPiloto(e.target.value)}
+                      aria-label="Id do piloto no DroneManagement"
+                      spellCheck={false}
+                    />
                   </div>
                   <button
                     type="button"
-                    className="botao-secundario"
-                    onClick={() => redefinirSenha(u)}
-                    disabled={redefinindoId === u.id}
+                    className="botao-acao-secundario"
+                    onClick={salvarPiloto}
+                    disabled={ocupado === "piloto" || piloto.trim() === (usuario.pilotUserADId || "")}
                   >
-                    {redefinindoId === u.id && <span className="spinner" aria-hidden="true" />}
-                    {redefinindoId === u.id ? "Redefinindo…" : "Redefinir senha"}
-                  </button>
-                  <button
-                    type="button"
-                    className="botao-secundario"
-                    onClick={() => (editandoId === u.id ? fecharEdicao() : abrirEdicao(u))}
-                  >
-                    {editandoId === u.id ? "Cancelar" : "Editar"}
-                  </button>
-                  <button
-                    type="button"
-                    className="botao-remover-mapa"
-                    onClick={() => excluirUsuario(u)}
-                    disabled={ehVoce || excluindoId === u.id}
-                    title={ehVoce ? "Você não pode excluir a própria conta" : undefined}
-                  >
-                    {excluindoId === u.id ? (
-                      <span className="spinner" aria-hidden="true" />
-                    ) : (
-                      <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
-                    )}
-                    {excluindoId === u.id ? "Excluindo…" : "Excluir"}
+                    {ocupado === "piloto" && <span className="spinner" aria-hidden="true" />}
+                    {piloto.trim() ? "Vincular" : "Desvincular"}
                   </button>
                 </div>
 
-                {editandoId === u.id && formEdicao && (
-                  <form className="form-atualizar-arquivo form-atualizar-arquivo--workspace" onSubmit={(e) => salvarEdicao(e, u.id)}>
-                    <input
-                      type="text"
-                      value={formEdicao.departamento}
-                      onChange={(e) => setFormEdicao((atual) => ({ ...atual, departamento: e.target.value }))}
-                      aria-label="Departamento"
-                      placeholder="Departamento"
-                    />
-                    <select
-                      value={formEdicao.papel}
-                      onChange={(e) => setFormEdicao((atual) => ({ ...atual, papel: e.target.value }))}
-                      disabled={ehVoce}
-                      title={ehVoce ? "Você não pode alterar o próprio papel" : undefined}
-                    >
-                      <option value="usuario">Usuário</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                    <select
-                      value={formEdicao.status}
-                      onChange={(e) => setFormEdicao((atual) => ({ ...atual, status: e.target.value }))}
-                      disabled={ehVoce}
-                      title={ehVoce ? "Você não pode alterar o próprio status" : undefined}
-                    >
-                      <option value="ativo">Ativo</option>
-                      <option value="inativo">Inativo</option>
-                    </select>
-                    <div className="lista-grupos-checkbox">
-                      {grupos.map((g) => (
-                        <label key={g.id} className="opcao-grupo">
-                          <input
-                            type="checkbox"
-                            checked={formEdicao.grupoIds.includes(g.id)}
-                            onChange={() => alternarGrupoEdicao(g.id)}
-                          />
-                          {g.nome}
-                        </label>
-                      ))}
+                <div className="adm-bloco-acao">
+                  <div>
+                    <strong>Senha</strong>
+                    <span className="adm-suave">Volta para a temporária ({SENHA_TEMPORARIA_EXIBIDA}); a pessoa escolhe outra no próximo acesso.</span>
+                  </div>
+                  <button type="button" className="botao-acao-secundario" onClick={redefinir} disabled={ocupado === "senha"}>
+                    {ocupado === "senha" && <span className="spinner" aria-hidden="true" />}
+                    Redefinir
+                  </button>
+                </div>
+
+                {!ehVoce && (
+                  <div className="adm-bloco-acao adm-bloco-acao--perigo">
+                    <div>
+                      <strong>{usuario.status === "ativo" ? "Desativar acesso" : "Reativar acesso"}</strong>
+                      <span className="adm-suave">
+                        {usuario.status === "ativo"
+                          ? "Bloqueia a entrada sem apagar nada. Excluir apaga a conta de vez."
+                          : "Libera a entrada de novo, com os mesmos grupos."}
+                      </span>
                     </div>
-                    <button type="submit" disabled={salvandoEdicaoId === u.id}>
-                      {salvandoEdicaoId === u.id && <span className="spinner" aria-hidden="true" />}
-                      {salvandoEdicaoId === u.id ? "Salvando…" : "Salvar"}
+                    <button type="button" className="botao-acao-secundario" onClick={alternarStatus} disabled={ocupado === "salvar"}>
+                      {usuario.status === "ativo" ? "Desativar" : "Reativar"}
                     </button>
-                  </form>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-
-        <h2 className="titulo-lista-mapas">Grupos</h2>
-        <form onSubmit={criarGrupo} className="form-atualizar-arquivo">
-          <input
-            type="text"
-            value={novoGrupoNome}
-            onChange={(e) => setNovoGrupoNome(e.target.value)}
-            aria-label="Nome do novo grupo"
-            placeholder="Nome do novo grupo"
-            required
-          />
-          <button type="submit" disabled={criandoGrupo}>
-            {criandoGrupo && <span className="spinner" aria-hidden="true" />}
-            {criandoGrupo ? "Criando…" : "Criar grupo"}
-          </button>
-        </form>
-
-        <ul className="lista-mapas-admin">
-          {grupos.map((g) => (
-            <li key={g.id} className="item-mapa-admin">
-              <div className="linha-mapa-admin">
-                {editandoGrupoId === g.id ? (
-                  <form className="form-atualizar-arquivo" onSubmit={(e) => salvarEdicaoGrupo(e, g.id)}>
-                    <input
-                      type="text"
-                      value={nomeGrupoEdicao}
-                      onChange={(e) => setNomeGrupoEdicao(e.target.value)}
-                      aria-label="Nome do grupo"
-                      required
-                    />
-                    <button type="submit">Salvar</button>
-                    <button type="button" className="botao-secundario" onClick={() => setEditandoGrupoId(null)}>
-                      Cancelar
+                    <button type="button" className="botao-acao-perigo" onClick={excluir} disabled={ocupado === "excluir"}>
+                      {ocupado === "excluir" && <span className="spinner" aria-hidden="true" />}
+                      Excluir
                     </button>
-                  </form>
-                ) : (
-                  <div className="info-mapa-admin">
-                    <strong>{g.nome}</strong>
                   </div>
                 )}
-                {editandoGrupoId !== g.id && (
-                  <>
-                    <button type="button" className="botao-secundario" onClick={() => abrirEdicaoGrupo(g)}>
-                      Renomear
-                    </button>
-                    <button
-                      type="button"
-                      className="botao-remover-mapa"
-                      onClick={() => removerGrupo(g)}
-                      disabled={removendoGrupoId === g.id}
-                    >
-                      {removendoGrupoId === g.id ? (
-                        <span className="spinner" aria-hidden="true" />
-                      ) : (
-                        <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
-                      )}
-                      {removendoGrupoId === g.id ? "Removendo…" : "Remover"}
-                    </button>
-                  </>
-                )}
               </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {aba === "grupos" && !carregando && (
+        <div className="adm-grupos">
+          <form className="adm-cartao adm-novo-grupo" onSubmit={criarGrupo}>
+            <input type="text" className="adm-busca" placeholder="Nome do novo grupo" value={novoGrupo} onChange={(e) => setNovoGrupo(e.target.value)} aria-label="Nome do novo grupo" />
+            <button type="submit" className="botao-acao-primario" disabled={!novoGrupo.trim() || ocupado === "grupo"}>
+              + Criar grupo
+            </button>
+          </form>
+          {grupos.length === 0 ? (
+            <p className="adm-vazio">
+              <IconeEstadoVazio /> Nenhum grupo ainda.
+            </p>
+          ) : (
+            <ul className="adm-grade-grupos">
+              {grupos.map((g) => {
+                const membros = usuarios.filter((u) => (u.grupoIds || []).includes(g.id));
+                const veMapas = mapasPorGrupo.get(g.id) || [];
+                return (
+                  <li key={g.id} className="adm-cartao adm-cartao-grupo">
+                    <div className="adm-cartao-grupo-topo">
+                      <span className="adm-avatar adm-avatar--grupo" aria-hidden="true">
+                        {g.nome.charAt(0).toUpperCase()}
+                      </span>
+                      {renomeando?.id === g.id ? (
+                        <form className="adm-renomear" onSubmit={renomearGrupo}>
+                          <input type="text" className="adm-busca" value={renomeando.nome} onChange={(e) => setRenomeando({ ...renomeando, nome: e.target.value })} aria-label="Novo nome do grupo" autoFocus />
+                          <button type="submit" className="botao-acao-primario" disabled={!renomeando.nome.trim()}>
+                            Salvar
+                          </button>
+                          <button type="button" className="botao-acao-secundario" onClick={() => setRenomeando(null)}>
+                            Cancelar
+                          </button>
+                        </form>
+                      ) : (
+                        <span className="adm-pessoa-texto">
+                          <span className="adm-forte">{g.nome}</span>
+                          <small className="adm-suave">{membros.length ? `${plural(membros.length, "membro", "membros")}: ${membros.map((u) => u.nome.split(" ")[0]).join(", ")}` : "Sem membros"}</small>
+                        </span>
+                      )}
+                    </div>
+                    <div className="adm-grupo-mapas">
+                      <span className="adm-rotulo-secao">Vê estes mapas</span>
+                      {veMapas.length ? (
+                        <span className="adm-chips">
+                          {veMapas.map((m) => (
+                            <span key={m.nome} className="adm-etiqueta">
+                              {m.nome}
+                              {m.anota ? " · anota" : ""}
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="adm-suave">Nenhum mapa ainda</span>
+                      )}
+                    </div>
+                    {renomeando?.id !== g.id && (
+                      <div className="adm-acoes-grupo">
+                        <Link to="/admin/mapas" className="adm-link-forte">
+                          Mudar acesso nos mapas →
+                        </Link>
+                        <span className="adm-espaco" />
+                        <button type="button" className="botao-acao-secundario" onClick={() => setRenomeando({ id: g.id, nome: g.nome })}>
+                          Renomear
+                        </button>
+                        <button type="button" className="botao-acao-secundario adm-botao-perigo-leve" onClick={() => removerGrupo(g, membros.length)}>
+                          Remover
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
