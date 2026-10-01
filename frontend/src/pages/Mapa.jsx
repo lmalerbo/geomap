@@ -78,6 +78,7 @@ import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
 import { copiarTexto } from "../lib/coordenadas.js";
 import { useJobs } from "../context/JobsContext.jsx";
 import { diasCorridos } from "../lib/diasCorridos.js";
+import { usePodeVerIndicadores } from "../hooks/usePodeVerIndicadores.js";
 
 // Marca do app no cartão de identidade da barra superior (pino de mapa).
 function IconeMarca() {
@@ -874,6 +875,7 @@ function removerCamada(map, info) {
 
 export default function Mapa() {
   const { sessao, sair } = useAuth();
+  const podeVerIndicadores = usePodeVerIndicadores(sessao);
   const navigate = useNavigate();
   const { mapaId: mapaIdParam } = useParams();
   const mapaId = Number(mapaIdParam);
@@ -2465,6 +2467,7 @@ export default function Mapa() {
         aberto={menuAberto}
         aoFechar={() => setMenuAberto(false)}
         ehAdmin={sessao.usuario.papel === "admin"}
+        mostrarIndicadores={podeVerIndicadores}
         aoSair={handleSair}
       />
 

@@ -30,6 +30,15 @@ function IconeGrafico() {
   );
 }
 
+function IconeIndicadores() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 17 9 11 13 15 21 7" />
+      <polyline points="15 7 21 7 21 13" />
+    </svg>
+  );
+}
+
 function IconeAjuda() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -55,7 +64,7 @@ const SECOES_ADMIN = [
 // seções administrativas (só pra quem é admin) + Sair sempre no rodapé.
 // Sempre montado (mesmo fechado) pra permitir a transição de slide/fade
 // via CSS, em vez de aparecer/sumir abruptamente.
-export default function MenuLateral({ aberto, aoFechar, ehAdmin, aoSair }) {
+export default function MenuLateral({ aberto, aoFechar, ehAdmin, mostrarIndicadores = false, aoSair }) {
   useEffect(() => {
     if (!aberto) return;
     function aoTeclar(e) {
@@ -93,6 +102,17 @@ export default function MenuLateral({ aberto, aoFechar, ehAdmin, aoSair }) {
                 </span>
               </Link>
             ))}
+          {mostrarIndicadores && (
+            <Link to="/indicadores" className="item-menu-lateral" onClick={aoFechar}>
+              <span className="icone-item-menu-lateral" aria-hidden="true">
+                <IconeIndicadores />
+              </span>
+              <span className="texto-item-menu-lateral">
+                <strong>Indicadores de voo</strong>
+                <small>Hectares voados, o que falta voar e o rendimento por piloto.</small>
+              </span>
+            </Link>
+          )}
           {/* Visível pra qualquer usuário logado (não só admin) — antes essa
               área ficava completamente vazia pra quem não é admin, só com o
               "Sair" no rodapé. */}
