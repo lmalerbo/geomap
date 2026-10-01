@@ -451,3 +451,42 @@ export async function removerPinRemoto(token, mapaId, id, removidoEm) {
   await tratarResposta(resp);
   return resp.json();
 }
+
+// --- Administração, redesenho fase 5 ---
+
+export async function buscarVisaoGeralAdmin(token) {
+  const resp = await fetch(`${API_URL}/admin/visao-geral`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function listarVersoesCamadaAdmin(token, camadaId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/versoes`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function restaurarVersaoCamadaAdmin(token, camadaId, versaoId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/versoes/${versaoId}/restaurar`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function vincularPilotoAdmin(token, usuarioId, pilotUserADId) {
+  const resp = await fetch(`${API_URL}/admin/usuarios/${usuarioId}/piloto`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ pilotUserADId }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}

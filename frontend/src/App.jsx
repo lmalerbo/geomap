@@ -18,6 +18,8 @@ const AdminCamadas = lazy(() => import("./pages/AdminCamadas.jsx"));
 const AdminMapas = lazy(() => import("./pages/AdminMapas.jsx"));
 const AdminUsuarios = lazy(() => import("./pages/AdminUsuarios.jsx"));
 const AdminEstatisticas = lazy(() => import("./pages/AdminEstatisticas.jsx"));
+const AdminVisaoGeral = lazy(() => import("./pages/AdminVisaoGeral.jsx"));
+const LayoutAdmin = lazy(() => import("./components/LayoutAdmin.jsx"));
 const Ajuda = lazy(() => import("./pages/Ajuda.jsx"));
 const DefinirSenha = lazy(() => import("./pages/DefinirSenha.jsx"));
 
@@ -103,42 +105,22 @@ export default function App() {
                   </RotaProtegida>
                 }
               />
-              {/* Tela-grade /admin foi substituída pelo menu lateral (MenuLateral.jsx,
-                  acionado do cabeçalho de Inicio.jsx/Mapa.jsx) — link direto pra
-                  /admin cai na primeira seção. */}
-              <Route path="/admin" element={<Navigate to="/admin/mapas" replace />} />
+              {/* Administração (redesenho, fase 5): menu lateral fixo do
+                  LayoutAdmin em volta de todas as telas; /admin é a Visão geral. */}
               <Route
-                path="/admin/camadas"
+                path="/admin"
                 element={
                   <RotaAdmin>
-                    <AdminCamadas />
+                    <LayoutAdmin />
                   </RotaAdmin>
                 }
-              />
-              <Route
-                path="/admin/mapas"
-                element={
-                  <RotaAdmin>
-                    <AdminMapas />
-                  </RotaAdmin>
-                }
-              />
-              <Route
-                path="/admin/usuarios"
-                element={
-                  <RotaAdmin>
-                    <AdminUsuarios />
-                  </RotaAdmin>
-                }
-              />
-              <Route
-                path="/admin/estatisticas"
-                element={
-                  <RotaAdmin>
-                    <AdminEstatisticas />
-                  </RotaAdmin>
-                }
-              />
+              >
+                <Route index element={<AdminVisaoGeral />} />
+                <Route path="mapas" element={<AdminMapas />} />
+                <Route path="camadas" element={<AdminCamadas />} />
+                <Route path="usuarios" element={<AdminUsuarios />} />
+                <Route path="estatisticas" element={<AdminEstatisticas />} />
+              </Route>
               <Route
                 path="/ajuda"
                 element={

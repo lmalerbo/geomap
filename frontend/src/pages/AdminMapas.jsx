@@ -221,14 +221,7 @@ export default function AdminMapas() {
   }
 
   return (
-    <main className="tela-mapa">
-      <header className="barra-mapa">
-        <strong>GeoMap — Gerenciar mapas</strong>
-        <span className="status-sync" />
-        <button type="button" className="botao botao-sair" onClick={() => navigate(-1)}>
-          ← Voltar
-        </button>
-      </header>
+    <div className="adm-pagina adm-pagina--legada">
 
       <div className="painel-admin-conteudo painel-admin-conteudo--largo">
         {erro && <p className="erro">{erro}</p>}
@@ -455,6 +448,6 @@ export default function AdminMapas() {
           ))}
         </ul>
       </div>
-    </main>
+    </div>
   );
 }

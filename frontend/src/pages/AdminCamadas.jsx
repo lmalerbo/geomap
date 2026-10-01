@@ -710,14 +710,7 @@ export default function AdminCamadas() {
   }
 
   return (
-    <main className="tela-mapa">
-      <header className="barra-mapa">
-        <strong>GeoMap — Gerenciar camadas</strong>
-        <span className="status-sync" />
-        <button type="button" className="botao botao-sair" onClick={() => navigate(-1)}>
-          ← Voltar
-        </button>
-      </header>
+    <div className="adm-pagina adm-pagina--legada">
 
       <div className="workspace-camadas">
         <aside className="lista-camadas-workspace">
@@ -1682,6 +1675,6 @@ export default function AdminCamadas() {
           )}
         </section>
       </div>
-    </main>
+    </div>
   );
 }

@@ -19,16 +19,6 @@ export function IconeCamadas() {
   );
 }
 
-function IconeUsuarios() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-  );
-}
 
 function IconeGrafico() {
   return (
@@ -50,30 +40,13 @@ function IconeAjuda() {
   );
 }
 
-// Movido de Admin.jsx (tela removida — vira só as entradas aqui dentro).
+// Uma entrada só: a Administração tem menu lateral próprio (LayoutAdmin.jsx,
+// redesenho fase 5) com Visão geral, Mapas, Camadas, Usuários e Estatísticas.
 const SECOES_ADMIN = [
   {
-    titulo: "Gerenciar mapas",
-    descricao: "Criar mapas (projetos/fazendas) e definir quais grupos têm acesso a cada um.",
-    rota: "/admin/mapas",
-    Icone: IconeMapas,
-  },
-  {
-    titulo: "Gerenciar camadas",
-    descricao: "Upload, arquivo, simbologia e atributos de cada camada, tudo num só lugar.",
-    rota: "/admin/camadas",
-    Icone: IconeCamadas,
-  },
-  {
-    titulo: "Gerenciar usuários",
-    descricao: "Criar/editar usuários, papel, senha e os grupos que definem permissão.",
-    rota: "/admin/usuarios",
-    Icone: IconeUsuarios,
-  },
-  {
-    titulo: "Estatísticas",
-    descricao: "Camadas mais baixadas, usuários mais ativos.",
-    rota: "/admin/estatisticas",
+    titulo: "Administração",
+    descricao: "Visão geral da automação, mapas, camadas, usuários e grupos.",
+    rota: "/admin",
     Icone: IconeGrafico,
   },
 ];
