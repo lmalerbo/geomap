@@ -2773,6 +2773,47 @@ da automação) quebraria.
 - `VERSAO_REGRA_PENDENTES` mudou pra o cache de pendências trazer os
   campos novos.
 
+**Indicadores de voo (2026-10-01)**: página `/indicadores` (link no menu
+lateral só pra admin e pilotos) e rota só-leitura
+`GET /integracao/voos/indicadores` pro agente que monta a apresentação do
+gerente (slide "Voos com Drone"). Spec e plano em
+`docs/superpowers/{specs,plans}/2026-10-01-indicadores-voo*`; contrato da
+API em `docs/INTEGRACAO_DRONEMANAGEMENT.md`. Decisões (com o Leo):
+- "Voado" = Verificar porte 9 (conferido: mesmo conjunto que
+  `controlStatus` 4–10). Data do voo em fuso de Brasília.
+- "A voar" = **a mesma regra de pendentes do mapa de Voos** (fila
+  liberada de hoje, não muda com o período) — extraída de
+  `routes/voos.js` pra `lib/pendentesVoo.js` (+ paginação em
+  `lib/consultaDroneMgmt.js`), comportamento do mapa inalterado.
+- Período livre, padrão safra (01/04–31/03). Fornecedor = propriedade com
+  "FORNEC" → "Falhas Plantio Forn.". Tipos pequenos em "Outros"
+  (`TIPOS_PRINCIPAIS` em `lib/indicadoresVoo.js`). Metas manuais (Ervas
+  Daninhas, 250 ha/dia) ficam com o agente, fora do GeoMap.
+- Piloto (linha em `pilotos_dronemgmt`) vê "meu rendimento" + equipe,
+  nunca os colegas; admin vê tudo e filtra por piloto. Nome do piloto
+  vem do cadastro de pilotos — sem cadastro aparece "Piloto não
+  cadastrado (xxxxxxxx)".
+- Chave própria `INDICADORES_TOKEN` (cabeçalho `x-indicadores-token`); o
+  middleware do Hub ficou restrito a `/integracao/dronemgmt` — uma chave
+  não abre as rotas da outra.
+- Cálculo numa função pura (`calcularIndicadores`) usada pela página e
+  pela API; dados com cache em `indicadores_voo_cache` (migration 017 —
+  016 já era da fase 5 do redesenho): reusa se a contagem não mudou e tem
+  menos de 1h; DroneManagement fora do ar → cache com `desatualizado`.
+  As duas buscas (realizados, pendentes) rodam em sequência, nunca em
+  paralelo — duas sessões novas abririam dois Chromium no Render.
+
+Verificado: 67 testes de backend e 53 unitários de frontend; API local
+contra o DroneManagement real bateu com a sonda (safra até 01/10: 1.733
+talhões, 24.722,57 ha; Falhas Plantio próprio + fornecedor = 6.469,88)
+e a 2ª chamada levou 0,9s (cache); Playwright em 1440/768/390 como admin,
+piloto, usuário comum e piloto sem rede (25 checagens, zero erro de
+console). **Antes de publicar**: aplicar a migration 017 em produção,
+criar `INDICADORES_TOKEN` no Render e entregar a chave ao agente por fora
+do repositório. Implementado na worktree `../geomap-indicadores`, branch
+`feat/indicadores-voo-impl` (outra sessão estava commitando o redesenho
+no checkout principal ao mesmo tempo).
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

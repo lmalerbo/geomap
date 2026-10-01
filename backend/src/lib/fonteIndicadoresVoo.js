@@ -5,7 +5,7 @@ import { VERSAO_REGRA_PENDENTES } from "./regrasApontamento.js";
 
 // Dados crus dos indicadores de voo: voos realizados (Verificar porte =
 // Voado) e pendentes (regra do mapa de Voos), com cache no Postgres
-// (indicadores_voo_cache, migration 016). Buscar os ~4.400 voados leva ~9s
+// (indicadores_voo_cache, migration 017). Buscar os ~4.400 voados leva ~9s
 // local e bem mais no Render; o cache é reusado se a contagem do
 // DroneManagement não mudou E tem menos de 1h — o limite de tempo pega
 // edição de registro que não muda a contagem (ex.: data do voo corrigida).
