@@ -3,14 +3,9 @@ import { pool } from "../db/pool.js";
 import { exigirAutenticacao } from "../middleware/auth.js";
 import { chamarApi } from "../lib/dronemgmt.js";
 import { usuarioTemPermissaoMapa } from "../lib/permissoes.js";
-import {
-  CONTROL_STATUS_A_VOAR,
-  motivoParaNaoApontar,
-  estagioValidoParaFalhasSoca,
-  VERSAO_REGRA_PENDENTES,
-  ehFalhasUrgente,
-  dataReferenciaVoo,
-} from "../lib/regrasApontamento.js";
+import { motivoParaNaoApontar, VERSAO_REGRA_PENDENTES } from "../lib/regrasApontamento.js";
+import { contarRegistros, buscarTodosRegistros } from "../lib/consultaDroneMgmt.js";
+import { filtroPendentesDroneMgmt, filtrarEMapearPendentes } from "../lib/pendentesVoo.js";
 
 // Proxy pra integração DroneManagement (apontamento de voo pelo mapa) —
 // ver docs/INTEGRACAO_DRONEMANAGEMENT.md pro contrato completo da API de
@@ -23,64 +18,6 @@ export const voosRouter = Router();
 voosRouter.use(exigirAutenticacao);
 
 const UNIT_ID = process.env.DRONEMGMT_UNIT_ID || "";
-
-// Critério de "pendente pra voar de verdade" — pedido explícito do Leo
-// (2026-09-22), depois de reparar que talhões com Verificar Porte
-// "Aguardar porte"/"Verificar porte" (valores 2/3) apareciam no mapa como
-// se estivessem prontos, mesmo Status já mostrando "A voar": esses dois
-// valores só significam "na fila, esperando o porte da cana", não "pode
-// voar agora" — só 4 (Voar), 5 (Voo liberado) e 6 (Voar urgente) são de
-// verdade acionáveis. Restrito ainda mais aqui (só 5/6, sem o 4) porque
-// foi exatamente o que o Leo pediu ao descrever a regra.
-const VERIFY_FLIGHT_SIZE_PRONTOS = [5, 6]; // "Verificar Porte" = Voo liberado, Voar urgente
-
-// Falhas Soca tem uma trava extra: só considerar pendente quem está nos
-// estágios permitidos pra safra do talhão (layerDetails.harvest +
-// layerDetails.internship) — ver estagioValidoParaFalhasSoca em
-// lib/regrasApontamento.js. Antes era só 02º/03º Corte em qualquer safra.
-const FINALIDADE_FALHAS_SOCA = "Falhas Soca";
-
-// Falhas Soca também não voa em área de fornecedor (Propriedade =
-// layerDetails.transferProperty) — pedido do Leo (2026-09-24), mesmo
-// critério do script de limpeza _cancelar_fornecedores_soca.mjs. Precisa
-// estar aqui também porque o DroneManagement reagenda sozinho o que foi
-// cancelado. Só vale pra Falhas Soca: Falhas Plantio voa em fornecedor
-// de verdade.
-const PROPRIEDADES_FORNECEDOR = new Set(["FORNECEDOR", "FORNEC. SUBPARCERIA", "FORNECEDOR TROCA"]);
-
-const TAMANHO_PAGINA = 500;
-
-function mapearRegistro(r) {
-  const projeto = r.flightProjectDetails?.description || null;
-  return {
-    id: r.id,
-    // Nome do projeto/campanha de voo (ex: "Falhas Plantio", "Projeto
-    // Plantio") — vem de flightProjectDetails porque pedimos
-    // expand=flightProject na query acima; sem isso só teríamos o uuid
-    // de flightProject, inútil pra mostrar/filtrar na tela.
-    projeto: r.flightProjectDetails?.description || null,
-    secao: r.section,
-    talhao: r.landPlot,
-    controlStatus: r.controlStatus,
-    verifyFlightSize: r.verifyFlightSize,
-    // Área do talhão em hectares (layerDetails.totalArea, vem de
-    // expand=layer acima) — pedido do Leo (2026-08-20) pra mostrar
-    // hectares pendentes em vez de contagem de talhões no painel do
-    // mapa (ver useApontamentoVoo.js).
-    areaHa: r.layerDetails?.totalArea ?? null,
-    // Área de fornecedor (mesmo PROPRIEDADES_FORNECEDOR usado acima pra
-    // excluir Falhas Soca) — aqui em TODO registro, não só Falhas Soca,
-    // porque Falhas Plantio voa em fornecedor de verdade e só precisa
-    // dessa informação pra se destacar com outra cor no mapa (pedido do
-    // Leo, 2026-09-29), não pra ser filtrado.
-    fornecedor: PROPRIEDADES_FORNECEDOR.has(r.layerDetails?.transferProperty),
-    // Falhas com Voar urgente ganham pontilhado vermelho no mapa; a data de
-    // referência vira a legenda de dias corridos de cada talhão (pedido do
-    // Leo, 2026-10-01 — ver regrasApontamento.js).
-    urgente: ehFalhasUrgente(projeto, r.verifyFlightSize),
-    dataReferencia: dataReferenciaVoo(projeto, r),
-  };
-}
 
 // Lista os talhões pendentes de voo pra unidade configurada
 // (DRONEMGMT_UNIT_ID) — devolve só os campos que o mapa precisa pra
@@ -106,27 +43,11 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
     return res.status(404).json({ erro: "mapa não encontrado" });
   }
 
-  const filtro = JSON.stringify({
-    $and: [
-      { unitId: `UUID('${UNIT_ID}')` },
-      { controlStatus: CONTROL_STATUS_A_VOAR },
-      { $or: VERIFY_FLIGHT_SIZE_PRONTOS.map((v) => ({ verifyFlightSize: v })) },
-    ],
-  });
-
-  async function buscarPagina(pagina, tamanhoPagina = TAMANHO_PAGINA) {
-    const resp = await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", {
-      params: { pageNumber: pagina, pageSize: tamanhoPagina, filter: filtro, expand: "layer,flightProject" },
-    });
-    if (!resp.ok) throw new Error(`DroneManagement respondeu ${resp.status}`);
-    return resp.json();
-  }
-
+  const filtro = filtroPendentesDroneMgmt(UNIT_ID);
   const forcar = req.query.forcar === "1";
 
   try {
-    const checagem = await buscarPagina(1, 1);
-    const countAtual = checagem.count || 0;
+    const countAtual = await contarRegistros(filtro);
 
     if (!forcar) {
       const { rows } = await pool.query(
@@ -141,39 +62,8 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
       }
     }
 
-    // Página 1 primeiro (sozinha) pra saber `count`... já sabemos (acima),
-    // mas precisamos dos registros de verdade agora, não só count.
-    // Concorrência 5 nas seguintes: troca N idas-e-voltas sequenciais por
-    // ⌈N/5⌉, mesma técnica já usada nos scripts de limpeza desta sessão
-    // (ver backend/_achar_voos_duplicados.mjs) — o DroneManagement
-    // aguentou concorrência 8 sem erro nesses scripts.
-    const primeira = await buscarPagina(1);
-    const registrosBrutos = primeira.value || [];
-    const count = primeira.count || 0;
-    const totalPaginas = Math.ceil(count / TAMANHO_PAGINA);
-    const CONCORRENCIA = 5;
-    for (let inicio = 2; inicio <= totalPaginas; inicio += CONCORRENCIA) {
-      const lote = [];
-      for (let p = inicio; p < inicio + CONCORRENCIA && p <= totalPaginas; p++) lote.push(buscarPagina(p));
-      const resultados = await Promise.all(lote);
-      for (const dados of resultados) registrosBrutos.push(...(dados.value || []));
-    }
-
-    // Falhas Soca fora dos estágios permitidos pra safra ou em área de
-    // fornecedor não conta como pendente de verdade (ver
-    // estagioValidoParaFalhasSoca e PROPRIEDADES_FORNECEDOR acima) — as
-    // outras finalidades não têm essas travas extras.
-    const registrosFiltrados = registrosBrutos.filter((r) => {
-      if (r.flightProjectDetails?.description === FINALIDADE_FALHAS_SOCA) {
-        return (
-          estagioValidoParaFalhasSoca(r.layerDetails) &&
-          !PROPRIEDADES_FORNECEDOR.has(r.layerDetails?.transferProperty)
-        );
-      }
-      return true;
-    });
-
-    const registros = registrosFiltrados.map(mapearRegistro);
+    const { count, registros: registrosBrutos } = await buscarTodosRegistros(filtro);
+    const registros = filtrarEMapearPendentes(registrosBrutos);
     await pool.query(
       `INSERT INTO voos_pendentes_cache (mapa_id, count_dronemgmt, registros, atualizado_em)
        VALUES ($1, $2, $3, now())
