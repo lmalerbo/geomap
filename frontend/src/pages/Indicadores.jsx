@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { buscarIndicadoresVoo } from "../lib/api.js";
 import {
   hojeLocal, safraDe, ultimos30Dias, mesAtual, formatarHa, formatarPercentual, formatarDataHora,
-  chaveResultado, salvarUltimoResultado, lerUltimoResultado,
+  chaveResultado, salvarUltimoResultado, lerUltimoResultado, criarSequenciaRequisicoes,
 } from "../lib/periodoIndicadores.js";
 import CartaoKpi from "../components/indicadores/CartaoKpi.jsx";
 import BarraProgresso from "../components/indicadores/BarraProgresso.jsx";
@@ -51,13 +51,18 @@ export default function Indicadores() {
   const [semAcesso, setSemAcesso] = useState(false);
   const [offlineDesde, setOfflineDesde] = useState(null);
 
+  const sequencia = useRef(criarSequenciaRequisicoes());
+  const usuarioId = sessao.usuario.id;
+
   const carregar = useCallback(
     async ({ forcar = false } = {}) => {
-      const chave = chaveResultado({ ...periodo, piloto });
+      const chave = chaveResultado({ ...periodo, piloto, usuarioId });
+      const id = sequencia.current.nova();
       setCarregando(true);
       setErro(null);
       try {
         const resposta = await buscarIndicadoresVoo(sessao.token, { ...periodo, piloto, forcar });
+        if (!sequencia.current.ehAtual(id)) return; // período/piloto já mudou
         setDados(resposta);
         setOfflineDesde(null);
         salvarUltimoResultado(chave, resposta);
@@ -69,6 +74,7 @@ export default function Indicadores() {
           });
         }
       } catch (e) {
+        if (!sequencia.current.ehAtual(id)) return;
         if (e.status === 403) {
           setSemAcesso(true);
         } else {
@@ -81,10 +87,10 @@ export default function Indicadores() {
           }
         }
       } finally {
-        setCarregando(false);
+        if (sequencia.current.ehAtual(id)) setCarregando(false);
       }
     },
-    [periodo, piloto, sessao.token]
+    [periodo, piloto, sessao.token, usuarioId]
   );
 
   useEffect(() => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   hojeLocal, safraDe, ultimos30Dias, mesAtual, formatarHa, formatarPercentual, formatarDataCurta,
-  salvarUltimoResultado, lerUltimoResultado, chaveResultado,
+  salvarUltimoResultado, lerUltimoResultado, chaveResultado, criarSequenciaRequisicoes,
 } from "./periodoIndicadores.js";
 
 // O projeto "unit" do Vitest roda em ambiente node (sem localStorage).
@@ -57,5 +57,19 @@ describe("último resultado salvo", () => {
   it("não quebra com JSON corrompido", () => {
     localStorage.setItem(chaveResultado({ de: "a", ate: "b", piloto: "" }), "{quebrado");
     expect(lerUltimoResultado(chaveResultado({ de: "a", ate: "b", piloto: "" }))).toBeNull();
+  });
+});
+
+describe("isolamento e ordem", () => {
+  it("chave do resultado salvo é separada por usuário", () => {
+    const base = { de: "2026-04-01", ate: "2027-03-31", piloto: "" };
+    expect(chaveResultado({ ...base, usuarioId: 1 })).not.toBe(chaveResultado({ ...base, usuarioId: 2 }));
+  });
+  it("só a requisição mais recente é considerada atual", () => {
+    const seq = criarSequenciaRequisicoes();
+    const primeira = seq.nova();
+    const segunda = seq.nova();
+    expect(seq.ehAtual(primeira)).toBe(false);
+    expect(seq.ehAtual(segunda)).toBe(true);
   });
 });

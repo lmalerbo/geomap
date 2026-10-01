@@ -172,3 +172,19 @@ test("lerPeriodo: padrão safra, valida formato, data inexistente e de > ate", (
   assert.ok(lerPeriodo({ de: "2026-06-01", ate: "2026-05-31" }, "2026-10-01").erro);
   assert.ok(lerPeriodo({ de: "2026-05-01" }, "2026-10-01").erro); // só um dos dois
 });
+
+test("lerPeriodo recusa ano antes de 2000 e período maior que 5 anos (digitação parcial do ano)", () => {
+  assert.ok(lerPeriodo({ de: "0002-04-01", ate: "2026-05-31" }, "2026-10-01").erro);
+  assert.ok(lerPeriodo({ de: "2020-01-01", ate: "2026-01-02" }, "2026-10-01").erro);
+  assert.deepEqual(lerPeriodo({ de: "2021-04-01", ate: "2026-03-31" }, "2026-10-01"), { de: "2021-04-01", ate: "2026-03-31" });
+});
+
+test("registro com data de voo inválida é descartado sem derrubar o cálculo", () => {
+  const r = calcularIndicadores({
+    ...base,
+    realizados: [voo(undefined, { areaHa: 5 }), voo("não é data", { areaHa: 5 }), voo("2026-05-04T15:00:00Z", { areaHa: 7 })],
+    pendentes: [],
+  });
+  assert.equal(r.resumo.realizadoHa, 7);
+  assert.equal(r.resumo.realizadoTalhoes, 1);
+});

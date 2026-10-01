@@ -81,10 +81,20 @@ function dataValida(dia) {
     paraData(dia).toISOString().slice(0, 10) === dia;
 }
 
+// Teto do período: o <input type="date"> do navegador dispara datas como
+// "0002-04-01" enquanto a pessoa digita o ano — sem limite, isso viraria
+// ~100 mil semanas no gráfico e travaria servidor e página.
+const ANO_MINIMO = 2000;
+const DIAS_MAXIMOS_PERIODO = 5 * 366;
+
 export function lerPeriodo({ de, ate } = {}, hoje) {
   if (!de && !ate) return safraDe(hoje);
   if (!dataValida(de) || !dataValida(ate)) return { erro: "de e ate precisam estar no formato AAAA-MM-DD" };
   if (de > ate) return { erro: "de não pode ser depois de ate" };
+  if (Number(de.slice(0, 4)) < ANO_MINIMO) return { erro: `de precisa ser a partir de ${ANO_MINIMO}` };
+  if ((paraData(ate) - paraData(de)) / 86_400_000 > DIAS_MAXIMOS_PERIODO) {
+    return { erro: "período máximo é de 5 anos" };
+  }
   return { de, ate };
 }
 
@@ -150,7 +160,14 @@ export function calcularIndicadores({
   nomesPilotos = {},
   incluirPorPiloto = false,
 }) {
-  const todos = realizados.map((r) => ({ ...r, dia: dataLocal(r.dataVoo) }));
+  // Registro sem data de voo válida é descartado: senão o Intl lança
+  // RangeError e, como o registro fica no cache, a rota cairia pra todos
+  // até alguém corrigir o dado no DroneManagement.
+  const validos = realizados.filter((r) => !Number.isNaN(Date.parse(r.dataVoo)));
+  if (validos.length < realizados.length) {
+    console.warn(`Indicadores de voo: ${realizados.length - validos.length} voo(s) sem data válida descartado(s)`);
+  }
+  const todos = validos.map((r) => ({ ...r, dia: dataLocal(r.dataVoo) }));
   const noPeriodo = todos.filter((r) => r.dia >= de && r.dia <= ate);
   const fimAteHoje = ate < hoje ? ate : hoje;
 

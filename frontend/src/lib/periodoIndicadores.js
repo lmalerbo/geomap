@@ -57,8 +57,20 @@ export function formatarDataHora(iso) {
   return formatadorDataHora.format(new Date(iso)).replace(",", "");
 }
 
-export function chaveResultado({ de, ate, piloto }) {
-  return `geomap_indicadores_${de}_${ate}_${piloto || "equipe"}`;
+// Por usuário: num aparelho compartilhado, o piloto não pode ver offline o
+// resultado salvo pelo admin (que traz a lista por piloto).
+export function chaveResultado({ de, ate, piloto, usuarioId }) {
+  return `geomap_indicadores_u${usuarioId ?? ""}_${de}_${ate}_${piloto || "equipe"}`;
+}
+
+// Descarta resposta antiga: a 1ª carga pode levar ~30s, e uma troca de
+// período nesse meio-tempo não pode ser sobrescrita pela resposta velha.
+export function criarSequenciaRequisicoes() {
+  let atual = 0;
+  return {
+    nova: () => ++atual,
+    ehAtual: (id) => id === atual,
+  };
 }
 
 // Último resultado visto neste aparelho, pra mostrar sem internet.
