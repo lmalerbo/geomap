@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import { buscarVoosPendentes, apontarVoos } from "../lib/api.js";
+import { salvarPendenciasVooLocal, buscarPendenciasVooLocal } from "../lib/db.js";
+import {
+  filaApontamentos,
+  enviarApontamentosPendentes,
+  EVENTO_FILA_APONTAMENTOS,
+} from "../lib/filaApontamentosApp.js";
+import { useApontamentosNaFila } from "./useApontamentosNaFila.js";
+
+// Contorno dos talhões cujo apontamento está guardado no aparelho esperando
+// sinal (fila offline, redesenho fase 4) — âmbar, distinto de qualquer cor
+// de tipo de voo e do verde de "acabou de ser apontado".
+const COR_AGUARDANDO_SINAL = "#d97706";
 
 const FONTE_SELECAO = "fonte-voos-selecao";
 const CAMADA_SELECAO = "camada-voos-selecao";
@@ -186,6 +198,15 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // uma falha só ia pro console, invisível pro usuário.
   const [carregandoPendentes, setCarregandoPendentes] = useState(false);
   const [erroPendentes, setErroPendentes] = useState(null);
+  // Fila offline (redesenho, fase 4): sem sinal, as pendências vêm da última
+  // cópia salva no aparelho (`pendenciasDeCache` = quando foi salva) e o
+  // apontamento é guardado pra envio automático depois.
+  const fila = useApontamentosNaFila();
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
+  const [pendenciasDeCache, setPendenciasDeCache] = useState(null);
+  // Incrementado pra forçar buscar as pendências de novo (ex: a fila acabou
+  // de ser enviada e o servidor já não tem esses talhões como pendentes).
+  const [recarregarPendencias, setRecarregarPendencias] = useState(0);
 
   // chave (secao-talhao) -> lista de registros pendentes ali (quase
   // sempre 1, mas pode ser vários — mesmo talhão com pendência em mais de
@@ -195,7 +216,10 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // Lista de projetos/campanhas presentes nos pendentes atuais (pra
   // preencher os checkboxes de filtro) — derivado, não state próprio,
   // porque é 100% função de `pendentes`.
-  const projetosDisponiveis = ordenarTiposVoo([...new Set(pendentes.map((r) => r.projeto).filter(Boolean))]);
+  // O que já está na fila offline saiu das pendências pro piloto (ele já
+  // apontou; só falta o envio) — mesmo que o servidor ainda liste.
+  const pendentesVisiveis = pendentes.filter((r) => !fila.idsNaFila.has(r.id));
+  const projetosDisponiveis = ordenarTiposVoo([...new Set(pendentesVisiveis.map((r) => r.projeto).filter(Boolean))]);
   // Nome + cor (estável, ver corPorProjeto) de cada tipo — pro painel
   // desenhar o swatch ao lado de cada checkbox. Falhas Plantio em área de
   // fornecedor ganha uma 2ª linha só informativa (mesma cor que aparece de
@@ -206,7 +230,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // pedido — só precisa aparecer explicado na legenda).
   const legendaProjetos = projetosDisponiveis.flatMap((nome) => {
     const base = { chave: nome, rotulo: nome, cor: corPorProjeto(nome), projeto: nome };
-    if (nome === NOME_FALHAS_PLANTIO && pendentes.some((r) => r.projeto === nome && r.fornecedor)) {
+    if (nome === NOME_FALHAS_PLANTIO && pendentesVisiveis.some((r) => r.projeto === nome && r.fornecedor)) {
       return [
         base,
         {
@@ -224,7 +248,8 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // marcados. Também derivado — nunca fica dessincronizado de `pendentes`
   // porque não é state (não existe "esqueceu de recalcular").
   const pendentesFiltrados =
-    filtroProjetos == null ? pendentes : pendentes.filter((r) => filtroProjetos.has(r.projeto));
+    filtroProjetos == null ? pendentesVisiveis : pendentesVisiveis.filter((r) => filtroProjetos.has(r.projeto));
+  const qtdTalhoesPendentes = new Set(pendentesFiltrados.map((r) => chave(r.secao, r.talhao))).size;
 
   // Hectares pendentes em vez de contagem de talhões (pedido do Leo,
   // 2026-08-20 — é o dado que a empresa usa no dia a dia, não quantidade de
@@ -241,15 +266,25 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     let cancelado = false;
     setCarregandoPendentes(true);
     setErroPendentes(null);
-    setFiltroProjetos(null); // volta pra "todos" ao trocar de camada/mapa
     buscarVoosPendentes(token, mapaId)
       .then((dados) => {
         if (cancelado) return;
         setPendentes(dados);
+        setPendenciasDeCache(null);
+        // Cópia pro campo: se o sinal cair e o app for reaberto, a tela de
+        // voos continua mostrando (e deixando apontar) estas pendências.
+        salvarPendenciasVooLocal(mapaId, dados).catch((e) => console.warn("Falha ao guardar pendências", e));
       })
-      .catch((err) => {
+      .catch(async (err) => {
         console.error("Erro ao buscar voos pendentes:", err);
-        if (!cancelado) setErroPendentes(mensagemErroPendentes(err));
+        const guardadas = await buscarPendenciasVooLocal(mapaId).catch(() => null);
+        if (cancelado) return;
+        if (guardadas) {
+          setPendentes(guardadas.registros);
+          setPendenciasDeCache(guardadas.salvoEm);
+        } else {
+          setErroPendentes(mensagemErroPendentes(err));
+        }
       })
       .finally(() => {
         if (!cancelado) setCarregandoPendentes(false);
@@ -257,7 +292,44 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     return () => {
       cancelado = true;
     };
-  }, [voosInfo?.id, voosInfo?.assinatura, mapaId, token]);
+  }, [voosInfo?.id, voosInfo?.assinatura, mapaId, token, recarregarPendencias]);
+
+  // Filtro volta pra "todos" só ao trocar de camada/mapa (não a cada
+  // recarga das pendências depois de enviar a fila).
+  useEffect(() => {
+    setFiltroProjetos(null);
+  }, [voosInfo?.id, mapaId]);
+
+  // Conexão: voltou a internet → tenta esvaziar a fila de apontamentos (o
+  // mesmo envio também roda na sincronização geral, ver sync.js).
+  useEffect(() => {
+    function aoFicarOnline() {
+      setOnline(true);
+      enviarApontamentosPendentes(token).catch((e) => console.warn("Falha ao enviar apontamentos guardados", e));
+    }
+    function aoFicarOffline() {
+      setOnline(false);
+    }
+    window.addEventListener("online", aoFicarOnline);
+    window.addEventListener("offline", aoFicarOffline);
+    return () => {
+      window.removeEventListener("online", aoFicarOnline);
+      window.removeEventListener("offline", aoFicarOffline);
+    };
+  }, [token]);
+
+  // A fila foi enviada (aqui ou pela sincronização geral): avisa o piloto e
+  // busca as pendências de novo — o servidor já não lista os apontados.
+  useEffect(() => {
+    function aoMudarFila(evento) {
+      const { tipo, enviados = 0, recusados = 0 } = evento.detail || {};
+      if (tipo !== "enviado") return;
+      setResultado({ sucesso: new Array(enviados).fill(null), falha: [], daFila: true, recusados });
+      setRecarregarPendencias((n) => n + 1);
+    }
+    window.addEventListener(EVENTO_FILA_APONTAMENTOS, aoMudarFila);
+    return () => window.removeEventListener(EVENTO_FILA_APONTAMENTOS, aoMudarFila);
+  }, []);
 
   // Mantém o índice secao-talhao -> registros[] sempre alinhado com o que
   // está sendo mostrado/colorido no momento (pendentesFiltrados, não a
@@ -342,6 +414,12 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     const ramos = [];
     for (const [cor, chaves] of chavesPorCor) ramos.push(chaves, cor);
     if (chavesVerdes.size > 0) ramos.push([...chavesVerdes], CORES_FERRAMENTAS.vooConfirmado);
+    // Apontado e guardado esperando sinal: âmbar — só quando o talhão não tem
+    // mais nenhuma outra pendência visível (senão a cor dela continua valendo).
+    const chavesNaFila = [
+      ...new Set(fila.pendentes.flatMap((l) => l.registros.map((r) => chave(r.secao, r.talhao)))),
+    ].filter((k) => !tiposPorTalhao.has(k) && !chavesVerdes.has(k));
+    if (chavesNaFila.length > 0) ramos.push(chavesNaFila, COR_AGUARDANDO_SINAL);
 
     // Talhão com 2+ tipos não desenha nada no contorno normal — quem
     // desenha ele são os anéis, logo abaixo.
@@ -373,7 +451,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
           : semContorno;
       map.setPaintProperty(idAnel, "line-color", expressaoAnel);
     }
-  }, [pendentesFiltrados, recemApontados, carregandoPendentes, voosInfo, mapaPronto, mapRef]);
+  }, [pendentesFiltrados, recemApontados, carregandoPendentes, voosInfo, mapaPronto, mapRef, fila.pendentes]);
 
   // 2b) cria/destrói os MAX_ANEIS_MULTIPLO contornos concêntricos usados
   // pra desenhar talhão com 2+ tipos pendentes (ver offsetAnel acima) —
@@ -518,6 +596,46 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     setEscolhaPendente(null);
   }
 
+  function marcarTodasDaEscolha() {
+    if (!escolhaPendente) return;
+    setSelecionados((atual) => {
+      const novo = new Map(atual);
+      for (const r of escolhaPendente.registros) novo.set(r.id, r);
+      return novo;
+    });
+    setEscolhaPendente(null);
+  }
+
+  // Pendências (visíveis pelo filtro) de um talhão — usado no painel de
+  // atributos pra mostrar o que falta voar ali e oferecer "Apontar este
+  // talhão" sem precisar entrar no modo antes.
+  function pendenciasDoTalhao(secao, talhao) {
+    return pendentesFiltrados.filter((r) => String(r.secao) === String(secao) && String(r.talhao) === String(talhao));
+  }
+
+  // Começa o apontamento já com o talhão escolhido: 1 pendência marca
+  // direto; 2+ abrem a escolha (mesma regra do toque no mapa).
+  function iniciarComTalhao(secao, talhao) {
+    const registros = pendenciasDoTalhao(secao, talhao);
+    setResultado(null);
+    setModoApontamento(true);
+    if (registros.length === 1) {
+      setSelecionados(new Map([[registros[0].id, registros[0]]]));
+      setEscolhaPendente(null);
+    } else {
+      setSelecionados(new Map());
+      setEscolhaPendente(registros.length > 1 ? { secao, talhao, registros } : null);
+    }
+  }
+
+  function removerSelecionado(id) {
+    setSelecionados((atual) => {
+      const novo = new Map(atual);
+      novo.delete(id);
+      return novo;
+    });
+  }
+
   // Toast de confirmação some sozinho depois de um tempo — mesma duração
   // de TEMPO_CONFIRMACAO_MS (4s) já usada pro destaque verde no mapa, pra
   // as duas confirmações (mapa + toast) sumirem juntas. `fecharResultado`
@@ -537,10 +655,36 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // fica marcado como "recém apontado" (verde) por alguns segundos antes
   // de sumir de vez da lista de pendentes — só remover na hora deixava a
   // confirmação parecer instantânea/some-sem-avisar demais.
+  // Sem sinal (ou a rede caiu no meio do envio): o lote vai pra fila do
+  // aparelho com a data do voo escolhida, sai das pendências na hora e é
+  // enviado sozinho quando a conexão voltar (redesenho, fase 4).
+  async function guardarNaFila() {
+    const registros = [...selecionados.values()].map(({ id, secao, talhao, projeto, areaHa }) => ({
+      id,
+      secao,
+      talhao,
+      projeto,
+      areaHa,
+    }));
+    await filaApontamentos.enfileirar({ mapaId, dataVoo, registros });
+    setResultado({ sucesso: [], falha: [], naFila: registros.length });
+    setSelecionados(new Map());
+    setEscolhaPendente(null);
+    setModoApontamento(false);
+  }
+
   async function confirmarLote() {
     if (selecionados.size === 0 || !mapaId) return;
     setEnviando(true);
     setResultado(null);
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      try {
+        await guardarNaFila();
+      } finally {
+        setEnviando(false);
+      }
+      return;
+    }
     try {
       const registros = [...selecionados.values()].map((r) => ({ id: r.id, secao: r.secao, talhao: r.talhao }));
       const resposta = await apontarVoos(token, { mapaId, dataVoo, registros });
@@ -566,6 +710,12 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       setEscolhaPendente(null);
       setModoApontamento(false);
     } catch (err) {
+      // Falha de rede (TypeError do fetch, sem status HTTP): mesmo caso de
+      // "sem sinal" — guarda na fila em vez de perder o lote.
+      if (err instanceof TypeError) {
+        await guardarNaFila();
+        return;
+      }
       // A chamada inteira falhou antes do backend processar qualquer item
       // (rede, ou uma validação que rejeita o lote todo — ex: usuário sem
       // vínculo em pilotos_dronemgmt) — sem isso, "falha" sempre tinha
@@ -582,9 +732,25 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   }
 
   return {
-    pendentes,
+    pendentes: pendentesVisiveis,
     pendentesFiltrados,
     areaPendenteHa,
+    qtdTalhoesPendentes,
+    online,
+    pendenciasDeCache,
+    fila,
+    // Com sinal, "Tentar de novo" já envia; sem sinal, o lote volta pra fila
+    // e sai sozinho quando a internet voltar.
+    retentarLote: async (id) => {
+      await filaApontamentos.retentar(id);
+      if (navigator.onLine) await enviarApontamentosPendentes(token);
+    },
+    descartarLote: (id) => filaApontamentos.descartar(id),
+    enviarFilaAgora: () => enviarApontamentosPendentes(token),
+    pendenciasDoTalhao,
+    iniciarComTalhao,
+    marcarTodasDaEscolha,
+    removerSelecionado,
     projetosDisponiveis,
     legendaProjetos,
     filtroProjetos,

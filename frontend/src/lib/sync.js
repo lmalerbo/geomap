@@ -7,6 +7,7 @@ import {
   salvarMapasDisponiveis,
 } from "./db.js";
 import { syncPins, enviarPinsPendentes, avisarPinsAtualizados } from "./syncPinsApp.js";
+import { enviarApontamentosPendentes } from "./filaApontamentosApp.js";
 
 // Sincroniza TODOS os mapas (projetos) permitidos em segundo plano — não
 // só o que o usuário tem aberto no momento — baixando as camadas que ainda
@@ -91,6 +92,14 @@ export async function sincronizarMapas(token) {
     avisarPinsAtualizados(idsMapas);
   } catch (erro) {
     console.warn("Falha ao sincronizar anotações:", erro);
+  }
+
+  // Apontamentos de voo guardados sem sinal (fila offline, redesenho fase
+  // 4) — mesma ideia das anotações: a sincronização online esvazia a fila.
+  try {
+    await enviarApontamentosPendentes(token);
+  } catch (erro) {
+    console.warn("Falha ao enviar apontamentos guardados:", erro);
   }
 
   const atualizadas = await listarMapasBaixados();

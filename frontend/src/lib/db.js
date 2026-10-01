@@ -6,9 +6,11 @@ const STORE_MAPAS = "mapas_disponiveis";
 const STORE_ARQUIVO_IMPORTADO = "arquivo_importado_por_mapa";
 const STORE_PINS = "pins";
 const STORE_PINS_CURSOR = "pins_cursor";
+const STORE_FILA_APONTAMENTOS = "apontamentos_fila";
+const STORE_PENDENCIAS_VOO = "pendencias_voo";
 
 function abrirDb() {
-  return openDB(DB_NAME, 4, {
+  return openDB(DB_NAME, 5, {
     upgrade(db, versaoAnterior) {
       if (versaoAnterior < 1) {
         db.createObjectStore(STORE_CAMADAS, { keyPath: "id" });
@@ -37,8 +39,55 @@ function abrirDb() {
         // com o sync de camadas.
         db.createObjectStore(STORE_PINS_CURSOR, { keyPath: "mapaId" });
       }
+      if (versaoAnterior < 5) {
+        // Apontamento de voo offline (redesenho, fase 4): fila de lotes
+        // guardados sem sinal (ver lib/filaApontamentos.js) e a última
+        // lista de pendências de cada mapa, pra tela de voos abrir sem
+        // internet.
+        db.createObjectStore(STORE_FILA_APONTAMENTOS, { keyPath: "id" });
+        db.createObjectStore(STORE_PENDENCIAS_VOO, { keyPath: "mapaId" });
+      }
     },
   });
+}
+
+export async function salvarLoteApontamento(lote) {
+  const db = await abrirDb();
+  await db.put(STORE_FILA_APONTAMENTOS, lote);
+}
+
+export async function removerLoteApontamento(id) {
+  const db = await abrirDb();
+  await db.delete(STORE_FILA_APONTAMENTOS, id);
+}
+
+export async function listarLotesApontamento() {
+  const db = await abrirDb();
+  return db.getAll(STORE_FILA_APONTAMENTOS);
+}
+
+export async function salvarPendenciasVooLocal(mapaId, registros) {
+  const db = await abrirDb();
+  await db.put(STORE_PENDENCIAS_VOO, { mapaId, registros, salvoEm: new Date().toISOString() });
+}
+
+export async function buscarPendenciasVooLocal(mapaId) {
+  const db = await abrirDb();
+  return db.get(STORE_PENDENCIAS_VOO, mapaId);
+}
+
+// Ao sair da conta: a fila guarda apontamentos em nome de quem saiu —
+// mandar com o token do próximo usuário seria registrar voo no nome errado
+// (mesmo motivo de limparPinsLocais). As pendências guardadas vão junto
+// (o próximo usuário pode nem ter acesso ao mapa de voos).
+export async function limparApontamentosLocais() {
+  const db = await abrirDb();
+  const tx = db.transaction([STORE_FILA_APONTAMENTOS, STORE_PENDENCIAS_VOO], "readwrite");
+  await Promise.all([
+    tx.objectStore(STORE_FILA_APONTAMENTOS).clear(),
+    tx.objectStore(STORE_PENDENCIAS_VOO).clear(),
+    tx.done,
+  ]);
 }
 
 export async function salvarMapaBaixado(camadaId, mapaId, nome, versao, blob, atributosConfig, estiloConfig, ordem) {

@@ -2611,6 +2611,67 @@ painel aberto); zero erro de console.
 Verificado com Playwright (mesmo ambiente local, desfeito no final): 28
 checagens, celular e regressão do desktop, zero erro de console.
 
+**Redesenho da tela do mapa, fase 4 — apontamento de voo + fila offline
+(2026-10-01)**: ver `docs/REDESENHO_FRONTEND.md`.
+
+- **Painel Voos** (`components/PainelVoos.jsx`): no desktop, item "Voos"
+  na barra de ferramentas (no lugar de "Tipo de voo"); no celular, 1ª aba
+  da gaveta no mapa de voos (Voos / Camadas / Ferramentas — Legenda sai,
+  os chips de tipo já são a legenda). Mostra hectares + talhões
+  pendentes, chips de tipo (filtro), a fila do aparelho e o botão
+  "Apontar voo". Recolhida no celular, a gaveta mostra o resumo com o
+  botão de apontar a um toque. O FAB antigo (`.pilha-apontamento`) e o
+  painel do modo (`.painel-apontamento`) foram removidos.
+- **Barra de apontamento** (`components/BarraApontamento.jsx`, na
+  `.pilha-acoes`): chips do que foi marcado (com remover), data em 1
+  toque (Hoje / Ontem / Outro dia — data LOCAL, não `toISOString`, que
+  vira o dia seguinte depois das 21h), "Confirmar N" ou, sem sinal,
+  "Guardar N". Talhão com 2+ pendências abre a escolha com botões
+  grandes (+ "Marcar todas"). Clicar num talhão da camada de voos fora
+  do modo mostra no painel de atributos o que falta voar ali e "Apontar
+  este talhão" (`iniciarComTalhao`).
+- **Fila offline** (`lib/filaApontamentos.js`, testada em
+  `filaApontamentos.test.js`; instância em `lib/filaApontamentosApp.js`;
+  stores `apontamentos_fila` e `pendencias_voo` no IndexedDB, versão 5):
+  sem sinal o lote vai pra fila (vale a data escolhida, não a hora do
+  envio) e o talhão fica com contorno âmbar e sai das pendências
+  visíveis. Envio ao voltar o sinal (evento `online`, e também no sync
+  geral em `sync.js`); erro de rede para a fila sem perder nada; recusa
+  do servidor vira lote "recusado" com o motivo por talhão, com "Tentar
+  de novo" (já envia se houver sinal) / "Descartar". As pendências do
+  DroneManagement ficam guardadas no aparelho pra abrir o mapa de voos
+  sem sinal. Sair da conta com fila pendente pede confirmação e apaga a
+  fila (mesmo tratamento dos pins).
+- **Backend**: a regra "só aponta se ainda está pendente"
+  (`controlStatus === 2`) saiu pra `lib/regrasApontamento.js`
+  (`motivoParaNaoApontar`, com teste) — é ela que gera o motivo
+  mostrado quando um lote da fila chega depois de outra pessoa ter
+  apontado/cancelado.
+
+Dois bugs achados testando, ambos fora do apontamento em si:
+
+1. **Toda camada era recriada a cada rodada de `aplicar()`** — regressão
+   do commit da ordem de camadas (2026-09-30): a `assinatura` guardada
+   em `adicionarCamada` ganhou `|ordem`, mas a comparação no loop de
+   `aplicar()` não, então nunca batia. Corrigido incluindo `ordem` nas
+   duas. (Mesma lição já registrada: campo novo na assinatura tem que
+   entrar nos dois lados.)
+2. **Na primeira abertura do mapa (IndexedDB vazio), o painel Voos não
+   aparecia e as pendências nunca eram buscadas** — `voosInfo` é
+   derivado de `camadasCarregadasRef` no render, e nada disparava um
+   render novo quando `aplicar()` terminava de adicionar as camadas (só
+   aparecia "por acaso", num render causado por outra coisa). Corrigido
+   com um contador de estado (`setVersaoCamadas`) que sobe sempre que
+   `aplicar()` muda o conjunto de camadas.
+
+Verificado com Playwright no dev local (40 checagens, desktop e celular,
+zero erro de console), com `/voos/pendentes` e `/voos/apontamentos`
+simulados via `page.route` (nunca o DroneManagement real) e offline via
+`context.setOffline`; banco local preparado e desfeito no final.
+Detalhe de ambiente: um build de produção servido localmente (porta
+4180) não carrega camadas porque o download redireciona pro R2, cujo
+CORS só libera a porta 5173 e o GitHub Pages — testar no dev (5173).
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

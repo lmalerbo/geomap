@@ -71,7 +71,7 @@ referência visual, este arquivo é a referência do "por quê".
   arrastar o mapa recolhe). Painel de talhão compacto (título, atalhos, 2
   atributos — ~36% da tela) com "Ver todos os N atributos". Desktop sem
   mudança.
-- **Fase 4 — apontamento de voo**: fluxo redesenhado (total em hectares,
+- **Fase 4 — apontamento de voo** *(pronta no branch, 2026-10-01)*: fluxo redesenhado (total em hectares,
   filtro por tipo junto da legenda, começar pelo talhão, escolha grande
   quando há 2+ pendências, data em 1 toque) **e fila offline**: sem sinal,
   o apontamento fica guardado no aparelho e é enviado sozinho quando a

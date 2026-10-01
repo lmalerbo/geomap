@@ -4,6 +4,7 @@ import { listarMapasDisponiveis, listarMapasBaixados } from "../lib/db.js";
 import { sincronizarMapas } from "../lib/sync.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
+import { useApontamentosNaFila } from "../hooks/useApontamentosNaFila.js";
 import MenuLateral from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
@@ -22,6 +23,7 @@ export default function Inicio() {
   const { sessao, sair } = useAuth();
   const navigate = useNavigate();
   const pinsPendentes = usePinsPendentes();
+  const filaApontamentos = useApontamentosNaFila();
   const [mapas, setMapas] = useState([]);
   const [contagemCamadas, setContagemCamadas] = useState(new Map());
   const [sincronizando, setSincronizando] = useState(true);
@@ -79,7 +81,7 @@ export default function Inicio() {
   }, [sessao.token]);
 
   async function handleSair() {
-    if (await sairDescartandoPins(pinsPendentes, sair)) navigate("/login");
+    if (await sairDescartandoPins(pinsPendentes, sair, undefined, filaApontamentos.qtdPendentes)) navigate("/login");
   }
 
   return (

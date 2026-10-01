@@ -2173,96 +2173,6 @@ input[type="file"]::file-selector-button:hover {
   width: 280px;
 }
 
-/* Só existe no mapa "Voos" (ver docs/INTEGRACAO_DRONEMANAGEMENT.md) —
-   mesmo canto do track log; raro os dois estarem abertos ao mesmo tempo
-   nesse mapa específico (aceito o mesmo trade-off já existente entre
-   .painel-medicao/.painel-atributos, que dividem o canto direito). */
-.painel-apontamento {
-  bottom: 56px; /* mesmo motivo de .painel-track — folga pra barra de escala */
-  left: 16px;
-  width: 280px;
-  /* Sem isso, o modo de apontamento ligado (legenda + escolha de tipo +
-     data + resultado) podia crescer o bastante pra cobrir quase a tela
-     inteira num celular — nada limitava a altura do painel, só a
-     posição. Rola dentro do próprio painel em vez de continuar
-     crescendo, mesma técnica de .painel-atributos. */
-  max-height: min(70vh, 520px);
-  overflow-y: auto;
-}
-
-.painel-apontamento > button {
-  width: 100%;
-  margin-top: 10px;
-}
-
-/* Canto inferior-esquerdo — botão "Apontar voo" no mesmo esquema
-   círculo⇄cartão de Camadas/Tipo de voo (2026-08-21). Só 1 elemento por
-   vez (círculo ou cartão), diferente de .pilha-topo-esquerda que empilha
-   vários — ainda assim um wrapper próprio (em vez de posicionar o botão/
-   aside direto) deixa a posição consistente não importa qual dos dois
-   está renderizado. */
-.pilha-apontamento {
-  position: absolute;
-  bottom: 56px; /* mesmo motivo de .painel-track — folga pra barra de escala */
-  left: 16px;
-  z-index: 1;
-  max-width: calc(100vw - 32px);
-}
-
-/* Estado recolhido do botão "Apontar voo" — antes um círculo idêntico aos
-   de Camadas/Tipo de voo (só ícone diferente), o que não deixava claro
-   que esse é o botão de AÇÃO da tela, os outros dois só abrem informação
-   (pedido do Leo, 2026-09-22: "mais intuitivo... destaque"). Vira um FAB
-   (pill com ícone + texto) em vez de círculo — silhueta diferente dos
-   botões de informação já sinaliza "isso faz algo", sem precisar de
-   nenhum brilho/pulso (motion decorativo em loop degrada com o tempo e
-   atrapalha acessibilidade, evitado de propósito). */
-.botao-apontamento-recolhido {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px 12px 16px;
-  min-height: 48px;
-  border-radius: 999px;
-  font-weight: 600;
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.16),
-    0 8px 20px rgba(0, 0, 0, 0.14);
-  animation: entrada var(--dur-painel) var(--ease-saida);
-}
-
-.botao-apontamento-recolhido:hover {
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.18),
-    0 10px 24px rgba(0, 0, 0, 0.18);
-}
-
-.painel-apontamento-inicio {
-  width: 280px;
-  max-width: calc(100vw - 32px);
-}
-
-.conteudo-painel-apontamento-inicio {
-  padding: 0 16px 12px;
-}
-
-.conteudo-painel-apontamento-inicio .botao-abrir-apontamento {
-  width: 100%;
-}
-
-.filtro-projetos-voo {
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.rotulo-filtro-projetos-voo {
-  margin: 0 0 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
 .swatch-tipo-voo {
   display: inline-block;
   width: 10px;
@@ -2272,42 +2182,11 @@ input[type="file"]::file-selector-button:hover {
   flex-shrink: 0;
 }
 
-.escolha-tipo-voo {
-  margin-bottom: 10px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-}
-
-.escolha-tipo-voo p {
-  margin: 0 0 6px;
-  font-size: 13px;
-}
-
-.escolha-tipo-voo .botao-secundario {
-  margin-top: 6px;
-  width: 100%;
-}
-
 .detalhe-falha-apontamento {
   margin: 4px 0 0;
   padding-left: 18px;
   font-size: 12px;
   color: var(--erro);
-}
-
-.painel-apontamento label {
-  display: block;
-  margin: 10px 0;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.painel-apontamento input[type="date"] {
-  display: block;
-  width: 100%;
-  margin-top: 4px;
 }
 
 /* Título + botão fechar como linha flex normal, em vez do botão fechar
@@ -3028,33 +2907,12 @@ input[type="file"]::file-selector-button:hover {
     width: min(260px, calc(100vw - 16px));
   }
 
-  .painel-apontamento {
-    left: 8px;
-    bottom: 44px;
-    width: min(260px, calc(100vw - 16px));
-    /* Mais apertado que o teto de desktop (70vh) — no celular o mapa
-       por trás precisa continuar navegável (pinça/arraste) enquanto o
-       painel está aberto, não só "caber na tela". */
-    max-height: 40vh;
-  }
-
-  .pilha-apontamento {
-    left: 8px;
-    bottom: 44px;
-    max-width: calc(100vw - 16px);
-  }
-
-  .painel-apontamento-inicio {
-    width: min(260px, calc(100vw - 16px));
-  }
-
   /* .painel-atributos vira full-width nessa largura (left/right:8px) — sem
      isso ele cobre/se cola visualmente no botão "Apontar voo" e no painel
      de track, que ficam no mesmo canto inferior (achado real testando no
      celular, 2026-09-22: o botão aparecia "grudado" no card de atributos).
      :has() é progressive enhancement — sem suporte, some a garantia extra
      mas nada quebra (mesmo overlap de antes, não pior). */
-  .area-mapa:has(.painel-atributos.aberto) .pilha-apontamento,
   .area-mapa:has(.painel-atributos.aberto) .pilha-acoes {
     display: none;
   }
@@ -3470,10 +3328,6 @@ input[type="file"]::file-selector-button:hover {
   .barra-acao {
     width: 100%;
   }
-
-  .area-mapa:has(.pilha-acoes > *) .pilha-apontamento {
-    display: none;
-  }
 }
 
 /* ===== Gaveta inferior do celular (redesenho, fase 3) =====
@@ -3708,12 +3562,398 @@ input[type="file"]::file-selector-button:hover {
 }
 
 /* Com a gaveta recolhida no rodapé (~150px), a barra de escala, a
-   atribuição e o botão "Apontar voo" sobem pra continuar visíveis. */
+   atribuição sobem pra continuar visíveis. */
 .area-mapa:has(.gaveta-celular) .maplibregl-ctrl-bottom-left,
 .area-mapa:has(.gaveta-celular) .maplibregl-ctrl-bottom-right {
   bottom: 150px;
 }
 
-.area-mapa:has(.gaveta-celular) .pilha-apontamento {
-  bottom: 162px;
+/* ===== Apontamento de voo (redesenho, fase 4) =====
+   Painel Voos (lateral no desktop, aba da gaveta no celular), barra do
+   modo de apontamento no rodapé (.pilha-acoes) e a fila de apontamentos
+   guardados no aparelho. Âmbar = aguardando sinal, mesma cor que os
+   talhões na fila ganham no mapa (COR_AGUARDANDO_SINAL). */
+.painel-voos-lateral {
+  width: 300px;
+}
+
+.painel-voos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 14px 14px;
+}
+
+.conteudo-gaveta .painel-voos {
+  padding: 0 4px;
+}
+
+.total-voos {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.total-voos strong {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.total-voos span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.status-voos {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.status-voos--erro {
+  color: var(--erro);
+}
+
+.status-voos--aviso {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff7e6;
+  color: #8a5a00;
+}
+
+.cartao-fila {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  animation: entrada var(--dur-painel) var(--ease-saida);
+}
+
+.cartao-fila span {
+  color: #6b4a00;
+}
+
+.cartao-fila--aguardando {
+  background: #fff7e6;
+  border: 1px solid #f4d38b;
+  color: #6b4a00;
+}
+
+.cartao-fila--recusado {
+  background: #fdecee;
+  border: 1px solid #f3b8bf;
+  color: #8c1d18;
+}
+
+.cartao-fila ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.cartao-fila .botao-acao-secundario {
+  align-self: flex-start;
+  height: 34px;
+}
+
+.acoes-cartao-fila {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filtro-tipos-voo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-tipo-voo {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  min-height: 0;
+  padding: 0 10px;
+  border: 1.5px solid #d9e2e6;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.chip-tipo-voo:hover {
+  background: #f5f8f6;
+}
+
+.chip-tipo-voo--inativo {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.chip-tipo-voo--inativo .swatch-tipo-voo {
+  filter: grayscale(1);
+}
+
+.botao-apontar-voo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  min-height: 0;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.botao-apontar-voo--curto {
+  width: auto;
+  height: 44px;
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+
+.resumo-gaveta--voos {
+  cursor: default;
+}
+
+.texto-resumo-gaveta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 0;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  color: #52606d;
+  text-align: left;
+  font-weight: 400;
+}
+
+.texto-resumo-gaveta:hover {
+  background: transparent;
+}
+
+.texto-resumo-gaveta span {
+  font-size: 12.5px;
+}
+
+/* Barra do modo de apontamento — mais larga que as outras barras de ação:
+   tem a lista do que foi marcado e a data. */
+.barra-apontamento {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(460px, calc(100vw - 32px));
+  padding: 10px 10px 10px 14px;
+}
+
+.barra-apontamento .valor-barra-acao {
+  flex: 1;
+  max-width: none;
+}
+
+.ponto-apontando {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-suave);
+  flex-shrink: 0;
+}
+
+.selecionados-apontamento {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.chip-selecionado {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 2px 0 10px;
+  border-radius: 999px;
+  background: var(--accent-suave);
+  color: var(--accent-escuro);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: entrada var(--dur-hover) var(--ease-saida);
+}
+
+.chip-selecionado button {
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent-escuro);
+}
+
+.chip-selecionado button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.chip-selecionado button:hover {
+  background: rgba(31, 90, 58, 0.12);
+}
+
+.linha-data-voo {
+  gap: 6px 10px;
+}
+
+.rotulo-data-voo {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.campo-data-voo {
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid #d9e2e6;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.botao-confirmar-apontamento {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  min-height: 0;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Escolha entre 2+ pendências do mesmo talhão: botões grandes (dedo de
+   luva em campo), acima da barra de apontamento. */
+.escolha-pendencias {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(460px, calc(100vw - 32px));
+  padding: 12px 12px 12px 14px;
+}
+
+.escolha-pendencias .valor-barra-acao {
+  max-width: none;
+}
+
+.opcoes-escolha {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.opcao-escolha {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  height: 48px;
+  min-height: 0;
+  padding: 0 12px;
+  border: 1.5px solid #d9e2e6;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.opcao-escolha:hover {
+  background: #f5f8f6;
+}
+
+.opcao-escolha.marcada {
+  border-color: var(--accent);
+  background: var(--accent-suave);
+}
+
+.caixa-escolha {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #b8c4cc;
+  border-radius: 6px;
+  background: #fff;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.opcao-escolha.marcada .caixa-escolha {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.escolha-pendencias .acoes-barra-acao {
+  justify-content: flex-end;
+}
+
+/* Talhão da camada de voos no painel de atributos: o que falta voar ali. */
+.pendencias-talhao {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-suave);
+}
+
+.pendencias-talhao p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent-escuro);
+}
+
+.pendencias-talhao .botao-apontar-voo {
+  height: 42px;
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .barra-apontamento,
+  .escolha-pendencias {
+    width: 100%;
+  }
+
+  .linha-data-voo .segmentado {
+    flex: 1;
+  }
+
+  .rotulo-data-voo {
+    width: 100%;
+  }
+
+  .linha-data-voo .segmentado button {
+    flex: 1;
+    padding: 0 6px;
+    white-space: nowrap;
+  }
 }

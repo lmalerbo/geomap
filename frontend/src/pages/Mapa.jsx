@@ -29,6 +29,7 @@ import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
 import { usePins } from "../hooks/usePins.js";
 import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
+import { useApontamentosNaFila } from "../hooks/useApontamentosNaFila.js";
 import { ICONES_PREPARO, urlSvgPin } from "../lib/iconesPreparo.js";
 import {
   linkGoogleMaps,
@@ -46,6 +47,8 @@ import DockFerramentas, {
   IconeDockArea,
   IconeDockImportar,
 } from "../components/DockFerramentas.jsx";
+import PainelVoos from "../components/PainelVoos.jsx";
+import BarraApontamento from "../components/BarraApontamento.jsx";
 import { useEhCelular } from "../hooks/useEhCelular.js";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import LegendaCamada, {
@@ -108,19 +111,28 @@ function iniciaisDoNome(nome) {
   return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
 }
 
-// Alvo/mira — botão recolhido da ação "Apontar voo" (distinto do ícone de
-// drone, que agora é só da legenda "Tipo de voo").
-function IconeApontamento() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="4" />
-      <line x1="12" y1="1" x2="12" y2="4" />
-      <line x1="12" y1="20" x2="12" y2="23" />
-      <line x1="1" y1="12" x2="4" y2="12" />
-      <line x1="20" y1="12" x2="23" y2="12" />
-    </svg>
-  );
+// Texto do aviso depois de apontar: enviado agora, guardado no aparelho
+// (sem sinal) ou enviado depois pela fila (redesenho, fase 4).
+function textoResultadoApontamento(r) {
+  const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+  if (r.naFila) {
+    return `Guardado no aparelho: ${plural(r.naFila, "apontamento", "apontamentos")} · envia sozinho quando o sinal voltar.`;
+  }
+  const partes = [];
+  if (r.daFila) {
+    if (r.sucesso.length > 0) {
+      partes.push(`${plural(r.sucesso.length, "apontamento guardado foi enviado", "apontamentos guardados foram enviados")}.`);
+    }
+    if (r.recusados > 0) {
+      partes.push(`${plural(r.recusados, "não foi aceito", "não foram aceitos")} — veja no painel Voos.`);
+    }
+    return partes.join(" ");
+  }
+  if (r.sucesso.length > 0) {
+    partes.push(`${plural(r.sucesso.length, "apontamento enviado", "apontamentos enviados")} com sucesso.`);
+  }
+  if (r.falha.length > 0) partes.push(`${r.falha.length} ${r.falha.length === 1 ? "falhou" : "falharam"}.`);
+  return partes.join(" ");
 }
 
 // Botão "Home" — volta pra extensão combinada de todas as camadas carregadas.
@@ -920,23 +932,18 @@ export default function Mapa() {
   // no protótipo: "não pode cobrir mais de 50% do mapa").
   const ehCelular = useEhCelular();
   const [gavetaAberta, setGavetaAberta] = useState(false);
-  const [abaGaveta, setAbaGaveta] = useState("camadas");
+  // null = ainda não escolhida: vale a 1ª aba do mapa (Voos no mapa de voos).
+  const [abaGaveta, setAbaGaveta] = useState(null);
   const [atributosExpandidos, setAtributosExpandidos] = useState(false);
   // Recolhido por padrão em qualquer tamanho de tela — antes só recolhia
   // no mobile (aberto por padrão no desktop), comportamento inconsistente
   // entre plataformas.
   const [painelCamadasAberto, setPainelCamadasAberto] = useState(false);
-  // Legenda "Tipo de voo" — recolhida por padrão, mesmo esquema do painel
-  // de camadas; agrupada junto com ele (topo-esquerda, ver
-  // pilha-topo-esquerda) por pedido do Leo (2026-08-21) — as duas são
-  // "informação/filtro", só o botão de ação "Apontar voo" fica separado
-  // (canto inferior-esquerdo, ver painelApontarAberto abaixo).
-  const [painelTipoVooAberto, setPainelTipoVooAberto] = useState(false);
-  // Botão "Apontar voo" (ação de entrar no modo de apontamento) também
-  // recolhido por padrão, mesmo esquema — clicar no círculo abre um cartão
-  // pequeno com o botão de verdade dentro, em vez do botão ficar sempre
-  // exposto ocupando espaço no mapa.
-  const [painelApontarAberto, setPainelApontarAberto] = useState(false);
+  // Painel "Voos" do mapa de voos (redesenho, fase 4): resumo das
+  // pendências, filtro por tipo, fila offline e o botão "Apontar voo".
+  // Recolhido por padrão, aberto pela barra de ferramentas — mutuamente
+  // exclusivo com o painel de camadas.
+  const [painelVoosAberto, setPainelVoosAberto] = useState(false);
   // Quais camadas têm a legenda completa expandida (categorizado/graduado/
   // gradiente/forma por atributo) — só existe a setinha de expandir pra
   // camada que tem algo além do swatch simples (ver temLegendaDetalhada).
@@ -946,6 +953,12 @@ export default function Mapa() {
   // de mapa real).
   const [legendaTemporariaExpandida, setLegendaTemporariaExpandida] = useState(false);
   const [indiceBusca, setIndiceBusca] = useState([]);
+  // Sobe a cada rodada de aplicar() que adiciona/remove/reconstrói camada.
+  // camadasCarregadasRef não dispara render; sem isto, o que é derivado
+  // dela no render (voosInfo, legenda) só aparecia por acaso, no próximo
+  // render causado por outra coisa (achado na fase 4: na primeira abertura
+  // do mapa de voos, o painel Voos e as pendências não apareciam).
+  const [, setVersaoCamadas] = useState(0);
   const [buscaTexto, setBuscaTexto] = useState("");
   // Fazenda selecionada pela busca (resultado inteiro, ver
   // selecionarResultadoBusca) — dirige tanto o destaque visual do limite no
@@ -1009,6 +1022,7 @@ export default function Mapa() {
     aoAviso: (mensagem) => adicionarToast({ tipo: "erro", mensagem }),
   });
   const pinsPendentes = usePinsPendentes();
+  const filaApontamentos = useApontamentosNaFila();
   // Nome + cor real de cada feição do arquivo importado (ver
   // resumoFeicoesTemporaria) — alimenta o swatch (cor única, faixa de cores,
   // ou o magenta padrão quando o arquivo não tem simbologia nenhuma) e a
@@ -1200,6 +1214,13 @@ export default function Mapa() {
     setBarraAnotarAberta(false);
     pins.setModoAdicionar(false);
     pins.fecharPin();
+    // A tela foca só na tarefa de apontar (pedido do Leo, 2026-09-22):
+    // sem talhão/atributos aberto, marcador de clique ou lista da fazenda.
+    setSelecao(null);
+    setPontoSelecionado(null);
+    fecharTalhoesFazenda();
+    setPainelVoosAberto(false);
+    setGavetaAberta(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apontamento.modoApontamento]);
 
@@ -1339,7 +1360,7 @@ export default function Mapa() {
 
       for (const mapa of mapasLocais) {
         const existente = carregadas.get(mapa.id);
-        const assinaturaAtual = `${mapa.versao}|${JSON.stringify(mapa.atributosConfig)}|${JSON.stringify(mapa.estiloConfig)}`;
+        const assinaturaAtual = `${mapa.versao}|${JSON.stringify(mapa.atributosConfig)}|${JSON.stringify(mapa.estiloConfig)}|${mapa.ordem}`;
         if (existente && existente.assinatura === assinaturaAtual) continue;
         if (existente) removerCamada(map, existente);
 
@@ -1422,6 +1443,8 @@ export default function Mapa() {
           jaEnquadrouRef.current = true;
         }
       }
+
+      if (mudou) setVersaoCamadas((v) => v + 1);
 
       // Índice de busca: só remonta quando a combinação de camadas carregadas
       // muda de verdade — comparado por assinatura (não pelo booleano `mudou`
@@ -1545,7 +1568,7 @@ export default function Mapa() {
           setSelecao(null);
           setPontoSelecionado(null);
           setPainelCamadasAberto(false);
-          setPainelTipoVooAberto(false);
+          setPainelVoosAberto(false);
           pins.selecionarPin(clicados[0].properties.id);
           return;
         }
@@ -1566,7 +1589,7 @@ export default function Mapa() {
         // Task 7, preservado aqui).
         if (!apontamento.modoApontamento) {
           setPainelCamadasAberto(false);
-          setPainelTipoVooAberto(false);
+          setPainelVoosAberto(false);
           setPontoSelecionado({ lngLat: e.lngLat });
         }
         return;
@@ -1601,7 +1624,7 @@ export default function Mapa() {
       // sobrepondo de verdade, não só poluindo visualmente. No máximo 1
       // card de informação aberto por vez.
       setPainelCamadasAberto(false);
-      setPainelTipoVooAberto(false);
+      setPainelVoosAberto(false);
       setSelecao({ lngLat: e.lngLat, itens, indice: 0 });
     }
 
@@ -1757,7 +1780,7 @@ export default function Mapa() {
   }
 
   async function handleSair() {
-    if (await sairDescartandoPins(pinsPendentes, sair)) navigate("/login");
+    if (await sairDescartandoPins(pinsPendentes, sair, undefined, filaApontamentos.qtdPendentes)) navigate("/login");
   }
 
   function selecionarResultadoBusca(resultado) {
@@ -1856,6 +1879,12 @@ export default function Mapa() {
   }
 
   const itemSelecionado = selecao?.itens[selecao.indice];
+  // Talhão da camada de voos clicado fora do modo de apontamento: o painel
+  // mostra o que falta voar ali e oferece "Apontar este talhão".
+  const pendenciasTalhaoSelecionado =
+    voosInfo && itemSelecionado?.mapaId === voosInfo.id && itemSelecionado.bruto?.TALHAO != null
+      ? apontamento.pendenciasDoTalhao(itemSelecionado.bruto.SECAO, itemSelecionado.bruto.TALHAO)
+      : null;
 
   // Título do painel de atributos (redesenho, fase 2): "Talhão N" e a
   // fazenda/código em destaque quando a feição tem esses campos — lidos das
@@ -1981,7 +2010,7 @@ export default function Mapa() {
     setPontoSelecionado(null);
     pins.fecharPin();
   }
-  const mostrarTipoVoo = Boolean(voosInfo) && !apontamento.modoApontamento && apontamento.legendaProjetos.length > 1;
+  const mostrarPainelVoos = Boolean(voosInfo) && !apontamento.modoApontamento;
   const gruposDock = [
     [
       {
@@ -1996,22 +2025,23 @@ export default function Mapa() {
             return;
           }
           setPainelCamadasAberto(true);
-          setPainelTipoVooAberto(false);
+          setPainelVoosAberto(false);
           fecharCartoesDeInformacao();
         },
       },
       {
-        id: "tipo-voo",
-        rotulo: "Tipo de voo",
+        id: "voos",
+        rotulo: "Voos",
+        rotuloCompleto: "Voos pendentes e apontamento",
         icone: <IconeDockTipoVoo />,
-        visivel: mostrarTipoVoo,
-        ativo: painelTipoVooAberto,
+        visivel: mostrarPainelVoos,
+        ativo: painelVoosAberto,
         aoClicar: () => {
-          if (painelTipoVooAberto) {
-            setPainelTipoVooAberto(false);
+          if (painelVoosAberto) {
+            setPainelVoosAberto(false);
             return;
           }
-          setPainelTipoVooAberto(true);
+          setPainelVoosAberto(true);
           setPainelCamadasAberto(false);
           fecharCartoesDeInformacao();
         },
@@ -2257,22 +2287,6 @@ export default function Mapa() {
                 {temporaria.erroImportacao && <p className="erro">{temporaria.erroImportacao}</p>}
     </>
   );
-  const filtroTipoVoo = (
-    <div className="filtro-projetos-voo">
-                {apontamento.legendaProjetos.map(({ chave, rotulo, cor, projeto }) => (
-                  <label key={chave} className="campo-form-admin campo-form-admin--checkbox">
-                    <input
-                      type="checkbox"
-                      checked={apontamento.filtroProjetos?.has(projeto) ?? true}
-                      onChange={() => apontamento.alternarFiltroProjeto(projeto)}
-                    />
-                    <span className="swatch-tipo-voo" style={{ backgroundColor: cor }} aria-hidden="true" />
-                    {rotulo}
-                  </label>
-                ))}
-              </div>
-  );
-
   // Celular: painel do talhão abre compacto (título, atalhos e 2 atributos)
   // — o resto só com "Ver todos os N atributos".
   const atributosCompactos = ehCelular && !atributosExpandidos;
@@ -2296,25 +2310,50 @@ export default function Mapa() {
     !apontamento.modoApontamento;
 
   const qtdCamadasVisiveis = mapasLocais.filter((m) => camadasVisiveis.has(m.id)).length;
-  const abasGaveta = [
-    { id: "camadas", rotulo: "Camadas" },
-    { id: "legenda", rotulo: "Legenda" },
-    { id: "ferramentas", rotulo: "Ferramentas" },
-  ];
+  // Mapa de voos: a 1ª aba é Voos (resumo + filtro por tipo, que já é a
+  // legenda das cores) no lugar de Legenda.
+  const abasGaveta = voosInfo
+    ? [
+        { id: "voos", rotulo: "Voos" },
+        { id: "camadas", rotulo: "Camadas" },
+        { id: "ferramentas", rotulo: "Ferramentas" },
+      ]
+    : [
+        { id: "camadas", rotulo: "Camadas" },
+        { id: "legenda", rotulo: "Legenda" },
+        { id: "ferramentas", rotulo: "Ferramentas" },
+      ];
+  const abaGavetaAtual = abasGaveta.some((a) => a.id === abaGaveta) ? abaGaveta : abasGaveta[0].id;
+  const qtdNaFila = apontamento.fila.qtdPendentes;
   const resumoGaveta = {
     camadas: {
       titulo: `${qtdCamadasVisiveis} de ${mapasLocais.length} camadas visíveis`,
       sub: "Toque pra ligar, desligar ou importar um arquivo",
     },
+    voos: {
+      titulo: apontamento.carregandoPendentes
+        ? "Carregando pendências…"
+        : `${apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha pendentes · ${apontamento.qtdTalhoesPendentes} ${apontamento.qtdTalhoesPendentes === 1 ? "talhão" : "talhões"}`,
+      sub:
+        qtdNaFila > 0
+          ? `${qtdNaFila} ${qtdNaFila === 1 ? "apontamento aguardando" : "apontamentos aguardando"} sinal`
+          : apontamento.fila.recusados.length > 0
+            ? "Há apontamentos não aceitos — toque pra ver"
+            : "Toque pra filtrar por tipo de voo",
+    },
     legenda: {
-      titulo: mostrarTipoVoo ? "Tipos de voo e camadas" : "Cores e símbolos",
+      titulo: "Cores e símbolos",
       sub: "Só do que está visível no mapa agora",
     },
     ferramentas: {
       titulo: podeEditar ? "Medir, gravar percurso, anotar" : "Medir e gravar percurso",
       sub: "Funcionam sem internet",
     },
-  }[abaGaveta];
+  }[abaGavetaAtual];
+
+  function entrarNoApontamento() {
+    apontamento.iniciarModo();
+  }
 
   function ativarFerramenta(acao) {
     setGavetaAberta(false);
@@ -2323,12 +2362,6 @@ export default function Mapa() {
 
   const legendaGaveta = (
     <div className="legenda-gaveta">
-      {mostrarTipoVoo && (
-        <div className="bloco-legenda-gaveta">
-          <h3>Tipo de voo</h3>
-          {filtroTipoVoo}
-        </div>
-      )}
       {mapasLocais
         .filter((m) => camadasVisiveis.has(m.id))
         .map((m) => {
@@ -2363,7 +2396,7 @@ export default function Mapa() {
             </div>
           );
         })}
-      {qtdCamadasVisiveis === 0 && !mostrarTipoVoo && (
+      {qtdCamadasVisiveis === 0 && (
         <p className="vazio-legenda-gaveta">Nenhuma camada visível — ligue alguma na aba Camadas.</p>
       )}
     </div>
@@ -2626,22 +2659,22 @@ export default function Mapa() {
           </div>
         )}
 
-        {!ehCelular && mostrarTipoVoo && painelTipoVooAberto && (
-            <aside className="painel-camadas" aria-label="Tipo de voo">
-              <button
-                type="button"
-                className="cabecalho-painel-camadas"
-                onClick={() => setPainelTipoVooAberto(false)}
-                aria-expanded={painelTipoVooAberto}
-              >
-                <span>Tipo de voo</span>
-                <span className="seta seta--aberta" aria-hidden="true">
-                  ›
-                </span>
-              </button>
-              {filtroTipoVoo}
-            </aside>
-          )}
+        {!ehCelular && mostrarPainelVoos && painelVoosAberto && (
+          <aside className="painel-camadas painel-voos-lateral" aria-label="Voos">
+            <button
+              type="button"
+              className="cabecalho-painel-camadas"
+              onClick={() => setPainelVoosAberto(false)}
+              aria-expanded={painelVoosAberto}
+            >
+              <span>Voos</span>
+              <span className="seta seta--aberta" aria-hidden="true">
+                ›
+              </span>
+            </button>
+            <PainelVoos apontamento={apontamento} aoApontar={entrarNoApontamento} />
+          </aside>
+        )}
         </div>
 
         {mostrarGaveta && (
@@ -2661,8 +2694,8 @@ export default function Mapa() {
                   key={aba.id}
                   type="button"
                   role="tab"
-                  aria-selected={abaGaveta === aba.id}
-                  className={abaGaveta === aba.id ? "ativa" : ""}
+                  aria-selected={abaGavetaAtual === aba.id}
+                  className={abaGavetaAtual === aba.id ? "ativa" : ""}
                   onClick={() => {
                     setAbaGaveta(aba.id);
                     setGavetaAberta(true);
@@ -2674,9 +2707,29 @@ export default function Mapa() {
             </div>
             {gavetaAberta ? (
               <div className="conteudo-gaveta" role="tabpanel">
-                {abaGaveta === "camadas" && listaCamadas}
-                {abaGaveta === "legenda" && legendaGaveta}
-                {abaGaveta === "ferramentas" && ferramentasGaveta}
+                {abaGavetaAtual === "voos" && (
+                  <PainelVoos apontamento={apontamento} aoApontar={entrarNoApontamento} />
+                )}
+                {abaGavetaAtual === "camadas" && listaCamadas}
+                {abaGavetaAtual === "legenda" && legendaGaveta}
+                {abaGavetaAtual === "ferramentas" && ferramentasGaveta}
+              </div>
+            ) : abaGavetaAtual === "voos" ? (
+              // Recolhida na aba Voos: resumo + o botão de apontar a um
+              // toque, sem precisar abrir a gaveta.
+              <div className="resumo-gaveta resumo-gaveta--voos">
+                <button type="button" className="texto-resumo-gaveta" onClick={() => setGavetaAberta(true)}>
+                  <strong>{resumoGaveta.titulo}</strong>
+                  <span>{resumoGaveta.sub}</span>
+                </button>
+                <button
+                  type="button"
+                  className="botao-apontar-voo botao-apontar-voo--curto"
+                  onClick={entrarNoApontamento}
+                  disabled={apontamento.carregandoPendentes || apontamento.qtdTalhoesPendentes === 0}
+                >
+                  Apontar voo
+                </button>
               </div>
             ) : (
               <button type="button" className="resumo-gaveta" onClick={() => setGavetaAberta(true)}>
@@ -2714,6 +2767,7 @@ export default function Mapa() {
             />
           )}
           {medicao.medindo && <BarraAcaoMedicao medicao={medicao} />}
+          {voosInfo && apontamento.modoApontamento && <BarraApontamento apontamento={apontamento} />}
           <BarraAnotar
             aberta={barraAnotarAberta}
             modoAdicionar={pins.modoAdicionar}
@@ -2727,83 +2781,6 @@ export default function Mapa() {
           />
         </div>
 
-        {voosInfo && !apontamento.modoApontamento && (
-          // Botão "Apontar voo" no mesmo esquema círculo⇄cartão de
-          // Camadas/Tipo de voo (pedido do Leo, 2026-08-21) — canto
-          // inferior-esquerdo, separado da legenda (que foi pro
-          // pilha-topo-esquerda, junto de Camadas).
-          <div className="pilha-apontamento">
-            {!painelApontarAberto ? (
-              <button
-                type="button"
-                className="botao-apontamento-recolhido"
-                onClick={() => setPainelApontarAberto(true)}
-                aria-label={
-                  apontamento.carregandoPendentes ? "Carregando pendências de voo" : "Abrir apontamento de voo"
-                }
-                title={apontamento.carregandoPendentes ? "Carregando pendências…" : "Apontar voo"}
-              >
-                {apontamento.carregandoPendentes ? (
-                  <span className="spinner" aria-hidden="true" />
-                ) : (
-                  <IconeApontamento />
-                )}
-                <span>{apontamento.carregandoPendentes ? "Carregando…" : "Apontar voo"}</span>
-              </button>
-            ) : (
-              <aside className="painel-camadas painel-apontamento-inicio">
-                <button
-                  type="button"
-                  className="cabecalho-painel-camadas"
-                  onClick={() => setPainelApontarAberto(false)}
-                  aria-expanded={painelApontarAberto}
-                >
-                  <span>Apontar voo</span>
-                  <span className="seta seta--aberta" aria-hidden="true">
-                    ›
-                  </span>
-                </button>
-                <div className="conteudo-painel-apontamento-inicio">
-                  <button
-                    type="button"
-                    className="botao-abrir-apontamento"
-                    onClick={() => {
-                      // Entrar no modo de apontamento desfaz qualquer seleção
-                      // que possa confundir o piloto (talhão/atributos aberto,
-                      // marcador de clique, card de talhões da fazenda) —
-                      // pedido do Leo (2026-09-22): a tela deve focar só na
-                      // tarefa de apontar, sem sobra visual de outra coisa.
-                      setSelecao(null);
-                      setPontoSelecionado(null);
-                      fecharTalhoesFazenda();
-                      pins.fecharPin();
-                      setBarraAnotarAberta(false);
-                      pins.setModoAdicionar(false);
-                      apontamento.iniciarModo();
-                    }}
-                    disabled={apontamento.carregandoPendentes}
-                  >
-                    {apontamento.carregandoPendentes ? (
-                      <>
-                        <span className="spinner" aria-hidden="true" /> Carregando pendências…
-                      </>
-                    ) : (
-                      <>
-                        Apontar voo (
-                        {apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha
-                        pendentes)
-                      </>
-                    )}
-                  </button>
-                  {apontamento.erroPendentes && (
-                    <p className="erro">Erro ao carregar pendências: {apontamento.erroPendentes}</p>
-                  )}
-                </div>
-              </aside>
-            )}
-          </div>
-        )}
-
         {/* Confirmação do apontamento — fora do card de modo de apontamento
             de propósito: `confirmarLote` desliga `modoApontamento` no mesmo
             instante que grava o resultado, então um toast preso dentro
@@ -2813,15 +2790,9 @@ export default function Mapa() {
             usado pelos avisos de job do admin. */}
         {voosInfo && apontamento.resultado && (
           <div className="pilha-toasts" role="status" aria-live="polite">
-            <div className={`toast toast--${apontamento.resultado.falha.length > 0 ? "erro" : "sucesso"}`}>
+            <div className={`toast toast--${apontamento.resultado.falha.length > 0 || apontamento.resultado.recusados > 0 ? "erro" : "sucesso"}`}>
               <div>
-                <span>
-                  {apontamento.resultado.sucesso.length > 0 &&
-                    `${apontamento.resultado.sucesso.length} apontamento${apontamento.resultado.sucesso.length === 1 ? "" : "s"} enviado${apontamento.resultado.sucesso.length === 1 ? "" : "s"} com sucesso.`}
-                  {apontamento.resultado.sucesso.length > 0 && apontamento.resultado.falha.length > 0 && " "}
-                  {apontamento.resultado.falha.length > 0 &&
-                    `${apontamento.resultado.falha.length} falhou${apontamento.resultado.falha.length === 1 ? "" : "aram"}.`}
-                </span>
+                <span>{textoResultadoApontamento(apontamento.resultado)}</span>
                 {apontamento.resultado.falha.length > 0 && (
                   // Motivo de verdade, não só a contagem (achado real: piloto
                   // sem vínculo em pilotos_dronemgmt via só "1 falharam" sem
@@ -2844,60 +2815,6 @@ export default function Mapa() {
               </button>
             </div>
           </div>
-        )}
-
-        {voosInfo && apontamento.modoApontamento && (
-          <aside className="painel-flutuante painel-apontamento aberto">
-            <div className="cabecalho-painel-track">
-              <h3>Apontar voo</h3>
-              <button
-                type="button"
-                className="fechar"
-                onClick={apontamento.cancelarModo}
-                aria-label="Cancelar apontamento"
-                title="Cancelar apontamento"
-              >
-                ×
-              </button>
-            </div>
-            <p className="aviso-track">Clique nos talhões pendentes (coloridos) pra selecionar.</p>
-            {apontamento.escolhaPendente && (
-              <div className="escolha-tipo-voo">
-                <p>
-                  Talhão {apontamento.escolhaPendente.talhao} tem {apontamento.escolhaPendente.registros.length}{" "}
-                  pendências — qual você apontou?
-                </p>
-                {apontamento.escolhaPendente.registros.map((registro) => (
-                  <label key={registro.id} className="campo-form-admin campo-form-admin--checkbox">
-                    <input
-                      type="checkbox"
-                      checked={apontamento.selecionados.has(registro.id)}
-                      onChange={() => apontamento.escolherRegistro(registro)}
-                    />
-                    {registro.projeto}
-                  </label>
-                ))}
-                <button type="button" className="botao-secundario" onClick={apontamento.fecharEscolha}>
-                  OK
-                </button>
-              </div>
-            )}
-            <p>
-              {apontamento.selecionados.size} apontamento{apontamento.selecionados.size === 1 ? "" : "s"}{" "}
-              selecionado{apontamento.selecionados.size === 1 ? "" : "s"}
-            </p>
-            <label>
-              Data do voo
-              <input type="date" value={apontamento.dataVoo} onChange={(e) => apontamento.setDataVoo(e.target.value)} />
-            </label>
-            <button
-              type="button"
-              disabled={apontamento.selecionados.size === 0 || apontamento.enviando}
-              onClick={apontamento.confirmarLote}
-            >
-              {apontamento.enviando ? "Enviando…" : "Confirmar apontamento"}
-            </button>
-          </aside>
         )}
 
         <aside className={`painel-flutuante painel-atributos${selecao ? " aberto" : ""}`} aria-label="Atributos">
@@ -2966,6 +2883,34 @@ export default function Mapa() {
                   {linkCopiado ? "Link copiado" : "Compartilhar"}
                 </button>
               </div>
+              {pendenciasTalhaoSelecionado && (
+                <div className="pendencias-talhao">
+                  {pendenciasTalhaoSelecionado.length === 0 ? (
+                    <p>Nenhum voo pendente neste talhão.</p>
+                  ) : (
+                    <>
+                      <p>
+                        <strong>
+                          {pendenciasTalhaoSelecionado.length === 1
+                            ? "1 voo pendente"
+                            : `${pendenciasTalhaoSelecionado.length} voos pendentes`}
+                        </strong>
+                        {" · "}
+                        {pendenciasTalhaoSelecionado.map((r) => r.projeto).join(", ")}
+                      </p>
+                      <button
+                        type="button"
+                        className="botao-apontar-voo"
+                        onClick={() =>
+                          apontamento.iniciarComTalhao(itemSelecionado.bruto.SECAO, itemSelecionado.bruto.TALHAO)
+                        }
+                      >
+                        Apontar este talhão
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
               <dl className="atributos-grid" key={selecao.indice}>
                 {(atributosCompactos ? itemSelecionado.propriedades.slice(0, 2) : itemSelecionado.propriedades).map(
                   ({ campo, rotulo, valor }) => (
