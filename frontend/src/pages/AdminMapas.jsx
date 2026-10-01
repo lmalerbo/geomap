@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   listarMapasAdmin,
   listarGruposAdmin,
@@ -11,442 +11,580 @@ import {
   atualizarOrdemCamadasAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import IconeLordicon from "../components/IconeLordicon.jsx";
+import { useResumoAdmin } from "../components/LayoutAdmin.jsx";
+import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 
-const FORM_VAZIO = { nome: "", descricao: "", permissoes: [] };
+// Mapas (redesenho do admin, fase 5): lista em cards à esquerda e o mapa
+// escolhido à direita, em abas — Camadas (ordem de cima pra baixo), Acesso
+// (grupos que veem e podem anotar) e Detalhes (nome, descrição, duplicar,
+// remover). No celular, lista e painel aparecem um de cada vez.
 
-// Confirmação de "salvo" some sozinha depois de um tempo — mesmo padrão já
-// usado em AdminCamadas.jsx (useAutoDismiss), reescrito aqui em vez de
-// importado de lá pra manter as duas telas independentes.
-function useAutoDismiss(valor, setValor, delayMs = 2500) {
-  useEffect(() => {
-    if (!valor) return;
-    const id = setTimeout(() => setValor(null), delayMs);
-    return () => clearTimeout(id);
-  }, [valor, setValor, delayMs]);
+const ABAS = [
+  { id: "camadas", rotulo: "Camadas" },
+  { id: "acesso", rotulo: "Acesso" },
+  { id: "detalhes", rotulo: "Detalhes" },
+];
+
+const SITUACAO = {
+  atrasada: { rotulo: "Atrasada", classe: "alerta" },
+  erro: { rotulo: "Falhou", classe: "erro" },
+  atualizando: { rotulo: "Atualizando", classe: "andamento" },
+  em_dia: { rotulo: "Automação", classe: "ok" },
+};
+
+function plural(n, um, varios) {
+  return `${n} ${n === 1 ? um : varios}`;
 }
 
-function alternarGrupoEm(permissoes, grupoId) {
-  return permissoes.some((p) => p.grupoId === grupoId)
-    ? permissoes.filter((p) => p.grupoId !== grupoId)
-    : [...permissoes, { grupoId, podeEditar: false }];
+function textoGrupos(permissoes, grupos) {
+  if (!permissoes?.length) return "Nenhum grupo";
+  return permissoes
+    .map((p) => `${grupos.find((g) => g.id === p.grupoId)?.nome ?? "?"}${p.podeEditar ? " (anota)" : ""}`)
+    .join(", ");
 }
 
-function alternarAnotarEm(permissoes, grupoId) {
-  return permissoes.map((p) => (p.grupoId === grupoId ? { ...p, podeEditar: !p.podeEditar } : p));
+function EditorAcesso({ grupos, permissoes, aoMudar }) {
+  if (grupos.length === 0) {
+    return <p className="adm-suave">Nenhum grupo criado ainda — crie em Usuários e grupos.</p>;
+  }
+  return (
+    <ul className="adm-lista-acesso">
+      {grupos.map((g) => {
+        const p = permissoes.find((x) => x.grupoId === g.id);
+        return (
+          <li key={g.id} className={p ? "ativo" : ""}>
+            <label className="adm-acesso-grupo">
+              <input
+                type="checkbox"
+                checked={Boolean(p)}
+                onChange={() =>
+                  aoMudar(p ? permissoes.filter((x) => x.grupoId !== g.id) : [...permissoes, { grupoId: g.id, podeEditar: false }])
+                }
+              />
+              <span className="adm-avatar adm-avatar--grupo" aria-hidden="true">
+                {g.nome.charAt(0).toUpperCase()}
+              </span>
+              <span className="adm-forte">{g.nome}</span>
+            </label>
+            <label className={`adm-interruptor${p ? "" : " desativado"}`}>
+              <input
+                type="checkbox"
+                role="switch"
+                disabled={!p}
+                checked={p?.podeEditar === true}
+                onChange={() => aoMudar(permissoes.map((x) => (x.grupoId === g.id ? { ...x, podeEditar: !x.podeEditar } : x)))}
+              />
+              <span aria-hidden="true" />
+              Pode anotar
+            </label>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export default function AdminMapas() {
   const { sessao } = useAuth();
-  const navigate = useNavigate();
+  const { resumo, recarregarResumo } = useResumoAdmin();
+  const [params, setParams] = useSearchParams();
   const [mapas, setMapas] = useState([]);
   const [grupos, setGrupos] = useState([]);
-  const [form, setForm] = useState(FORM_VAZIO);
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState(null);
-  const [editandoId, setEditandoId] = useState(null);
-  const [formEdicao, setFormEdicao] = useState(FORM_VAZIO);
-  const [salvandoEdicaoId, setSalvandoEdicaoId] = useState(null);
-  const [removendoId, setRemovendoId] = useState(null);
-  const [duplicandoId, setDuplicandoId] = useState(null);
-  const [carregando, setCarregando] = useState(true);
-
-  // Ordenar camadas (o que fica em cima/embaixo no mapa) — pedido do Leo
-  // (2026-09-30). `camadas` guarda TODAS as camadas de TODOS os mapas (já
-  // ordenadas por mapa_id, ordem — ver GET /admin/camadas), igual ao padrão
-  // já usado por AdminCamadas.jsx; `ordenandoId` decide qual mapa está com
-  // a lista de reordenação aberta, `ordemCamadas` é a cópia local (só desse
-  // mapa) que o arrastar-e-soltar edita antes de salvar.
   const [camadas, setCamadas] = useState([]);
-  const [ordenandoId, setOrdenandoId] = useState(null);
-  const [ordemCamadas, setOrdemCamadas] = useState([]);
-  const [salvandoOrdemId, setSalvandoOrdemId] = useState(null);
-  const [ordemSalvaEm, setOrdemSalvaEm] = useState(null);
-  const [arrastandoIndiceOrdem, setArrastandoIndiceOrdem] = useState(null);
-  // Ref (não só o state acima) pelo mesmo motivo já documentado em
-  // AdminCamadas.jsx (moverAtributoPara): eventos de drag são "continuous
-  // priority" no React 18, setState dentro de onDragStart não garante
-  // flush síncrono antes do onDrop seguinte — ler o state direto ali
-  // arriscava pegar o valor de ANTES do dragstart.
-  const arrastandoIndiceOrdemRef = useRef(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [aviso, setAviso] = useState(null);
+  const [filtro, setFiltro] = useState("");
+  const [aba, setAba] = useState("camadas");
+  const [ocupado, setOcupado] = useState(null); // "ordem" | "acesso" | "detalhes" | "duplicar" | "remover" | "criar"
 
-  useAutoDismiss(ordemSalvaEm, setOrdemSalvaEm);
+  // Rascunhos do mapa selecionado (descartados ao trocar de mapa).
+  const [ordem, setOrdem] = useState([]);
+  const [permissoes, setPermissoes] = useState([]);
+  const [detalhes, setDetalhes] = useState({ nome: "", descricao: "" });
+  const [novo, setNovo] = useState({ nome: "", descricao: "", permissoes: [] });
+  const [arrastando, setArrastando] = useState(null);
+  // Ref além do state: eventos de drag não garantem que o setState do
+  // dragstart já aplicou quando o drop chega (mesmo motivo de AdminCamadas).
+  const arrastandoRef = useRef(null);
 
-  function carregarMapas() {
-    return listarMapasAdmin(sessao.token).then(setMapas);
+  const selecionado = params.get("mapa") || null; // id (string) | "novo" | null
+  const mapa = mapas.find((m) => String(m.id) === selecionado) || null;
+
+  async function carregar() {
+    const [m, g, c] = await Promise.all([
+      listarMapasAdmin(sessao.token),
+      listarGruposAdmin(sessao.token),
+      listarCamadasAdmin(sessao.token),
+    ]);
+    setMapas(m);
+    setGrupos(g);
+    setCamadas(c);
+    return m;
   }
 
   useEffect(() => {
-    Promise.allSettled([
-      carregarMapas().catch((e) => setErro(e.message)),
-      listarGruposAdmin(sessao.token)
-        .then(setGrupos)
-        .catch((e) => setErro(e.message)),
-      listarCamadasAdmin(sessao.token)
-        .then(setCamadas)
-        .catch((e) => setErro(e.message)),
-    ]).then(() => setCarregando(false));
+    carregar()
+      .catch((e) => setErro(e.message))
+      .finally(() => setCarregando(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
 
-  function abrirOrdenacao(mapa) {
-    setOrdenandoId(mapa.id);
-    setOrdemCamadas(camadas.filter((c) => c.mapa_id === mapa.id));
+  // Desktop abre já com o primeiro mapa; no celular a lista vem primeiro.
+  useEffect(() => {
+    if (!selecionado && mapas.length > 0 && window.matchMedia("(min-width: 901px)").matches) {
+      setParams({ mapa: String(mapas[0].id) }, { replace: true });
+    }
+  }, [mapas, selecionado, setParams]);
+
+  const camadasDoMapa = useMemo(
+    () => camadas.filter((c) => mapa && c.mapa_id === mapa.id).sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)),
+    [camadas, mapa]
+  );
+
+  useEffect(() => {
+    setOrdem(camadasDoMapa);
+    setPermissoes(mapa?.permissoes || []);
+    setDetalhes({ nome: mapa?.nome || "", descricao: mapa?.descricao || "" });
     setErro(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapa?.id, camadasDoMapa]);
+
+  useEffect(() => {
+    if (!aviso) return;
+    const id = setTimeout(() => setAviso(null), 3000);
+    return () => clearTimeout(id);
+  }, [aviso]);
+
+  const situacaoPorCamada = useMemo(
+    () => new Map((resumo?.automacao.camadas || []).map((c) => [c.id, c])),
+    [resumo]
+  );
+
+  function selecionar(id) {
+    setParams(id ? { mapa: String(id) } : {});
+    setAba("camadas");
   }
 
-  function fecharOrdenacao() {
-    setOrdenandoId(null);
-  }
+  const ordemMudou = ordem.map((c) => c.id).join(",") !== camadasDoMapa.map((c) => c.id).join(",");
+  const acessoMudou =
+    JSON.stringify([...permissoes].sort((a, b) => a.grupoId - b.grupoId)) !==
+    JSON.stringify([...(mapa?.permissoes || [])].sort((a, b) => a.grupoId - b.grupoId));
+  const detalhesMudou = mapa && (detalhes.nome !== mapa.nome || detalhes.descricao !== (mapa.descricao || ""));
+  const temVoos = camadasDoMapa.some((c) => c.estilo_config?.tipoCamada === "voos");
 
-  function moverCamadaPara(origem, destino) {
+  function mover(origem, destino) {
     if (origem === destino) return;
-    setOrdemCamadas((atual) => {
-      const novo = [...atual];
-      const [item] = novo.splice(origem, 1);
-      novo.splice(destino, 0, item);
-      return novo;
+    setOrdem((atual) => {
+      const novaOrdem = [...atual];
+      const [item] = novaOrdem.splice(origem, 1);
+      novaOrdem.splice(destino, 0, item);
+      return novaOrdem;
     });
   }
 
-  async function salvarOrdem(mapaId) {
-    setSalvandoOrdemId(mapaId);
+  async function executar(tipo, acao, mensagem) {
+    setOcupado(tipo);
     setErro(null);
     try {
-      await atualizarOrdemCamadasAdmin(sessao.token, mapaId, ordemCamadas.map((c) => c.id));
-      setCamadas((atual) => {
-        const semEsseMapa = atual.filter((c) => c.mapa_id !== mapaId);
-        const reordenadas = ordemCamadas.map((c, i) => ({ ...c, ordem: i }));
-        return [...semEsseMapa, ...reordenadas];
-      });
-      setOrdemSalvaEm(new Date());
-      setOrdenandoId(null);
-    } catch (err) {
-      setErro(err.message);
+      await acao();
+      if (mensagem) setAviso(mensagem);
+    } catch (e) {
+      setErro(e.message);
     } finally {
-      setSalvandoOrdemId(null);
+      setOcupado(null);
     }
   }
 
-  function atualizarCampo(campo, valor) {
-    setForm((atual) => ({ ...atual, [campo]: valor }));
-  }
+  const salvarOrdem = () =>
+    executar(
+      "ordem",
+      async () => {
+        await atualizarOrdemCamadasAdmin(sessao.token, mapa.id, ordem.map((c) => c.id));
+        await carregar();
+      },
+      "Ordem salva · vale para todos no próximo sincronismo"
+    );
 
-  function alternarGrupo(grupoId) {
-    setForm((atual) => ({ ...atual, permissoes: alternarGrupoEm(atual.permissoes, grupoId) }));
-  }
+  const salvarMapa = (tipo) =>
+    executar(
+      tipo,
+      async () => {
+        await atualizarMapaAdmin(sessao.token, mapa.id, {
+          nome: tipo === "detalhes" ? detalhes.nome : mapa.nome,
+          descricao: tipo === "detalhes" ? detalhes.descricao : mapa.descricao || "",
+          permissoes: tipo === "acesso" ? permissoes : mapa.permissoes || [],
+        });
+        await carregar();
+      },
+      tipo === "acesso" ? "Acesso salvo" : "Detalhes salvos"
+    );
 
-  function alternarAnotar(grupoId) {
-    setForm((atual) => ({ ...atual, permissoes: alternarAnotarEm(atual.permissoes, grupoId) }));
-  }
+  const duplicar = () =>
+    executar(
+      "duplicar",
+      async () => {
+        const copia = await duplicarMapaAdmin(sessao.token, mapa.id);
+        await carregar();
+        recarregarResumo();
+        if (copia?.id) selecionar(copia.id);
+      },
+      "Mapa duplicado"
+    );
+
+  const remover = () => {
+    if (!window.confirm(`Remover o mapa "${mapa.nome}"? Essa ação não pode ser desfeita.`)) return;
+    executar("remover", async () => {
+      await removerMapaAdmin(sessao.token, mapa.id);
+      await carregar();
+      recarregarResumo();
+      selecionar(null);
+    }, "Mapa removido");
+  };
 
   async function criar(e) {
     e.preventDefault();
-    setEnviando(true);
-    setErro(null);
-    try {
-      await criarMapaAdmin(sessao.token, form);
-      setForm(FORM_VAZIO);
-      await carregarMapas();
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setEnviando(false);
-    }
+    await executar(
+      "criar",
+      async () => {
+        const criado = await criarMapaAdmin(sessao.token, novo);
+        setNovo({ nome: "", descricao: "", permissoes: [] });
+        await carregar();
+        recarregarResumo();
+        selecionar(criado.id);
+      },
+      "Mapa criado"
+    );
   }
 
-  function abrirEdicao(mapa) {
-    setEditandoId(mapa.id);
-    setFormEdicao({ nome: mapa.nome, descricao: mapa.descricao || "", permissoes: mapa.permissoes || [] });
-    setErro(null);
-  }
-
-  function fecharEdicao() {
-    setEditandoId(null);
-  }
-
-  function alternarGrupoEdicao(grupoId) {
-    setFormEdicao((atual) => ({ ...atual, permissoes: alternarGrupoEm(atual.permissoes, grupoId) }));
-  }
-
-  function alternarAnotarEdicao(grupoId) {
-    setFormEdicao((atual) => ({ ...atual, permissoes: alternarAnotarEm(atual.permissoes, grupoId) }));
-  }
-
-  async function salvarEdicao(e, mapaId) {
-    e.preventDefault();
-    setSalvandoEdicaoId(mapaId);
-    setErro(null);
-    try {
-      await atualizarMapaAdmin(sessao.token, mapaId, formEdicao);
-      fecharEdicao();
-      await carregarMapas();
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setSalvandoEdicaoId(null);
-    }
-  }
-
-  async function remover(mapa) {
-    if (!window.confirm(`Remover o mapa "${mapa.nome}"? Essa ação não pode ser desfeita.`)) {
-      return;
-    }
-    setRemovendoId(mapa.id);
-    setErro(null);
-    try {
-      await removerMapaAdmin(sessao.token, mapa.id);
-      await carregarMapas();
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setRemovendoId(null);
-    }
-  }
-
-  // Cria uma cópia completa (mesmos grupos, cada camada com o próprio
-  // arquivo duplicado no R2) — pode demorar alguns segundos a mais que as
-  // outras ações se o mapa de origem tiver várias camadas.
-  async function duplicar(mapa) {
-    setDuplicandoId(mapa.id);
-    setErro(null);
-    try {
-      await duplicarMapaAdmin(sessao.token, mapa.id);
-      await carregarMapas();
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      setDuplicandoId(null);
-    }
-  }
+  const termo = filtro.trim().toLowerCase();
+  const mapasFiltrados = mapas.filter(
+    (m) => !termo || m.nome.toLowerCase().includes(termo) || (m.descricao || "").toLowerCase().includes(termo)
+  );
+  const totalCamadas = mapas.reduce((s, m) => s + (m.camadaCount || 0), 0);
 
   return (
-    <div className="adm-pagina adm-pagina--legada">
-
-      <div className="painel-admin-conteudo painel-admin-conteudo--largo">
-        {erro && <p className="erro">{erro}</p>}
-        {carregando && (
-          <p className="status-carregando-admin">
-            <span className="spinner" aria-hidden="true" /> Carregando…
+    <div className={`adm-pagina adm-mapas${selecionado ? " adm-mapas--detalhe" : ""}`}>
+      <header className="adm-cabecalho">
+        <div>
+          <h1>Mapas</h1>
+          <p>
+            {plural(mapas.length, "mapa", "mapas")} · {plural(totalCamadas, "camada", "camadas")} · escolha um mapa para ver camadas e
+            acesso
           </p>
-        )}
+        </div>
+      </header>
 
-        <form onSubmit={criar} className="cartao-form-admin">
-          <h2>Novo mapa</h2>
+      {erro && <p className="erro">{erro}</p>}
+      {aviso && (
+        <p className="adm-toast" role="status">
+          {aviso}
+        </p>
+      )}
 
-          <label className="campo-form-admin">
-            Nome
+      <div className="adm-mestre-detalhe">
+        <section className="adm-mestre" aria-label="Lista de mapas">
+          <div className="adm-barra-lista">
             <input
-              type="text"
-              required
-              value={form.nome}
-              onChange={(e) => atualizarCampo("nome", e.target.value)}
+              type="search"
+              className="adm-busca"
+              placeholder="Filtrar mapas"
+              value={filtro}
+              onChange={(e) => setFiltro(e.target.value)}
+              aria-label="Filtrar mapas"
             />
-          </label>
-
-          <label className="campo-form-admin">
-            Descrição
-            <input
-              type="text"
-              value={form.descricao}
-              onChange={(e) => atualizarCampo("descricao", e.target.value)}
-            />
-          </label>
-
-          <div className="campo-form-admin">
-            Grupos com permissão
-            <div className="lista-grupos-checkbox">
-              {grupos.map((g) => (
-                <div key={g.id} className="linha-grupo-permissao">
-                  <label className="opcao-grupo">
-                    <input
-                      type="checkbox"
-                      checked={form.permissoes.some((p) => p.grupoId === g.id)}
-                      onChange={() => alternarGrupo(g.id)}
-                    />
-                    {g.nome}
-                  </label>
-                  {form.permissoes.some((p) => p.grupoId === g.id) && (
-                    <label className="caixa-pode-anotar">
-                      <input
-                        type="checkbox"
-                        checked={form.permissoes.find((p) => p.grupoId === g.id)?.podeEditar === true}
-                        onChange={() => alternarAnotar(g.id)}
-                      />
-                      pode anotar
-                    </label>
-                  )}
-                </div>
-              ))}
-            </div>
+            <button type="button" className="botao-acao-primario" onClick={() => selecionar("novo")}>
+              + Novo mapa
+            </button>
           </div>
+          {carregando ? (
+            <p className="status-carregando-admin">
+              <span className="spinner" aria-hidden="true" /> Carregando…
+            </p>
+          ) : mapasFiltrados.length === 0 ? (
+            <p className="adm-vazio">
+              <IconeEstadoVazio /> {mapas.length === 0 ? "Nenhum mapa criado ainda." : "Nenhum mapa com esse nome."}
+            </p>
+          ) : (
+            <ul className="adm-lista-cartoes">
+              {mapasFiltrados.map((m) => {
+                const atrasadas = camadas.filter(
+                  (c) => c.mapa_id === m.id && ["atrasada", "erro"].includes(situacaoPorCamada.get(c.id)?.situacao)
+                );
+                const voos = camadas.some((c) => c.mapa_id === m.id && c.estilo_config?.tipoCamada === "voos");
+                const anota = (m.permissoes || []).some((p) => p.podeEditar);
+                return (
+                  <li key={m.id}>
+                    <button
+                      type="button"
+                      className={`adm-cartao-mapa${String(m.id) === selecionado ? " selecionado" : ""}`}
+                      onClick={() => selecionar(m.id)}
+                      aria-current={String(m.id) === selecionado ? "true" : undefined}
+                    >
+                      <span className="adm-cartao-mapa-topo">
+                        <strong>{m.nome}</strong>
+                        {voos && <span className="adm-etiqueta">Apontamento de voo</span>}
+                        {!voos && anota && <span className="adm-etiqueta">Anotações</span>}
+                      </span>
+                      {m.descricao && <span className="adm-suave">{m.descricao}</span>}
+                      <span className="adm-cartao-mapa-rodape">
+                        {plural(m.camadaCount || 0, "camada", "camadas")} · {textoGrupos(m.permissoes, grupos)}
+                      </span>
+                      {atrasadas.length > 0 && (
+                        <span className="adm-chip adm-chip--alerta">
+                          {[...new Set(atrasadas.map((c) => c.nome))].join(", ")} atrasada
+                          {atrasadas.length > 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
-          <button type="submit" disabled={enviando}>
-            {enviando && <span className="spinner" aria-hidden="true" />}
-            {enviando ? "Criando…" : "Criar mapa"}
-          </button>
-        </form>
-
-        <h2 className="titulo-lista-mapas">Mapas existentes</h2>
-        <ul className="lista-mapas-admin">
-          {mapas.map((m) => (
-            <li key={m.id} className="item-mapa-admin">
-              <div className="linha-mapa-admin">
-                <div className="info-mapa-admin">
-                  <strong>{m.nome}</strong>
-                  <span className="detalhe-mapa-admin">
-                    {m.camadaCount > 0
-                      ? `${m.camadaCount} camada${m.camadaCount > 1 ? "s" : ""}`
-                      : "nenhuma camada ainda"}{" "}
-                    · {m.descricao || "sem descrição"} ·{" "}
-                    {(m.permissoes || [])
-                      .map((p) => {
-                        const nome = grupos.find((g) => g.id === p.grupoId)?.nome ?? p.grupoId;
-                        return `${nome}${p.podeEditar ? " (anota)" : ""}`;
-                      })
-                      .join(", ") || "nenhum grupo com acesso"}
-                  </span>
-                </div>
-                <Link to={`/admin/camadas?mapaId=${m.id}`} className="botao-secundario">
-                  Adicionar camada
-                </Link>
-                <button
-                  type="button"
-                  className="botao-secundario"
-                  onClick={() => (editandoId === m.id ? fecharEdicao() : abrirEdicao(m))}
-                >
-                  {editandoId === m.id ? "Cancelar" : "Editar"}
-                </button>
-                <button
-                  type="button"
-                  className="botao-secundario"
-                  onClick={() => (ordenandoId === m.id ? fecharOrdenacao() : abrirOrdenacao(m))}
-                  disabled={m.camadaCount < 2}
-                  title={m.camadaCount < 2 ? "Precisa de 2+ camadas pra ter o que ordenar" : "O que fica em cima, o que fica embaixo"}
-                >
-                  {ordenandoId === m.id ? "Cancelar" : "Ordenar camadas"}
-                </button>
-                <button
-                  type="button"
-                  className="botao-secundario"
-                  onClick={() => duplicar(m)}
-                  disabled={duplicandoId === m.id}
-                  title="Cria uma cópia deste mapa com todas as camadas"
-                >
-                  {duplicandoId === m.id && <span className="spinner" aria-hidden="true" />}
-                  {duplicandoId === m.id ? "Duplicando…" : "Duplicar"}
-                </button>
-                <button
-                  type="button"
-                  className="botao-remover-mapa"
-                  onClick={() => remover(m)}
-                  disabled={removendoId === m.id || m.camadaCount > 0}
-                  title={m.camadaCount > 0 ? "Remova as camadas desse mapa antes de removê-lo" : undefined}
-                >
-                  {removendoId === m.id ? (
-                    <span className="spinner" aria-hidden="true" />
-                  ) : (
-                    <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
-                  )}
-                  {removendoId === m.id ? "Removendo…" : "Remover"}
+        <section className="adm-detalhe" aria-label="Mapa selecionado">
+          {selecionado === "novo" ? (
+            <form className="adm-cartao adm-form" onSubmit={criar}>
+              <button type="button" className="adm-voltar-lista" onClick={() => selecionar(null)}>
+                ← Mapas
+              </button>
+              <h2>Novo mapa</h2>
+              <label className="adm-campo">
+                Nome
+                <input type="text" required value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} />
+              </label>
+              <label className="adm-campo">
+                Descrição
+                <input type="text" value={novo.descricao} onChange={(e) => setNovo({ ...novo, descricao: e.target.value })} />
+              </label>
+              <div className="adm-campo">
+                Quem vê este mapa
+                <EditorAcesso grupos={grupos} permissoes={novo.permissoes} aoMudar={(p) => setNovo({ ...novo, permissoes: p })} />
+              </div>
+              <div className="adm-acoes-form">
+                <button type="submit" className="botao-acao-primario" disabled={ocupado === "criar"}>
+                  {ocupado === "criar" && <span className="spinner" aria-hidden="true" />}
+                  {ocupado === "criar" ? "Criando…" : "Criar mapa"}
                 </button>
               </div>
-
-              {editandoId === m.id && (
-                <form className="form-atualizar-arquivo" onSubmit={(e) => salvarEdicao(e, m.id)}>
-                  <input
-                    type="text"
-                    value={formEdicao.nome}
-                    onChange={(e) => setFormEdicao((atual) => ({ ...atual, nome: e.target.value }))}
-                    aria-label="Nome do mapa"
-                    required
-                  />
-                  <input
-                    type="text"
-                    value={formEdicao.descricao}
-                    onChange={(e) => setFormEdicao((atual) => ({ ...atual, descricao: e.target.value }))}
-                    aria-label="Descrição do mapa"
-                  />
-                  <div className="lista-grupos-checkbox">
-                    {grupos.map((g) => (
-                      <div key={g.id} className="linha-grupo-permissao">
-                        <label className="opcao-grupo">
-                          <input
-                            type="checkbox"
-                            checked={formEdicao.permissoes.some((p) => p.grupoId === g.id)}
-                            onChange={() => alternarGrupoEdicao(g.id)}
-                          />
-                          {g.nome}
-                        </label>
-                        {formEdicao.permissoes.some((p) => p.grupoId === g.id) && (
-                          <label className="caixa-pode-anotar">
-                            <input
-                              type="checkbox"
-                              checked={
-                                formEdicao.permissoes.find((p) => p.grupoId === g.id)?.podeEditar === true
-                              }
-                              onChange={() => alternarAnotarEdicao(g.id)}
-                            />
-                            pode anotar
-                          </label>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <button type="submit" disabled={salvandoEdicaoId === m.id}>
-                    {salvandoEdicaoId === m.id && <span className="spinner" aria-hidden="true" />}
-                    {salvandoEdicaoId === m.id ? "Salvando…" : "Salvar"}
-                  </button>
-                </form>
-              )}
-
-              {ordenandoId === m.id && (
-                <div className="cartao-form-admin">
-                  <p className="detalhe-mapa-admin">
-                    Arraste pra reordenar — a de cima fica por cima no mapa.
+            </form>
+          ) : !mapa ? (
+            !carregando && (
+              <p className="adm-vazio adm-cartao">
+                <IconeEstadoVazio /> Escolha um mapa na lista.
+              </p>
+            )
+          ) : (
+            <div className="adm-cartao adm-painel-mapa">
+              <button type="button" className="adm-voltar-lista" onClick={() => selecionar(null)}>
+                ← Mapas
+              </button>
+              <div className="adm-painel-titulo">
+                <div>
+                  <h2>{mapa.nome}</h2>
+                  <p className="adm-suave">
+                    {plural(mapa.camadaCount || 0, "camada", "camadas")} · {textoGrupos(mapa.permissoes, grupos)}
                   </p>
-                  <ul className="lista-atributos-admin">
-                    {ordemCamadas.map((c, i) => (
-                      <li
-                        key={c.id}
-                        draggable
-                        onDragStart={() => {
-                          arrastandoIndiceOrdemRef.current = i;
-                          setArrastandoIndiceOrdem(i);
-                        }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={() => {
-                          if (arrastandoIndiceOrdemRef.current !== null) {
-                            moverCamadaPara(arrastandoIndiceOrdemRef.current, i);
-                          }
-                          arrastandoIndiceOrdemRef.current = null;
-                          setArrastandoIndiceOrdem(null);
-                        }}
-                        onDragEnd={() => {
-                          arrastandoIndiceOrdemRef.current = null;
-                          setArrastandoIndiceOrdem(null);
-                        }}
-                        className={`linha-atributo-admin${
-                          arrastandoIndiceOrdem === i ? " linha-atributo-admin--arrastando" : ""
-                        }`}
-                      >
-                        <span className="alca-arrastar" aria-hidden="true" title="Arraste pra reordenar">
-                          ⠿
-                        </span>
-                        {c.nome}
-                      </li>
-                    ))}
-                  </ul>
-                  {ordemSalvaEm && <p className="confirmacao-salvo">✓ Salvo às {ordemSalvaEm.toLocaleTimeString()}</p>}
-                  <button type="button" onClick={() => salvarOrdem(m.id)} disabled={salvandoOrdemId === m.id}>
-                    {salvandoOrdemId === m.id && <span className="spinner" aria-hidden="true" />}
-                    {salvandoOrdemId === m.id ? "Salvando…" : "Salvar ordem"}
+                </div>
+                <Link to={`/mapa/${mapa.id}`} className="botao-acao-secundario adm-link-botao">
+                  Abrir no mapa
+                </Link>
+              </div>
+
+              <div className="segmentado adm-abas" role="tablist" aria-label="Seções do mapa">
+                {ABAS.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={aba === a.id}
+                    className={aba === a.id ? "ativo" : ""}
+                    onClick={() => setAba(a.id)}
+                  >
+                    {a.rotulo}
                   </button>
+                ))}
+              </div>
+
+              {aba === "camadas" && (
+                <div className="adm-aba" role="tabpanel">
+                  <div className="adm-aba-topo">
+                    <span className="adm-suave">
+                      {temVoos
+                        ? "Mapa com camada de voos: a ordem fica fixa (a camada de voos sempre por cima)."
+                        : ordem.length > 1
+                          ? "Arraste para ordenar — a de cima aparece por cima no mapa."
+                          : "Com uma camada só não há o que ordenar."}
+                    </span>
+                    <Link to={`/admin/camadas?mapaId=${mapa.id}`} className="adm-link-forte">
+                      + Adicionar camada
+                    </Link>
+                  </div>
+                  {ordem.length === 0 ? (
+                    <p className="adm-vazio">
+                      <IconeEstadoVazio /> Nenhuma camada neste mapa ainda.
+                    </p>
+                  ) : (
+                    <ol className="adm-lista-ordem">
+                      {ordem.map((c, i) => {
+                        const sit = situacaoPorCamada.get(c.id);
+                        const s = sit && SITUACAO[sit.situacao];
+                        const podeArrastar = !temVoos && ordem.length > 1;
+                        return (
+                          <li
+                            key={c.id}
+                            draggable={podeArrastar}
+                            onDragStart={() => {
+                              arrastandoRef.current = i;
+                              setArrastando(i);
+                            }}
+                            onDragOver={(e) => podeArrastar && e.preventDefault()}
+                            onDrop={() => {
+                              if (arrastandoRef.current !== null) mover(arrastandoRef.current, i);
+                              arrastandoRef.current = null;
+                              setArrastando(null);
+                            }}
+                            onDragEnd={() => {
+                              arrastandoRef.current = null;
+                              setArrastando(null);
+                            }}
+                            className={arrastando === i ? "arrastando" : ""}
+                          >
+                            {podeArrastar && (
+                              <span className="adm-alca" aria-hidden="true">
+                                ⠿
+                              </span>
+                            )}
+                            <span className="adm-posicao">{i + 1}</span>
+                            <span className="adm-ordem-nome">
+                              <Link to={`/admin/camadas?camada=${c.id}`} className="adm-forte">
+                                {c.nome}
+                              </Link>
+                              <small className="adm-suave">
+                                Versão {c.versao}
+                                {c.estilo_config?.tipoCamada === "voos" ? " · camada de voos" : ""}
+                              </small>
+                            </span>
+                            {s && (
+                              <span className={`adm-chip adm-chip--${s.classe}`}>
+                                {sit.situacao === "atrasada" ? `${s.rotulo} · ${plural(sit.diasAtraso, "dia", "dias")}` : s.rotulo}
+                              </span>
+                            )}
+                            {podeArrastar && (
+                              <span className="adm-setas">
+                                <button type="button" onClick={() => mover(i, i - 1)} disabled={i === 0} aria-label={`Subir ${c.nome}`}>
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => mover(i, i + 1)}
+                                  disabled={i === ordem.length - 1}
+                                  aria-label={`Descer ${c.nome}`}
+                                >
+                                  ↓
+                                </button>
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  )}
+                  {ordemMudou && (
+                    <div className="adm-barra-pendente" role="status">
+                      <span>Ordem alterada · vale para todos no próximo sincronismo</span>
+                      <button type="button" className="botao-acao-secundario" onClick={() => setOrdem(camadasDoMapa)}>
+                        Desfazer
+                      </button>
+                      <button type="button" className="botao-acao-primario" onClick={salvarOrdem} disabled={ocupado === "ordem"}>
+                        {ocupado === "ordem" && <span className="spinner" aria-hidden="true" />}
+                        Salvar ordem
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
-            </li>
-          ))}
-        </ul>
+
+              {aba === "acesso" && (
+                <div className="adm-aba" role="tabpanel">
+                  <p className="adm-suave">
+                    Quem vê este mapa (e pode baixar para usar sem internet). “Pode anotar” libera marcar pontos no mapa.
+                  </p>
+                  <EditorAcesso grupos={grupos} permissoes={permissoes} aoMudar={setPermissoes} />
+                  {acessoMudou && (
+                    <div className="adm-barra-pendente" role="status">
+                      <span>Acesso alterado</span>
+                      <button type="button" className="botao-acao-secundario" onClick={() => setPermissoes(mapa.permissoes || [])}>
+                        Desfazer
+                      </button>
+                      <button type="button" className="botao-acao-primario" onClick={() => salvarMapa("acesso")} disabled={ocupado === "acesso"}>
+                        {ocupado === "acesso" && <span className="spinner" aria-hidden="true" />}
+                        Salvar acesso
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {aba === "detalhes" && (
+                <div className="adm-aba adm-form" role="tabpanel">
+                  <label className="adm-campo">
+                    Nome
+                    <input type="text" value={detalhes.nome} onChange={(e) => setDetalhes({ ...detalhes, nome: e.target.value })} />
+                  </label>
+                  <label className="adm-campo">
+                    Descrição
+                    <input type="text" value={detalhes.descricao} onChange={(e) => setDetalhes({ ...detalhes, descricao: e.target.value })} />
+                  </label>
+                  <div className="adm-acoes-form">
+                    <button
+                      type="button"
+                      className="botao-acao-primario"
+                      onClick={() => salvarMapa("detalhes")}
+                      disabled={!detalhesMudou || !detalhes.nome.trim() || ocupado === "detalhes"}
+                    >
+                      {ocupado === "detalhes" && <span className="spinner" aria-hidden="true" />}
+                      Salvar
+                    </button>
+                  </div>
+
+                  <div className="adm-bloco-acao">
+                    <div>
+                      <strong>Duplicar mapa</strong>
+                      <span className="adm-suave">Cria uma cópia com as mesmas camadas, estilos e grupos.</span>
+                    </div>
+                    <button type="button" className="botao-acao-secundario" onClick={duplicar} disabled={ocupado === "duplicar"}>
+                      {ocupado === "duplicar" && <span className="spinner" aria-hidden="true" />}
+                      {ocupado === "duplicar" ? "Duplicando…" : "Duplicar"}
+                    </button>
+                  </div>
+
+                  <div className="adm-bloco-acao adm-bloco-acao--perigo">
+                    <div>
+                      <strong>Remover mapa</strong>
+                      <span className="adm-suave">
+                        {mapa.camadaCount > 0
+                          ? `Só é possível remover um mapa sem camadas. Este tem ${plural(mapa.camadaCount, "camada", "camadas")} — remova-as primeiro em Camadas.`
+                          : "Remove o mapa e o acesso dos grupos a ele."}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="botao-acao-perigo"
+                      onClick={remover}
+                      disabled={mapa.camadaCount > 0 || ocupado === "remover"}
+                    >
+                      {ocupado === "remover" && <span className="spinner" aria-hidden="true" />}
+                      Remover mapa
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
