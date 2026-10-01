@@ -2560,8 +2560,8 @@ pilotos se adaptarem a uma mudança só):
 - Esconder a barra de percurso durante a gravação só esconde — o GPS
   continua; por isso o botão "Percurso" da barra de ferramentas fica
   marcado com `mostrarPainelTrack || gravandoPercurso`.
-- Painel de atributos: cabeçalho com camada + paginação (subiu do rodapé)
-  + fechar; título "Talhão N" e "fazenda · cód." lidos de `item.bruto`
+- Painel de atributos: cabeçalho com camada, paginação (subiu do
+  rodapé) e fechar; título "Talhão N" e "fazenda · cód." lidos de `item.bruto`
   (propriedades cruas, adicionadas nas duas montagens de item — a lista
   configurada pelo admin pode esconder TALHAO/SECAO); atalhos
   Centralizar (`flyTo` com `padding` pra o ponto não ficar atrás do
