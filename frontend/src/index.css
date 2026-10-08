@@ -5999,3 +5999,45 @@ input[type="file"]::file-selector-button:hover {
     grid-column: 1 / -1;
   }
 }
+
+/* Erro de ação no admin também como aviso fixo no rodapé: a mensagem no
+   topo da página some da vista com o painel rolado. */
+.adm-toast--erro {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  bottom: 72px;
+  max-width: min(560px, calc(100vw - 32px));
+  background: #b42318;
+}
+
+.adm-toast--erro button {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #fff;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.adm-toast--erro button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.adm-resultado-piloto {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.adm-resultado-piloto.ok {
+  color: var(--accent-escuro);
+}
+
+.adm-resultado-piloto.erro {
+  color: #b42318;
+}

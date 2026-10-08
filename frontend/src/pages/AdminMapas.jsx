@@ -276,6 +276,14 @@ export default function AdminMapas() {
       </header>
 
       {erro && <p className="erro">{erro}</p>}
+      {erro && (
+        <p className="adm-toast adm-toast--erro" role="alert">
+          <span>{erro}</span>
+          <button type="button" onClick={() => setErro(null)} aria-label="Fechar aviso">
+            ×
+          </button>
+        </p>
+      )}
       {aviso && (
         <p className="adm-toast" role="status">
           {aviso}

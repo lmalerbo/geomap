@@ -200,11 +200,30 @@ export default function AdminUsuarios() {
 
   // Vincula pelo login do DroneManagement (o backend busca o id lá — pode
   // levar uns segundos se a sessão com a plataforma precisar ser refeita).
-  const salvarPiloto = (login) =>
-    executar("piloto", async () => {
-      await vincularPilotoAdmin(sessao.token, usuario.id, login);
+  // O resultado aparece dentro do próprio quadro do piloto: o erro geral da
+  // página fica no topo, fora da vista com o painel rolado (achado real,
+  // 2026-10-08 — parecia que não tinha acontecido nada).
+  const [resultadoPiloto, setResultadoPiloto] = useState(null); // {ok, texto}
+  useEffect(() => {
+    setResultadoPiloto(null);
+  }, [usuario?.id]);
+
+  async function salvarPiloto(login) {
+    setOcupado("piloto");
+    setResultadoPiloto(null);
+    try {
+      const r = await vincularPilotoAdmin(sessao.token, usuario.id, login);
       await carregar();
-    }, login ? `Vinculado como ${login}` : "Vínculo de piloto removido");
+      setResultadoPiloto({
+        ok: true,
+        texto: login ? `Vinculado como ${r?.pilotoLogin || login}. Já pode apontar voos pelo mapa Voos.` : "Vínculo removido.",
+      });
+    } catch (e) {
+      setResultadoPiloto({ ok: false, texto: e.message || "Não foi possível vincular. Tente de novo." });
+    } finally {
+      setOcupado(null);
+    }
+  }
 
   async function criarUsuario(e) {
     e.preventDefault();
@@ -301,6 +320,14 @@ export default function AdminUsuarios() {
       </div>
 
       {erro && <p className="erro">{erro}</p>}
+      {erro && (
+        <p className="adm-toast adm-toast--erro" role="alert">
+          <span>{erro}</span>
+          <button type="button" onClick={() => setErro(null)} aria-label="Fechar aviso">
+            ×
+          </button>
+        </p>
+      )}
       {aviso && (
         <p className="adm-toast" role="status">
           {aviso}
@@ -510,6 +537,12 @@ export default function AdminUsuarios() {
                       autoComplete="off"
                       spellCheck={false}
                     />
+                    {resultadoPiloto && (
+                      <span className={`adm-resultado-piloto ${resultadoPiloto.ok ? "ok" : "erro"}`} role={resultadoPiloto.ok ? "status" : "alert"}>
+                        {resultadoPiloto.ok ? "✓ " : ""}
+                        {resultadoPiloto.texto}
+                      </span>
+                    )}
                   </div>
                   <span className="adm-acoes-piloto">
                     <button
@@ -523,7 +556,7 @@ export default function AdminUsuarios() {
                       }
                     >
                       {ocupado === "piloto" && <span className="spinner" aria-hidden="true" />}
-                      {ocupado === "piloto" ? "Procurando…" : "Vincular"}
+                      {ocupado === "piloto" ? "Procurando no DroneManagement…" : "Vincular"}
                     </button>
                     {usuario.pilotUserADId && (
                       <button type="button" className="botao-acao-secundario adm-botao-perigo-leve" onClick={() => salvarPiloto("")} disabled={ocupado === "piloto"}>
