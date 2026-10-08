@@ -2836,6 +2836,22 @@ De carona: o merge do PR #3 (indicadores de voo) tinha perdido o `}` que
 fechava `.swatch-urgente` no `index.css` — o CSS da página de
 Indicadores inteiro ficava aninhado dentro dessa regra. Restaurado.
 
+**Incidente: ninguém conseguia apontar voo (2026-10-08)**: o backend em
+produção devolvia "DroneManagement não respondeu a tempo" e o mapa de voos
+ficava nas pendências guardadas do dia anterior. Causa: a sessão do
+DroneManagement era guardada, mas sem controle de logins simultâneos —
+quando ela some (todo deploy, ou expiração), cada consulta que chega abre
+o PRÓPRIO Chromium pra logar. Com o PR #3 (indicadores e rotas do agente)
+passaram a existir mais consultas ao mesmo tempo, e no Render free (0,1
+CPU, 512 MB) vários Chromiums juntos estouravam o tempo de login (30 s,
+quando o login sozinho já leva ~30 s lá). Corrigido com
+`lib/sessaoCompartilhada.js` (com testes): um login por vez para o
+processo inteiro, quem chega durante um login espera o mesmo resultado;
+um 401 só descarta a sessão se ela ainda for a que falhou (sem cascata de
+relogins); tempo de login subiu pra 60 s. Conferido contra o
+DroneManagement real: 6 consultas simultâneas sem sessão → 1 login, 6
+respostas 200.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
