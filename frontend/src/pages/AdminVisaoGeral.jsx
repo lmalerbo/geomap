@@ -200,6 +200,23 @@ export default function AdminVisaoGeral() {
         </section>
       )}
 
+      {resumo.ponteDm?.emUso &&
+        (resumo.ponteDm.conectada ? (
+          <p className="adm-ponte adm-ponte--ok">
+            <span className="adm-pulso" aria-hidden="true" /> Ponte do DroneManagement (servidor geo) conectada
+          </p>
+        ) : (
+          <section className="adm-faixa adm-faixa--alerta" aria-label="Ponte do DroneManagement desligada">
+            <strong>A ponte do DroneManagement está desligada</strong>
+            <span>
+              Sem ela ninguém consegue ver pendências novas nem apontar voo
+              {resumo.ponteDm.ultimaConsulta ? ` (última conexão: ${quando(resumo.ponteDm.ultimaConsulta)})` : ""}. No servidor
+              geo: confira se a janela “GeoMap - Ponte DroneManagement” está aberta e se o portal da rede não expirou (o
+              mesmo passo a passo da automação diária).
+            </span>
+          </section>
+        ))}
+
       <div className="adm-numeros">
         <div className="adm-numero">
           <span>Mapas</span>

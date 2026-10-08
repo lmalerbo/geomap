@@ -12,6 +12,7 @@ import { SENHA_TEMPORARIA_PADRAO } from "../lib/senhaTemporaria.js";
 import { testarLogin, buscarUsuarioPorLogin } from "../lib/dronemgmt.js";
 import { validarShapefileNaPasta, converterPastaShapefileParaPmtiles } from "../lib/conversaoShapefile.js";
 import { resumirAutomacao, DIAS_HISTORICO } from "../lib/saudeAutomacao.js";
+import { ponte } from "../lib/ponteDroneMgmt.js";
 import {
   salvarArquivo,
   apagarArquivo,
@@ -304,7 +305,8 @@ adminRouter.put("/admin/usuarios/:id/piloto", async (req, res) => {
       conta = await buscarUsuarioPorLogin(login);
     } catch (err) {
       console.error("Falha ao buscar usuário no DroneManagement:", err);
-      return res.status(502).json({ erro: "O DroneManagement não respondeu agora. Tente de novo em alguns minutos." });
+      const msg = err.name === "ErroPonte" ? err.message : "O DroneManagement não respondeu agora. Tente de novo em alguns minutos.";
+      return res.status(502).json({ erro: msg });
     }
     if (!conta) {
       return res.status(400).json({ erro: `Não achei o usuário "${login}" no DroneManagement. Confira o login (o mesmo da tela de entrada da plataforma).` });
@@ -1221,6 +1223,9 @@ adminRouter.get("/admin/visao-geral", async (req, res) => {
   res.json({
     totais: contagens[0],
     automacao: { ...automacao, email: AUTOMACAO_EMAIL, diasHistorico: DIAS_HISTORICO },
+    // Ponte do DroneManagement pelo servidor geo (só faz sentido com
+    // DM_VIA_PONTE=1 — sem ela o backend chama a plataforma direto).
+    ponteDm: { emUso: process.env.DM_VIA_PONTE === "1", ...ponte.estado() },
     atividade,
   });
 });

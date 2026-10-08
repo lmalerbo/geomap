@@ -19,6 +19,7 @@ import { adminRouter } from "./routes/admin.js";
 import { voosRouter } from "./routes/voos.js";
 import { integracaoRouter } from "./routes/integracao.js";
 import { pinsRouter } from "./routes/pins.js";
+import { ponteDmRouter } from "./routes/ponteDm.js";
 
 export const app = express();
 
@@ -32,6 +33,9 @@ export const app = express();
 app.set("trust proxy", true);
 
 app.use(cors());
+// Antes do express.json() global: a ponte do DroneManagement recebe
+// respostas maiores que o limite padrão (ver routes/ponteDm.js).
+app.use(ponteDmRouter);
 app.use(express.json());
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));

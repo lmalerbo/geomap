@@ -105,7 +105,8 @@ export default function LayoutAdmin() {
   }, [local.pathname]);
 
   const auto = resumo?.automacao;
-  const atencao = Boolean(auto && auto.atrasadas > 0);
+  const ponteCaida = Boolean(resumo?.ponteDm?.emUso && !resumo.ponteDm.conectada);
+  const atencao = Boolean((auto && auto.atrasadas > 0) || ponteCaida);
 
   async function aoSair() {
     if (await sairDescartandoPins(pinsPendentes, sair, undefined, filaApontamentos.qtdPendentes)) navigate("/login");

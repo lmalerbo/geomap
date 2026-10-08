@@ -2852,6 +2852,61 @@ relogins); tempo de login subiu pra 60 s. Conferido contra o
 DroneManagement real: 6 consultas simultâneas sem sessão → 1 login, 6
 respostas 200.
 
+**Ponte do DroneManagement pelo servidor geo (2026-10-08)**: desde
+07/10 ~08:30 o DroneManagement não responde pela internet pública. O
+DNS público aponta `prd-dronemgmt.pedraagroindustrial.com.br` para
+`200.232.118.19`, que dá timeout; dentro da rede ele resolve para
+`10.120.243.29` e funciona. Com isso, o backend no Render parou de logar
+na plataforma (`page.goto: Timeout 60000ms exceeded`) e ninguém
+conseguia ver pendências nem apontar voo. Como não há orçamento para
+VPN e a infra pública da plataforma não é nossa, a solução foi uma
+**ponte**: o backend não chama mais o DroneManagement direto. Ele põe
+cada pedido numa fila em memória (`backend/src/lib/ponteDroneMgmt.js`).
+O servidor geo (`automacao/ponte-dronemgmt/ponte.mjs`) busca essa fila
+por long-poll (`GET /ponte-dm/tarefas`, até 25 s), executa cada pedido
+com o mesmo `chamarApi()` de `lib/dronemgmt.js` (mesmo login via
+Playwright) e devolve o resultado (`POST /ponte-dm/tarefas/:id`). Só
+conexões de saída, então não precisa abrir porta no firewall da empresa.
+
+- **Ativação**: `DM_VIA_PONTE=1` no Render. Sem essa variável tudo volta
+  ao acesso direto, e é assim que se desfaz quando o IP público voltar.
+  `PONTE_DM_TOKEN` (cabeçalho `x-ponte-token`, comparado com
+  `timingSafeEqual`) autentica as rotas `/ponte-dm/*`. Elas montam o
+  próprio `express.json` com limite de 50 MB, antes do parser global, por
+  causa da resposta grande das pendências.
+- **Falha rápida e clara**: se a ponte não consultou nos últimos 45 s,
+  `chamar()` rejeita na hora com `ErroPonte` ("A ponte com o
+  DroneManagement (servidor geo) está desligada..."), em vez de cada
+  pedido esperar 2 min. As rotas de vínculo de piloto e de indicadores
+  mostram essa mensagem tal como está. `buscarUsuarioPorLogin` passou a
+  lançar erro no 502, em vez de dizer "login não encontrado".
+- **Visão geral** do admin: `ponteDm` em `/admin/visao-geral` mostra
+  "conectada" ou um alerta "ponte desligada" com o passo a passo, e a
+  ponte caída acende o ponto de atenção no menu.
+- **Servidor geo**: a configuração está em
+  `automacao/ponte-dronemgmt/README.md`. `iniciar.cmd` reinicia sozinho
+  em laço e usa o `fortinet-ca.pem` da automação diária; a tarefa agendada
+  dispara no logon. O programa importa `backend/src/lib/dronemgmt.js`,
+  então o servidor geo precisa de `npm ci --omit=dev` em `backend/` e de
+  `npx playwright install chromium`.
+- **Limites conhecidos**:
+  - o portal cativo do FortiGate derruba a ponte quando expira (o mesmo
+    problema da automação diária);
+  - a fila é em memória, então um deploy no Render no meio de um pedido
+    perde esse pedido;
+  - o long-poll mantém o `geomap-docker` acordado 24 h, gastando cerca de
+    744 h por mês da cota de 750 h do free tier. Por isso o serviço antigo
+    (`geomap-vr68`) precisa ser desligado.
+
+Testado localmente: 8 testes novos (85 no total). Ponta a ponta contra o
+backend local em modo ponte, com o DroneManagement real (pela rede
+interna desta máquina):
+- vínculo de piloto em 7 s;
+- pendências completas (346 registros) em menos de 1 s;
+- sem a ponte, falha em 150 ms com a mensagem certa.
+
+A Visão geral foi conferida no navegador nos dois estados.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -218,7 +218,7 @@ voosRouter.get("/voos/indicadores", async (req, res) => {
     dados = await obterDadosIndicadores({ forcar: req.query.forcar === "1" });
   } catch (err) {
     console.error("Indicadores de voo: falha ao consultar o DroneManagement:", err);
-    return res.status(502).json({ erro: "Não foi possível consultar o DroneManagement agora." });
+    return res.status(502).json({ erro: err.name === "ErroPonte" ? err.message : "Não foi possível consultar o DroneManagement agora." });
   }
 
   const nomesPilotos = await lerNomesPilotos();

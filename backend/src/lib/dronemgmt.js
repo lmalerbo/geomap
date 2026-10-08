@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
 import { criarSessaoCompartilhada } from "./sessaoCompartilhada.js";
+import { ponte, resultadoParaResponse } from "./ponteDroneMgmt.js";
 
 // Integração com a API interna do DroneManagement (Torre de Controle,
 // prd-dronemgmt.pedraagroindustrial.com.br) — ver docs/INTEGRACAO_DRONEMANAGEMENT.md
@@ -130,6 +131,12 @@ function invalidarSessao(sessaoQueFalhou) {
 // DELETE .../formdata). Reloga automaticamente 1x se a sessão em cache
 // tiver expirado (401/403) — nunca em loop.
 export async function chamarApi(caminho, { method = "GET", params, body } = {}) {
+  // DroneManagement fora do alcance da nuvem desde 07/10/2026: com
+  // DM_VIA_PONTE=1 o pedido vai pelo servidor geo (ver
+  // docs/PONTE_DRONEMGMT.md). Quem chama recebe um Response igual.
+  if (process.env.DM_VIA_PONTE === "1") {
+    return resultadoParaResponse(await ponte.chamar({ method, caminho, params, body }));
+  }
   const executar = async (sessao) => {
     const url = new URL(`${BASE_URL}${caminho}`);
     if (params) {
@@ -169,6 +176,11 @@ export async function chamarApi(caminho, { method = "GET", params, body } = {}) 
 // inexistente; qualquer resposta sem id vira null ("não encontrado").
 export async function buscarUsuarioPorLogin(login) {
   const resp = await chamarApi(`/portal/api/v1/gateway/identity/appuser/by-username/${encodeURIComponent(login)}`);
+  // 502 = falha do lado da ponte (servidor geo), não "usuário não existe".
+  if (resp.status === 502) {
+    const falha = await resp.json().catch(() => null);
+    throw new Error(falha?.erro || "DroneManagement indisponível");
+  }
   if (!resp.ok) return null;
   const corpo = await resp.json().catch(() => null);
   if (!corpo?.id) return null;

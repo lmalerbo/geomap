@@ -6041,3 +6041,13 @@ input[type="file"]::file-selector-button:hover {
 .adm-resultado-piloto.erro {
   color: #b42318;
 }
+
+/* Estado da ponte do DroneManagement (Visão geral do admin). */
+.adm-ponte {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  color: var(--accent-escuro);
+}
