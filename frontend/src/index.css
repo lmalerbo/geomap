@@ -5402,8 +5402,13 @@ input[type="file"]::file-selector-button:hover {
   border: 1px solid #d9e2e6;
   border-radius: 8px;
   font: inherit;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 12.5px;
+  font-size: 13.5px;
+}
+
+.adm-acoes-piloto {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .adm-novo-grupo {
@@ -5736,6 +5741,8 @@ input[type="file"]::file-selector-button:hover {
   border: 1.5px solid #16a34a;
   background-image: radial-gradient(#dc2626 1.3px, transparent 1.6px);
   background-size: 5px 5px;
+}
+
 /* ---------- Indicadores de voo (pages/Indicadores.jsx) ---------- */
 .tela-indicadores {
   min-height: 100vh;

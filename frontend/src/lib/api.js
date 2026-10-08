@@ -503,11 +503,12 @@ export async function restaurarVersaoCamadaAdmin(token, camadaId, versaoId) {
   return resp.json();
 }
 
-export async function vincularPilotoAdmin(token, usuarioId, pilotUserADId) {
+// login = usuário do DroneManagement (ex.: lmalerbo); vazio desvincula.
+export async function vincularPilotoAdmin(token, usuarioId, login) {
   const resp = await fetch(`${API_URL}/admin/usuarios/${usuarioId}/piloto`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ pilotUserADId }),
+    body: JSON.stringify({ login }),
   });
   await tratarResposta(resp);
   return resp.json();

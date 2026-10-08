@@ -98,7 +98,7 @@ export default function AdminUsuarios() {
       status: usuario.status,
       grupoIds: usuario.grupoIds || [],
     });
-    setPiloto(usuario.pilotUserADId || "");
+    setPiloto(usuario.pilotoLogin || "");
     setErro(null);
   }, [usuario]);
 
@@ -198,11 +198,13 @@ export default function AdminUsuarios() {
     }, "Usuário excluído");
   };
 
-  const salvarPiloto = () =>
+  // Vincula pelo login do DroneManagement (o backend busca o id lá — pode
+  // levar uns segundos se a sessão com a plataforma precisar ser refeita).
+  const salvarPiloto = (login) =>
     executar("piloto", async () => {
-      await vincularPilotoAdmin(sessao.token, usuario.id, piloto.trim());
+      await vincularPilotoAdmin(sessao.token, usuario.id, login);
       await carregar();
-    }, piloto.trim() ? "Piloto vinculado" : "Vínculo de piloto removido");
+    }, login ? `Vinculado como ${login}` : "Vínculo de piloto removido");
 
   async function criarUsuario(e) {
     e.preventDefault();
@@ -489,27 +491,46 @@ export default function AdminUsuarios() {
                   <div>
                     <strong>Piloto no DroneManagement</strong>
                     <span className="adm-suave">
-                      {usuario.pilotUserADId ? "Vinculado — pode apontar voos pelo mapa Voos." : "Necessário para apontar voos pelo mapa Voos."}
+                      {usuario.pilotUserADId
+                        ? usuario.pilotoLogin
+                          ? `Vinculado como ${usuario.pilotoLogin} — pode apontar voos pelo mapa Voos.`
+                          : "Vinculado (pelo identificador, antes do login). Digite o login para atualizar."
+                        : "Necessário para apontar voos pelo mapa Voos. Use o mesmo usuário da entrada do DroneManagement."}
                     </span>
                     <input
                       type="text"
                       className="adm-entrada-piloto"
-                      placeholder="Id do piloto (00000000-0000-0000-0000-000000000000)"
+                      placeholder="Usuário no DroneManagement (ex.: lmalerbo)"
                       value={piloto}
                       onChange={(e) => setPiloto(e.target.value)}
-                      aria-label="Id do piloto no DroneManagement"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && piloto.trim()) salvarPiloto(piloto.trim());
+                      }}
+                      aria-label="Login no DroneManagement"
+                      autoComplete="off"
                       spellCheck={false}
                     />
                   </div>
-                  <button
-                    type="button"
-                    className="botao-acao-secundario"
-                    onClick={salvarPiloto}
-                    disabled={ocupado === "piloto" || piloto.trim() === (usuario.pilotUserADId || "")}
-                  >
-                    {ocupado === "piloto" && <span className="spinner" aria-hidden="true" />}
-                    {piloto.trim() ? "Vincular" : "Desvincular"}
-                  </button>
+                  <span className="adm-acoes-piloto">
+                    <button
+                      type="button"
+                      className="botao-acao-secundario"
+                      onClick={() => salvarPiloto(piloto.trim())}
+                      disabled={
+                        ocupado === "piloto" ||
+                        !piloto.trim() ||
+                        piloto.trim().toLowerCase() === (usuario.pilotoLogin || "").toLowerCase()
+                      }
+                    >
+                      {ocupado === "piloto" && <span className="spinner" aria-hidden="true" />}
+                      {ocupado === "piloto" ? "Procurando…" : "Vincular"}
+                    </button>
+                    {usuario.pilotUserADId && (
+                      <button type="button" className="botao-acao-secundario adm-botao-perigo-leve" onClick={() => salvarPiloto("")} disabled={ocupado === "piloto"}>
+                        Desvincular
+                      </button>
+                    )}
+                  </span>
                 </div>
 
                 <div className="adm-bloco-acao">

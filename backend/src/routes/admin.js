@@ -9,7 +9,7 @@ import AdmZip from "adm-zip";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao, exigirAdmin } from "../middleware/auth.js";
 import { SENHA_TEMPORARIA_PADRAO } from "../lib/senhaTemporaria.js";
-import { testarLogin } from "../lib/dronemgmt.js";
+import { testarLogin, buscarUsuarioPorLogin } from "../lib/dronemgmt.js";
 import { validarShapefileNaPasta, converterPastaShapefileParaPmtiles } from "../lib/conversaoShapefile.js";
 import { resumirAutomacao, DIAS_HISTORICO } from "../lib/saudeAutomacao.js";
 import {
@@ -253,9 +253,9 @@ adminRouter.get("/admin/usuarios", async (req, res) => {
   const { rows: acessos } = await pool.query(
     `SELECT usuario_id, max(data_hora) AS ultimo FROM logs WHERE acao = 'login' GROUP BY usuario_id`
   );
-  const { rows: pilotos } = await pool.query("SELECT usuario_id, pilot_user_ad_id FROM pilotos_dronemgmt");
+  const { rows: pilotos } = await pool.query("SELECT usuario_id, pilot_user_ad_id, login_dronemgmt FROM pilotos_dronemgmt");
   const ultimoAcessoPorUsuario = new Map(acessos.map((a) => [a.usuario_id, a.ultimo]));
-  const pilotoPorUsuario = new Map(pilotos.map((p) => [p.usuario_id, p.pilot_user_ad_id]));
+  const pilotoPorUsuario = new Map(pilotos.map((p) => [p.usuario_id, p]));
 
   const gruposPorUsuario = new Map();
   for (const m of membros) {
@@ -268,20 +268,27 @@ adminRouter.get("/admin/usuarios", async (req, res) => {
       ...u,
       grupoIds: gruposPorUsuario.get(u.id) || [],
       ultimoAcesso: ultimoAcessoPorUsuario.get(u.id) || null,
-      pilotUserADId: pilotoPorUsuario.get(u.id) || null,
+      pilotUserADId: pilotoPorUsuario.get(u.id)?.pilot_user_ad_id || null,
+      pilotoLogin: pilotoPorUsuario.get(u.id)?.login_dronemgmt || null,
     }))
   );
 });
 
 // Vínculo com o piloto do DroneManagement (necessário pra apontar voo pelo
-// mapa Voos) — antes só existia direto no banco. null/"" desvincula.
+// mapa Voos). O admin digita o login da pessoa na plataforma (`login`) e o
+// backend busca o id lá; `pilotUserADId` direto continua aceito como
+// alternativa. Corpo vazio desvincula.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 adminRouter.put("/admin/usuarios/:id/piloto", async (req, res) => {
   const usuarioId = Number(req.params.id);
   if (!Number.isInteger(usuarioId)) {
     return res.status(400).json({ erro: "id de usuário inválido" });
   }
-  const pilotId = (req.body?.pilotUserADId || "").trim();
+  const login = String(req.body?.login || "").trim();
+  let pilotId = String(req.body?.pilotUserADId || "").trim();
+  if (login.includes("@")) {
+    return res.status(400).json({ erro: "use o usuário do DroneManagement (ex.: lmalerbo), não o e-mail" });
+  }
   if (pilotId && !UUID_RE.test(pilotId)) {
     return res.status(400).json({ erro: "o id do piloto no DroneManagement tem o formato 00000000-0000-0000-0000-000000000000" });
   }
@@ -289,17 +296,39 @@ adminRouter.put("/admin/usuarios/:id/piloto", async (req, res) => {
   if (!rows[0]) {
     return res.status(404).json({ erro: "usuário não encontrado" });
   }
+
+  let loginConfirmado = null;
+  if (login) {
+    let conta;
+    try {
+      conta = await buscarUsuarioPorLogin(login);
+    } catch (err) {
+      console.error("Falha ao buscar usuário no DroneManagement:", err);
+      return res.status(502).json({ erro: "O DroneManagement não respondeu agora. Tente de novo em alguns minutos." });
+    }
+    if (!conta) {
+      return res.status(400).json({ erro: `Não achei o usuário "${login}" no DroneManagement. Confira o login (o mesmo da tela de entrada da plataforma).` });
+    }
+    pilotId = conta.id;
+    loginConfirmado = conta.login;
+  }
+
   if (pilotId) {
     await pool.query(
-      `INSERT INTO pilotos_dronemgmt (usuario_id, pilot_user_ad_id) VALUES ($1, $2)
-       ON CONFLICT (usuario_id) DO UPDATE SET pilot_user_ad_id = EXCLUDED.pilot_user_ad_id`,
-      [usuarioId, pilotId]
+      `INSERT INTO pilotos_dronemgmt (usuario_id, pilot_user_ad_id, login_dronemgmt) VALUES ($1, $2, $3)
+       ON CONFLICT (usuario_id) DO UPDATE SET pilot_user_ad_id = EXCLUDED.pilot_user_ad_id, login_dronemgmt = EXCLUDED.login_dronemgmt`,
+      [usuarioId, pilotId, loginConfirmado]
     );
   } else {
     await pool.query("DELETE FROM pilotos_dronemgmt WHERE usuario_id = $1", [usuarioId]);
   }
-  await registrarAuditoria(req.usuarioId, "piloto_dronemgmt", `usuário ${usuarioId}: ${pilotId || "desvinculado"}`, req.ip);
-  res.json({ ok: true, pilotUserADId: pilotId || null });
+  await registrarAuditoria(
+    req.usuarioId,
+    "piloto_dronemgmt",
+    `usuário ${usuarioId}: ${loginConfirmado || pilotId || "desvinculado"}`,
+    req.ip
+  );
+  res.json({ ok: true, pilotUserADId: pilotId || null, pilotoLogin: loginConfirmado });
 });
 
 adminRouter.post("/admin/usuarios", async (req, res) => {

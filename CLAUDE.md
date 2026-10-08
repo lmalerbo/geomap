@@ -2818,6 +2818,24 @@ do repositório. Implementado na worktree `../geomap-indicadores`, branch
 `feat/indicadores-voo-impl` (outra sessão estava commitando o redesenho
 no checkout principal ao mesmo tempo).
 
+**Piloto vinculado pelo login do DroneManagement (2026-10-08)**: em
+Usuários e grupos, o vínculo de piloto deixou de pedir o identificador
+(GUID) e passou a pedir o **login** da pessoa na plataforma (o mesmo da
+tela de entrada, não o e-mail). O backend busca o id em `GET
+/portal/api/v1/gateway/identity/appuser/by-username/{login}`
+(`buscarUsuarioPorLogin` em `lib/dronemgmt.js`; achado lendo o JS do
+portal) — devolve `{id, userName, userType}`, e esse `id` é o mesmo
+`pilotUserADId` dos voos (conferido contra um vínculo existente). Login
+inexistente: a plataforma responde 500 (tratado como "não encontrado");
+maiúsculas não importam; e-mail não funciona (recusado com mensagem).
+Migration 018 guarda o login (`pilotos_dronemgmt.login_dronemgmt`) pra
+tela mostrar "Vinculado como …"; vínculos antigos ficam sem login até
+alguém digitar de novo. `pilotUserADId` direto continua aceito pela rota.
+
+De carona: o merge do PR #3 (indicadores de voo) tinha perdido o `}` que
+fechava `.swatch-urgente` no `index.css` — o CSS da página de
+Indicadores inteiro ficava aninhado dentro dessa regra. Restaurado.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -74,3 +74,21 @@ test("versões de camada: lista as guardadas e recusa versão de outra camada", 
   const errada = await req(`${srv.url}/admin/camadas/${b.id}/versoes/${rows[0].id}/restaurar`, t, { method: "POST" });
   assert.equal(errada.status, 404);
 });
+
+test("vínculo por login: e-mail é recusado e login vazio desvincula", async () => {
+  const t = tokenPara(c.admin);
+  const email = await req(`${srv.url}/admin/usuarios/${c.leitor.id}/piloto`, t, { method: "PUT", body: { login: "fulano@empresa.com" } });
+  assert.equal(email.status, 400);
+  assert.match(email.corpo.erro, /não o e-mail/);
+
+  await req(`${srv.url}/admin/usuarios/${c.leitor.id}/piloto`, t, {
+    method: "PUT",
+    body: { pilotUserADId: "11111111-2222-3333-4444-555555555555" },
+  });
+  const vazio = await req(`${srv.url}/admin/usuarios/${c.leitor.id}/piloto`, t, { method: "PUT", body: { login: "" } });
+  assert.equal(vazio.status, 200);
+  const lista = await req(`${srv.url}/admin/usuarios`, t);
+  const u = lista.corpo.find((x) => x.id === c.leitor.id);
+  assert.equal(u.pilotUserADId, null);
+  assert.equal(u.pilotoLogin, null);
+});

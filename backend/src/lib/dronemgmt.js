@@ -160,6 +160,19 @@ export async function chamarApi(caminho, { method = "GET", params, body } = {}) 
   return resposta;
 }
 
+// Acha a conta de um usuário no DroneManagement pelo login (o mesmo usuário
+// da tela de entrada da plataforma, não o e-mail). O `id` devolvido é o
+// mesmo usado como `pilotUserADId` nos voos — confirmado comparando com um
+// vínculo já existente (2026-10-08). A plataforma responde 500 pra login
+// inexistente; qualquer resposta sem id vira null ("não encontrado").
+export async function buscarUsuarioPorLogin(login) {
+  const resp = await chamarApi(`/portal/api/v1/gateway/identity/appuser/by-username/${encodeURIComponent(login)}`);
+  if (!resp.ok) return null;
+  const corpo = await resp.json().catch(() => null);
+  if (!corpo?.id) return null;
+  return { id: corpo.id, login: corpo.userName || login };
+}
+
 // Só pra diagnóstico (ver rota temporária GET /admin/dronemgmt/teste-login,
 // spike de validação documentado em docs/INTEGRACAO_DRONEMANAGEMENT.md) —
 // mede quanto tempo o login sozinho leva, sem nenhuma chamada de API além
