@@ -258,6 +258,14 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // Incrementado pra forçar buscar as pendências de novo (ex: a fila acabou
   // de ser enviada e o servidor já não tem esses talhões como pendentes).
   const [recarregarPendencias, setRecarregarPendencias] = useState(0);
+  // Atualização com o servidor em segundo plano, com a cópia do aparelho já
+  // na tela (F5, aba reaberta no celular): a tela não trava esperando o
+  // DroneManagement — só mostra um aviso discreto. `carregandoPendentes`
+  // fica só pro caso de não ter nada guardado ainda (1º acesso).
+  const [atualizandoPendentes, setAtualizandoPendentes] = useState(false);
+  // Se as pendências deste mapa já estão na tela (do aparelho ou do
+  // servidor) — aí uma nova busca não precisa ler a cópia local de novo.
+  const pendenciasNaTelaRef = useRef(null); // mapaId cujas pendências estão na tela
 
   // chave (secao-talhao) -> lista de registros pendentes ali (quase
   // sempre 1, mas pode ser vários — mesmo talhão com pendência em mais de
@@ -315,31 +323,50 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   useEffect(() => {
     if (!voosInfo || !mapaId || !token) return;
     let cancelado = false;
-    setCarregandoPendentes(true);
     setErroPendentes(null);
-    buscarVoosPendentes(token, mapaId)
-      .then((dados) => {
-        if (cancelado) return;
-        setPendentes(dados);
-        setPendenciasDeCache(null);
-        // Cópia pro campo: se o sinal cair e o app for reaberto, a tela de
-        // voos continua mostrando (e deixando apontar) estas pendências.
-        salvarPendenciasVooLocal(mapaId, dados).catch((e) => console.warn("Falha ao guardar pendências", e));
-      })
-      .catch(async (err) => {
-        console.error("Erro ao buscar voos pendentes:", err);
-        const guardadas = await buscarPendenciasVooLocal(mapaId).catch(() => null);
+
+    async function carregar() {
+      // 1º a cópia do aparelho (instantânea), se as pendências deste mapa
+      // ainda não estão na tela — o servidor só confirma/atualiza depois.
+      let guardadas = null;
+      if (pendenciasNaTelaRef.current !== mapaId) {
+        setCarregandoPendentes(true);
+        guardadas = await buscarPendenciasVooLocal(mapaId).catch(() => null);
         if (cancelado) return;
         if (guardadas) {
           setPendentes(guardadas.registros);
-          setPendenciasDeCache(guardadas.salvoEm);
+          setCarregandoPendentes(false);
+          pendenciasNaTelaRef.current = mapaId;
+        }
+      }
+      setAtualizandoPendentes(true);
+      try {
+        const dados = await buscarVoosPendentes(token, mapaId);
+        if (cancelado) return;
+        setPendentes(dados);
+        setPendenciasDeCache(null);
+        pendenciasNaTelaRef.current = mapaId;
+        // Cópia pro campo: se o sinal cair e o app for reaberto, a tela de
+        // voos continua mostrando (e deixando apontar) estas pendências.
+        salvarPendenciasVooLocal(mapaId, dados).catch((e) => console.warn("Falha ao guardar pendências", e));
+      } catch (err) {
+        console.error("Erro ao buscar voos pendentes:", err);
+        if (cancelado) return;
+        if (pendenciasNaTelaRef.current === mapaId) {
+          // Continua com o que já está na tela; avisa de quando é a cópia.
+          const salvoEm = guardadas?.salvoEm || (await buscarPendenciasVooLocal(mapaId).catch(() => null))?.salvoEm;
+          if (!cancelado) setPendenciasDeCache(salvoEm || new Date().toISOString());
         } else {
           setErroPendentes(mensagemErroPendentes(err));
         }
-      })
-      .finally(() => {
-        if (!cancelado) setCarregandoPendentes(false);
-      });
+      } finally {
+        if (!cancelado) {
+          setCarregandoPendentes(false);
+          setAtualizandoPendentes(false);
+        }
+      }
+    }
+    carregar();
     return () => {
       cancelado = true;
     };
@@ -823,6 +850,16 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
         }, TEMPO_CONFIRMACAO_MS);
       }
       setPendentes((atual) => atual.filter((r) => !sucessoIds.has(r.id)));
+      // A cópia do aparelho também — senão um F5 logo depois mostraria de
+      // novo (até o servidor responder) os talhões que acabaram de ser
+      // apontados.
+      buscarPendenciasVooLocal(mapaId)
+        .then((guardadas) => {
+          if (!guardadas) return;
+          const restantes = guardadas.registros.filter((r) => !sucessoIds.has(r.id));
+          return salvarPendenciasVooLocal(mapaId, restantes);
+        })
+        .catch((e) => console.warn("Falha ao atualizar pendências guardadas", e));
       setSelecionados(new Map());
       setEscolhaPendente(null);
       setModoApontamento(false);
@@ -873,6 +910,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     filtroProjetos,
     alternarFiltroProjeto,
     carregandoPendentes,
+    atualizandoPendentes,
     erroPendentes,
     modoApontamento,
     selecionados,

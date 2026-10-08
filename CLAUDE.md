@@ -2907,6 +2907,41 @@ interna desta máquina):
 
 A Visão geral foi conferida no navegador nos dois estados.
 
+**Pendências de voo aparecem na hora (2026-10-08)**: pedido do Leo. A
+cada F5 no PC, ou ao reabrir a aba no celular, a tela de voos ficava em
+"Carregando pendências…" esperando o servidor, que por sua vez confere a
+contagem no DroneManagement antes de responder (login e ponte, de segundos
+a quase um minuto). A cópia guardada no aparelho (`pendencias_voo`) só era
+usada quando a rede falhava.
+
+O que mudou em `useApontamentoVoo.js`:
+- **Cópia do aparelho primeiro**: ao abrir, lê a cópia local e mostra na
+  hora. O servidor atualiza em segundo plano (`atualizandoPendentes`), com
+  um aviso discreto "Atualizando com o DroneManagement…" no painel e no
+  resumo da gaveta no celular.
+- **Spinner bloqueante só no 1º acesso**: `carregandoPendentes` agora só
+  vale quando não há nada guardado ainda. O botão "Apontar voo" fica
+  liberado durante a atualização. O servidor já recusa, com o motivo, um
+  talhão que outra pessoa tenha apontado nesse meio-tempo
+  (`motivoParaNaoApontar`).
+- **Falha mantém a cópia na tela**: se a atualização falhar (sem sinal,
+  ponte desligada), a cópia continua. O aviso diferencia "Sem conexão" de
+  "Não foi possível atualizar agora".
+- **Cópia atualizada depois de apontar**: um apontamento bem-sucedido
+  também tira os talhões da cópia do aparelho. Senão, um F5 logo depois os
+  mostraria de novo até o servidor responder.
+- `pendenciasNaTelaRef` evita reler a cópia local quando a busca roda de
+  novo, por exemplo depois de enviar a fila.
+
+Verificado com Playwright no dev local, com `/voos/pendentes` simulado
+(15 s de atraso, depois falha 502), em 11 checagens:
+- F5 no desktop mostra a cópia em ~1,5 s e troca sozinho pelo dado novo
+  quando o servidor responde;
+- aba do celular reaberta mostra a cópia em 0,8 s.
+
+O banco local foi preparado (camada 3 como "voos" apontando pro arquivo
+atual do R2) e restaurado ao final.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

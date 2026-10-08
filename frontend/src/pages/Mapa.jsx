@@ -2346,7 +2346,9 @@ export default function Mapa() {
           ? `${qtdNaFila} ${qtdNaFila === 1 ? "apontamento aguardando" : "apontamentos aguardando"} sinal`
           : apontamento.fila.recusados.length > 0
             ? "Há apontamentos não aceitos — toque pra ver"
-            : "Toque pra filtrar por tipo de voo",
+            : apontamento.atualizandoPendentes && !apontamento.carregandoPendentes
+              ? "Atualizando com o DroneManagement…"
+              : "Toque pra filtrar por tipo de voo",
     },
     legenda: {
       titulo: "Cores e símbolos",
