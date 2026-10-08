@@ -2942,6 +2942,49 @@ Verificado com Playwright no dev local, com `/voos/pendentes` simulado
 O banco local foi preparado (camada 3 como "voos" apontando pro arquivo
 atual do R2) e restaurado ao final.
 
+**Ajustes do celular e recarga após nova versão (2026-10-08)**: três
+pontos reportados pelo Leo.
+
+- **"Failed to fetch dynamically imported module" ao trocar de mapa.**
+  Depois de publicar uma versão nova, uma aba aberta antes ainda pede os
+  arquivos antigos (o nome leva o hash do conteúdo). O service worker
+  (`autoUpdate`) já trocou o cache, e o GitHub Pages também não tem mais
+  esses arquivos. Correções:
+  - `lib/versaoNova.js` (novo): `importarComRecarga` envolve todos os
+    `lazy(() => import(...))` (`App.jsx` e a prévia em `AdminCamadas.jsx`)
+    e recarrega a página pra pegar a versão nova;
+  - o `ErrorBoundary` reconhece a mesma mensagem (Chrome, Safari e Firefox)
+    e também recarrega;
+  - a recarga acontece no máximo 1 vez por minuto (`sessionStorage`). Se
+    falhar de novo logo em seguida, o erro aparece normalmente e não entra
+    em laço.
+- **Barra superior encavalada com nome de mapa longo** (ex: "Áreas -
+  Antônio Tittoto"). No celular, `.cartao-identidade` tinha
+  `flex: 1 1 auto`: a base era o tamanho do texto, então o `flex-wrap`
+  jogava o botão da conta pra outra linha e a busca descia por cima dos
+  controles de zoom. Correções:
+  - virou `flex: 1 1 0`: o cartão ocupa o que sobra e o texto encolhe com
+    "…";
+  - o status de sincronização encolhe antes do nome;
+  - de carona, o balão `.ajuda-busca` ("A busca não está disponível…")
+    ficou escondido no celular. Ele cobria o "+" do zoom o tempo todo em
+    mapas sem busca, e o próprio campo já diz isso.
+- **Gaveta inferior mais recolhida.** Fora da aba Voos, recolhida mostra
+  só a alça e as abas (`.gaveta-celular--compacta`, ~80px, antes ~150px).
+  O resumo ("2 de 2 camadas visíveis") saiu. Na aba Voos o resumo
+  continua: hectares pendentes, avisos da fila e "Apontar voo". A barra de
+  escala e a atribuição acompanham a altura.
+
+Verificado com Playwright no dev local, em 25 checagens (390 e 360px):
+- falha simulada do arquivo da tela inicial recarrega sozinha, sem a tela
+  "Algo deu errado";
+- a barra fica em uma linha com o nome longo;
+- a busca termina antes dos controles de zoom;
+- a gaveta compacta tem 80px, e a aba Voos mantém o resumo.
+
+O banco local foi preparado (nome longo e camada de voos) e restaurado ao
+final.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

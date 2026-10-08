@@ -2780,12 +2780,34 @@ input[type="file"]::file-selector-button:hover {
     gap: 8px;
   }
 
+  /* Base 0 (não "auto"): com base no tamanho do texto, um nome de mapa
+     longo (ex: "Áreas - Antônio Tittoto") não cabia ao lado do botão da
+     conta e o flex-wrap jogava a conta pra outra linha, empurrando a busca
+     pra cima dos controles de zoom. Assim o cartão ocupa o que sobra e o
+     texto encolhe com "…". */
   .cartao-identidade {
     order: 1;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     height: 48px;
     gap: 6px;
     padding: 0 12px 0 4px;
+  }
+
+  /* Faltando espaço, encolhe primeiro o status ("Sincronizado às…"), depois
+     o nome do mapa. */
+  .cartao-identidade .botao-trocar-mapa {
+    flex: 0 1 auto;
+  }
+
+  .cartao-identidade .status-sincronizacao {
+    flex: 0 3 auto;
+  }
+
+  /* No celular o balão cobria o "+" do zoom o tempo todo, em todo mapa sem
+     busca — o texto do próprio campo ("Busca não disponível para este
+     mapa") já diz o mesmo. */
+  .ajuda-busca {
+    display: none;
   }
 
   .marca-app,
@@ -3355,6 +3377,15 @@ input[type="file"]::file-selector-button:hover {
   height: 60vh;
 }
 
+/* Recolhida fora da aba Voos: só a alça e as abas, sem resumo (~80px). */
+.gaveta-celular--compacta {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+.gaveta-celular--compacta .alca-gaveta {
+  height: 22px;
+}
+
 @keyframes subir-gaveta {
   from {
     transform: translateY(24px);
@@ -3566,6 +3597,11 @@ input[type="file"]::file-selector-button:hover {
 .area-mapa:has(.gaveta-celular) .maplibregl-ctrl-bottom-left,
 .area-mapa:has(.gaveta-celular) .maplibregl-ctrl-bottom-right {
   bottom: 150px;
+}
+
+.area-mapa:has(.gaveta-celular--compacta) .maplibregl-ctrl-bottom-left,
+.area-mapa:has(.gaveta-celular--compacta) .maplibregl-ctrl-bottom-right {
+  bottom: 88px;
 }
 
 /* ===== Apontamento de voo (redesenho, fase 4) =====

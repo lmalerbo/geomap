@@ -2332,33 +2332,21 @@ export default function Mapa() {
       ];
   const abaGavetaAtual = abasGaveta.some((a) => a.id === abaGaveta) ? abaGaveta : abasGaveta[0].id;
   const qtdNaFila = apontamento.fila.qtdPendentes;
-  const resumoGaveta = {
-    camadas: {
-      titulo: `${qtdCamadasVisiveis} de ${mapasLocais.length} camadas visíveis`,
-      sub: "Toque pra ligar, desligar ou importar um arquivo",
-    },
-    voos: {
-      titulo: apontamento.carregandoPendentes
-        ? "Carregando pendências…"
-        : `${apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha pendentes · ${apontamento.qtdTalhoesPendentes} ${apontamento.qtdTalhoesPendentes === 1 ? "talhão" : "talhões"}`,
-      sub:
-        qtdNaFila > 0
-          ? `${qtdNaFila} ${qtdNaFila === 1 ? "apontamento aguardando" : "apontamentos aguardando"} sinal`
-          : apontamento.fila.recusados.length > 0
-            ? "Há apontamentos não aceitos — toque pra ver"
-            : apontamento.atualizandoPendentes && !apontamento.carregandoPendentes
-              ? "Atualizando com o DroneManagement…"
-              : "Toque pra filtrar por tipo de voo",
-    },
-    legenda: {
-      titulo: "Cores e símbolos",
-      sub: "Só do que está visível no mapa agora",
-    },
-    ferramentas: {
-      titulo: podeEditar ? "Medir, gravar percurso, anotar" : "Medir e gravar percurso",
-      sub: "Funcionam sem internet",
-    },
-  }[abaGavetaAtual];
+  // Resumo da gaveta recolhida — só na aba Voos (nas outras ela fica
+  // compacta, só alça + abas).
+  const resumoVoosGaveta = {
+    titulo: apontamento.carregandoPendentes
+      ? "Carregando pendências…"
+      : `${apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha pendentes · ${apontamento.qtdTalhoesPendentes} ${apontamento.qtdTalhoesPendentes === 1 ? "talhão" : "talhões"}`,
+    sub:
+      qtdNaFila > 0
+        ? `${qtdNaFila} ${qtdNaFila === 1 ? "apontamento aguardando" : "apontamentos aguardando"} sinal`
+        : apontamento.fila.recusados.length > 0
+          ? "Há apontamentos não aceitos — toque pra ver"
+          : apontamento.atualizandoPendentes && !apontamento.carregandoPendentes
+            ? "Atualizando com o DroneManagement…"
+            : "Toque pra filtrar por tipo de voo",
+  };
 
   function entrarNoApontamento() {
     apontamento.iniciarModo();
@@ -2688,7 +2676,10 @@ export default function Mapa() {
         </div>
 
         {mostrarGaveta && (
-          <section className={`gaveta-celular${gavetaAberta ? " aberta" : ""}`} aria-label="Painel do mapa">
+          <section
+            className={`gaveta-celular${gavetaAberta ? " aberta" : ""}${!gavetaAberta && abaGavetaAtual !== "voos" ? " gaveta-celular--compacta" : ""}`}
+            aria-label="Painel do mapa"
+          >
             <button
               type="button"
               className="alca-gaveta"
@@ -2729,8 +2720,8 @@ export default function Mapa() {
               // toque, sem precisar abrir a gaveta.
               <div className="resumo-gaveta resumo-gaveta--voos">
                 <button type="button" className="texto-resumo-gaveta" onClick={() => setGavetaAberta(true)}>
-                  <strong>{resumoGaveta.titulo}</strong>
-                  <span>{resumoGaveta.sub}</span>
+                  <strong>{resumoVoosGaveta.titulo}</strong>
+                  <span>{resumoVoosGaveta.sub}</span>
                 </button>
                 <button
                   type="button"
@@ -2741,17 +2732,10 @@ export default function Mapa() {
                   Apontar voo
                 </button>
               </div>
-            ) : (
-              <button type="button" className="resumo-gaveta" onClick={() => setGavetaAberta(true)}>
-                <span>
-                  <strong>{resumoGaveta.titulo}</strong>
-                  <span>{resumoGaveta.sub}</span>
-                </span>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="m6 15 6-6 6 6" />
-                </svg>
-              </button>
-            )}
+            ) : null}
+            {/* Recolhida fora da aba Voos: só a alça e as abas (pedido do
+                Leo, 2026-10-08 — o resumo "2 de 2 camadas visíveis" ocupava
+                o rodapé sem mostrar nada que precisasse estar ali). */}
           </section>
         )}
 

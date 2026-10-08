@@ -33,9 +33,10 @@ import { lerValoresUnicos, lerValoresUnicosCombinados, lerMinMax, detectarTipoGe
 import { useAuth } from "../context/AuthContext.jsx";
 import { useJobs } from "../context/JobsContext.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
+import { importarComRecarga } from "../lib/versaoNova.js";
 
 // MapLibre só é baixado quando a prévia aparece de verdade.
-const PreviaCamada = lazy(() => import("../components/PreviaCamada.jsx"));
+const PreviaCamada = lazy(importarComRecarga(() => import("../components/PreviaCamada.jsx")));
 
 const ABAS_EDITOR = [
   { id: "estilo", rotulo: "Estilo" },

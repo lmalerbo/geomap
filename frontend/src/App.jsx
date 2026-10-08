@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { JobsProvider } from "./context/JobsContext.jsx";
 import AvisoPinsDescartados from "./components/AvisoPinsDescartados.jsx";
+import { importarComRecarga } from "./lib/versaoNova.js";
 
 // Code-splitting por rota (Lighthouse apontou ~230 KiB de JS não usado no
 // primeiro load — em boa parte MapLibre GL + libs de importação de
@@ -10,19 +11,19 @@ import AvisoPinsDescartados from "./components/AvisoPinsDescartados.jsx";
 // telas de admin). Cada import() vira um chunk próprio no build do Vite —
 // só baixa quando a rota é acessada de verdade, em vez de tudo junto no
 // bundle principal.
-const Login = lazy(() => import("./pages/Login.jsx"));
-const PrimeiroAcesso = lazy(() => import("./pages/PrimeiroAcesso.jsx"));
-const Inicio = lazy(() => import("./pages/Inicio.jsx"));
-const Mapa = lazy(() => import("./pages/Mapa.jsx"));
-const AdminCamadas = lazy(() => import("./pages/AdminCamadas.jsx"));
-const AdminMapas = lazy(() => import("./pages/AdminMapas.jsx"));
-const AdminUsuarios = lazy(() => import("./pages/AdminUsuarios.jsx"));
-const AdminEstatisticas = lazy(() => import("./pages/AdminEstatisticas.jsx"));
-const AdminVisaoGeral = lazy(() => import("./pages/AdminVisaoGeral.jsx"));
-const LayoutAdmin = lazy(() => import("./components/LayoutAdmin.jsx"));
-const Ajuda = lazy(() => import("./pages/Ajuda.jsx"));
-const Indicadores = lazy(() => import("./pages/Indicadores.jsx"));
-const DefinirSenha = lazy(() => import("./pages/DefinirSenha.jsx"));
+const Login = lazy(importarComRecarga(() => import("./pages/Login.jsx")));
+const PrimeiroAcesso = lazy(importarComRecarga(() => import("./pages/PrimeiroAcesso.jsx")));
+const Inicio = lazy(importarComRecarga(() => import("./pages/Inicio.jsx")));
+const Mapa = lazy(importarComRecarga(() => import("./pages/Mapa.jsx")));
+const AdminCamadas = lazy(importarComRecarga(() => import("./pages/AdminCamadas.jsx")));
+const AdminMapas = lazy(importarComRecarga(() => import("./pages/AdminMapas.jsx")));
+const AdminUsuarios = lazy(importarComRecarga(() => import("./pages/AdminUsuarios.jsx")));
+const AdminEstatisticas = lazy(importarComRecarga(() => import("./pages/AdminEstatisticas.jsx")));
+const AdminVisaoGeral = lazy(importarComRecarga(() => import("./pages/AdminVisaoGeral.jsx")));
+const LayoutAdmin = lazy(importarComRecarga(() => import("./components/LayoutAdmin.jsx")));
+const Ajuda = lazy(importarComRecarga(() => import("./pages/Ajuda.jsx")));
+const Indicadores = lazy(importarComRecarga(() => import("./pages/Indicadores.jsx")));
+const DefinirSenha = lazy(importarComRecarga(() => import("./pages/DefinirSenha.jsx")));
 
 function CarregandoRota() {
   return (
