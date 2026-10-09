@@ -2997,6 +2997,20 @@ status, com teste. Efeito colateral: esses 11 não entraram em
 ponta da ponte cobriu leituras (GET de pendências e de usuário), não uma
 escrita — testar ao menos uma chamada de cada método HTTP usado.
 
+**Talhão já voado some da lista ao ser recusado (2026-10-09)**: depois
+do bug do 204 (acima), 31 talhões gravados no DroneManagement continuaram
+como pendentes no app (ele achou que tinham falhado e os manteve na lista e
+na cópia do aparelho), e a cópia do servidor (`voos_pendentes_cache`) era
+das 7h47. Conferido direto no DroneManagement (só leitura, pela rede
+interna): todos em controlStatus 4 e a contagem de pendências caiu de 328
+pra 308, então a próxima consulta pela ponte já corrige o servidor. Pra a
+lista se corrigir também quando o piloto tenta apontar de novo um talhão
+já voado, o `POST /voos/apontamentos` marca essa recusa com
+`resolvido: true` e o app tira esses talhões da lista e da cópia do
+aparelho (o motivo continua aparecendo). A fila offline não muda: lá a
+recusa continua visível até o piloto descartar (regra combinada). Testado
+com Playwright (recusa resolvida + sucesso no mesmo lote).
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

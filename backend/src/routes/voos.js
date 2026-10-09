@@ -140,7 +140,10 @@ voosRouter.post("/voos/apontamentos", async (req, res) => {
       const atual = await getResp.json();
       const motivo = motivoParaNaoApontar(atual);
       if (motivo) {
-        falha.push({ id: registro.id, erro: motivo });
+        // `resolvido`: o talhão já não está pendente (outra pessoa apontou,
+        // ou um apontamento anterior gravou mas o app não soube) — o app
+        // tira da lista em vez de continuar mostrando como pendente.
+        falha.push({ id: registro.id, erro: motivo, resolvido: true });
         continue;
       }
       const { id: _id, isEnabled, userId, createdUtc, modifiedUtc, ...camposEditaveis } = atual;

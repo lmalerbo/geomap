@@ -834,6 +834,10 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       const resposta = await apontarVoos(token, { mapaId, dataVoo, registros });
       setResultado(resposta);
       const sucessoIds = new Set(resposta.sucesso);
+      // Sai da lista quem foi apontado agora e quem o servidor recusou por
+      // já não estar pendente (`resolvido`) — senão um talhão já voado ficava
+      // aparecendo como pendente até a próxima atualização do servidor.
+      const sairDaLista = new Set([...sucessoIds, ...(resposta.falha || []).filter((f) => f.resolvido).map((f) => f.id)]);
       const chavesSucesso = registros.filter((r) => sucessoIds.has(r.id)).map((r) => chave(r.secao, r.talhao));
       if (chavesSucesso.length > 0) {
         setRecemApontados((atual) => {
@@ -849,14 +853,14 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
           });
         }, TEMPO_CONFIRMACAO_MS);
       }
-      setPendentes((atual) => atual.filter((r) => !sucessoIds.has(r.id)));
+      setPendentes((atual) => atual.filter((r) => !sairDaLista.has(r.id)));
       // A cópia do aparelho também — senão um F5 logo depois mostraria de
       // novo (até o servidor responder) os talhões que acabaram de ser
       // apontados.
       buscarPendenciasVooLocal(mapaId)
         .then((guardadas) => {
           if (!guardadas) return;
-          const restantes = guardadas.registros.filter((r) => !sucessoIds.has(r.id));
+          const restantes = guardadas.registros.filter((r) => !sairDaLista.has(r.id));
           return salvarPendenciasVooLocal(mapaId, restantes);
         })
         .catch((e) => console.warn("Falha ao atualizar pendências guardadas", e));
