@@ -3011,6 +3011,27 @@ aparelho (o motivo continua aparecendo). A fila offline não muda: lá a
 recusa continua visível até o piloto descartar (regra combinada). Testado
 com Playwright (recusa resolvida + sucesso no mesmo lote).
 
+**Servidor geo: conversão local configurada (2026-10-09)**: a mudança de
+28/09 (conversão .shp -> .pmtiles no servidor geo em vez do Render) só
+chegou ao servidor geo em 08/10, junto com o `git pull` da ponte. Por isso
+a automação diária de 09/10 falhou com "ogr2ogr não encontrado": os
+binários nunca tinham sido instalados lá.
+
+- **Instalado no servidor geo**: Python 3.14 (Scoop +
+  `pipeline/requirements.txt`), `C:\ferramentas\cygwin-portable` e
+  `C:\ferramentas\tippecanoe`, mais as variáveis no `.env` da automação.
+- **Erro seguinte, "Cannot find proj.db"**: o servidor geo tem outros
+  programas de GIS que deixam `PROJ_LIB`/`PROJ_DATA`/`GDAL_DATA` definidas
+  no Windows, e o `ogr2ogr` do Cygwin herdava essas variáveis. Corrigido em
+  `envParaConversao` (`backend/src/lib/conversaoShapefile.js`), que agora
+  tira essas variáveis do ambiente quando usa os binários Cygwin.
+  Reproduzido aqui com uma `PROJ_LIB` falsa: o código antigo falha igual
+  ao servidor geo, e o novo converte o Limites real com rótulos.
+- **Pacote mínimo testado** (caso precise montar de novo noutra máquina):
+  `root\bin`, `root\etc`, `root\usr\share\gdal`, `root\usr\share\proj`,
+  `root\lib\gdalplugins`, mais `tippecanoe.exe` e `tile-join.exe`. São
+  334 MB (127 MB zipado), em vez de 1,6 GB.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

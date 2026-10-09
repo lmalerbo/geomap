@@ -43,9 +43,18 @@ function lerConfig() {
   };
 }
 
+// Variáveis de dados de projeção que outros programas de GIS deixam no
+// Windows (ArcGIS, QGIS, Pix4D…) apontando pros arquivos deles. Herdadas,
+// fazem o ogr2ogr do Cygwin procurar o proj.db no lugar errado ("Cannot find
+// proj.db" no servidor geo, 2026-10-09) e o pyproj dos rótulos também. Sem
+// elas, cada um usa os próprios arquivos (o Cygwin, /usr/share/proj da
+// pasta dele; o pyproj, os que vêm no pacote).
+const VARIAVEIS_GIS_HERDADAS = /^(PROJ_LIB|PROJ_DATA|GDAL_DATA)$/i;
+
 function envParaConversao(config) {
   if (!config.cygwinBinDir) return process.env;
-  return { ...process.env, PATH: `${config.cygwinBinDir}${path.delimiter}${process.env.PATH}` };
+  const env = Object.fromEntries(Object.entries(process.env).filter(([chave]) => !VARIAVEIS_GIS_HERDADAS.test(chave)));
+  return { ...env, PATH: `${config.cygwinBinDir}${path.delimiter}${process.env.PATH}` };
 }
 
 // Confere .shp + os obrigatórios (.dbf/.shx/.prj) numa pasta já populada —
