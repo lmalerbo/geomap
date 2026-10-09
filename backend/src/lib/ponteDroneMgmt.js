@@ -102,10 +102,15 @@ export function criarPonte({
 // Instância única do processo (usada por dronemgmt.js e pelas rotas).
 export const ponte = criarPonte();
 
+// Status que, por definição do HTTP, não têm corpo — o construtor Response
+// lança "Invalid response status code" se receber qualquer corpo (até "")
+// com eles. O DroneManagement responde 204 ao PUT do apontamento.
+const STATUS_SEM_CORPO = new Set([101, 204, 205, 304]);
+
 // Resultado da ponte -> Response, pra quem chama chamarApi() não perceber a
 // diferença entre chamada direta e pela ponte.
 export function resultadoParaResponse({ status, contentType, corpo }) {
-  return new Response(corpo ?? "", {
+  return new Response(STATUS_SEM_CORPO.has(status) ? null : (corpo ?? ""), {
     status,
     headers: contentType ? { "content-type": contentType } : {},
   });

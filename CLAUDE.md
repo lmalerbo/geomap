@@ -2985,6 +2985,18 @@ Verificado com Playwright no dev local, em 25 checagens (390 e 360px):
 O banco local foi preparado (nome longo e camada de voos) e restaurado ao
 final.
 
+**Ponte: resposta 204 quebrava o apontamento (2026-10-09)**: no primeiro
+uso real da ponte, 11 apontamentos foram **gravados no DroneManagement**
+mas o app mostrou "11 falharam. Response constructor: Invalid response
+status code 204". O PUT do apontamento volta 204 sem conteúdo; o servidor
+geo repassa corpo "", e o `new Response("", {status: 204})` de
+`resultadoParaResponse` lança erro (status 101/204/205/304 não aceitam
+corpo nenhum, nem vazio). Corrigido passando `null` como corpo nesses
+status, com teste. Efeito colateral: esses 11 não entraram em
+`apontamentos_voo` (só auditoria, nenhuma tela lê). Lição: o teste ponta a
+ponta da ponte cobriu leituras (GET de pendências e de usuário), não uma
+escrita — testar ao menos uma chamada de cada método HTTP usado.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -53,3 +53,14 @@ test("resposta para pedido já expirado é ignorada", () => {
   const p = criarPonte();
   assert.equal(p.responder("nao-existe", { status: 200 }), false);
 });
+
+// Caso real (2026-10-09): o PUT do apontamento volta 204 sem conteúdo; o
+// servidor geo repassa corpo "" e o Response quebrava com "Invalid response
+// status code 204" — 11 apontamentos gravados no DroneManagement apareceram
+// como falha no app.
+test("resposta sem conteúdo (204) vira Response ok", async () => {
+  const r = resultadoParaResponse({ status: 204, contentType: null, corpo: "" });
+  assert.equal(r.status, 204);
+  assert.equal(r.ok, true);
+  assert.equal(await r.text(), "");
+});
