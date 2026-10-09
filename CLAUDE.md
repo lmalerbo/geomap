@@ -3018,15 +3018,26 @@ a automação diária de 09/10 falhou com "ogr2ogr não encontrado": os
 binários nunca tinham sido instalados lá.
 
 - **Instalado no servidor geo**: Python 3.14 (Scoop +
-  `pipeline/requirements.txt`), `C:\ferramentas\cygwin-portable` e
+  `pipeline/requirements.txt`), o Cygwin completo e
   `C:\ferramentas\tippecanoe`, mais as variáveis no `.env` da automação.
-- **Erro seguinte, "Cannot find proj.db"**: o servidor geo tem outros
-  programas de GIS que deixam `PROJ_LIB`/`PROJ_DATA`/`GDAL_DATA` definidas
-  no Windows, e o `ogr2ogr` do Cygwin herdava essas variáveis. Corrigido em
-  `envParaConversao` (`backend/src/lib/conversaoShapefile.js`), que agora
-  tira essas variáveis do ambiente quando usa os binários Cygwin.
-  Reproduzido aqui com uma `PROJ_LIB` falsa: o código antigo falha igual
-  ao servidor geo, e o novo converte o Limites real com rótulos.
+  **Atenção ao caminho**: o Cygwin completo ficou em
+  `C:\ferramentas\cygwin-portable\cygwin-portable\root` (um nível a mais,
+  efeito de descompactar). `C:\ferramentas\cygwin-portable\root` é uma
+  cópia incompleta, de uma transferência cancelada, e pode ser apagada.
+  `OGR2OGR_PATH` e `CYGWIN_BIN_DIR` apontam pra cópia completa.
+- **Erro seguinte, "Cannot find proj.db"**: a causa foi o `.env` apontar
+  pra cópia incompleta, que não tinha `usr\share\proj`. Diagnóstico:
+  `projinfo --searchpaths` mostrou que o PROJ procura em `/usr/share/proj`
+  (relativo à raiz do Cygwin), e `Test-Path` mostrou o arquivo ausente. O
+  servidor geo **não** tem `PROJ_LIB`/`PROJ_DATA`/`GDAL_DATA` no ambiente.
+  Antes de achar isso, suspeitei dessas variáveis (comuns quando há outros
+  programas de GIS) e publiquei uma proteção em `envParaConversao`
+  (`backend/src/lib/conversaoShapefile.js`): com os binários Cygwin, ela
+  tira essas variáveis herdadas. Não era a causa, mas fica como proteção,
+  porque reproduzi com uma `PROJ_LIB` falsa que o código antigo falharia
+  do mesmo jeito.
+- **Resultado**: execução manual em 09/10 às 11h14 atualizou as 8 camadas
+  (Talhões 5/25/48/103 e Limites 1/21/43/99, todos os jobs concluídos).
 - **Pacote mínimo testado** (caso precise montar de novo noutra máquina):
   `root\bin`, `root\etc`, `root\usr\share\gdal`, `root\usr\share\proj`,
   `root\lib\gdalplugins`, mais `tippecanoe.exe` e `tile-join.exe`. São
