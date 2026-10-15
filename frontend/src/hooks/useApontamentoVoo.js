@@ -8,7 +8,7 @@ import {
   EVENTO_FILA_APONTAMENTOS,
 } from "../lib/filaApontamentosApp.js";
 import { useApontamentosNaFila } from "./useApontamentosNaFila.js";
-import { textoLegendaDias } from "../lib/diasCorridos.js";
+import { textoLegendaDias, rotuloTalhaoPendente } from "../lib/diasCorridos.js";
 
 // Contorno dos talhões cujo apontamento está guardado no aparelho esperando
 // sinal (fila offline, redesenho fase 4) — âmbar, distinto de qualquer cor
@@ -551,9 +551,18 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
           nomes.map((n) => registrosPorTipo.get(n)),
           hoje
         );
-        if (texto) ramosDias.push(k, texto);
+        const talhao = registrosPorTipo.values().next().value.talhao;
+        ramosDias.push(k, rotuloTalhaoPendente(talhao, texto));
       }
       map.setLayoutProperty(CAMADA_DIAS, "text-field", ramosDias.length > 0 ? ["match", chaveTalhao, ...ramosDias, ""] : "");
+    }
+
+    // Número do talhão só nos pendentes — pedido do Leo (2026-10-15): o
+    // número em todo talhão poluía o mapa de Voos. Os pendentes ganham o
+    // número junto com os dias, na CAMADA_DIAS acima (rotuloTalhaoPendente);
+    // o rótulo próprio da camada fica escondido aqui.
+    if (voosInfo.rotuloLayerId && getLayerSeguro(map, voosInfo.rotuloLayerId)) {
+      map.setFilter(voosInfo.rotuloLayerId, FILTRO_NENHUM);
     }
   }, [pendentesFiltrados, recemApontados, carregandoPendentes, voosInfo, mapaPronto, mapRef, fila.pendentes]);
 
@@ -605,8 +614,8 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
           "text-field": "",
           "text-font": ["Noto Sans Regular"],
           "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 13],
-          // Abaixo do número do talhão (rótulo da própria camada).
-          "text-offset": [0, 1.25],
+          // Número do talhão + dias num rótulo só, centralizado (ver
+          // rotuloTalhaoPendente) — o rótulo próprio da camada fica escondido.
           "text-allow-overlap": false,
           "text-padding": 1,
         },

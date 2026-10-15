@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { diasCorridos, textoLegendaDias } from "./diasCorridos.js";
+import { diasCorridos, textoLegendaDias, rotuloTalhaoPendente } from "./diasCorridos.js";
 
 // 1º/10/2026 às 22h no horário local do teste
 const hoje = new Date(2026, 9, 1, 22, 0, 0);
@@ -38,5 +38,14 @@ describe("textoLegendaDias", () => {
       { projeto: "Outro", dataReferencia: null },
     ];
     expect(textoLegendaDias(regs, hoje)).toBe("1 d");
+  });
+});
+
+describe("rotuloTalhaoPendente", () => {
+  it("número do talhão em cima e os dias embaixo", () => {
+    expect(rotuloTalhaoPendente(12, "10 d · 40 d")).toBe("12\n10 d · 40 d");
+  });
+  it("sem dias, só o número", () => {
+    expect(rotuloTalhaoPendente("7", "")).toBe("7");
   });
 });

@@ -3061,6 +3061,31 @@ DroneManagement os 9 talhões de Falhas Plantio da 10324 (status 11,
 - **Indicadores**: o cache deles já tinha validade
   (`cacheAindaValido`/`VALIDADE_CACHE_MS`) e não foi mexido.
 
+**Mapa de Voos: número do talhão só nos pendentes (2026-10-15)**: pedido
+do Leo, porque o número em todos os talhões poluía o mapa. Ao investigar,
+apareceu um detalhe: nos talhões pendentes o número **nunca aparecia**. O
+rótulo da camada e a legenda de dias (`camada-voos-dias`) caíam no mesmo
+lugar, e o MapLibre escondia um dos dois (`text-allow-overlap: false`).
+
+- **Rótulo único nos pendentes**: a `camada-voos-dias` mostra o número do
+  talhão em cima e os dias embaixo, num rótulo só, centralizado
+  (`rotuloTalhaoPendente` em `frontend/src/lib/diasCorridos.js`, com
+  teste).
+- **Rótulo próprio escondido**: o rótulo da camada de voos
+  (`voosInfo.rotuloLayerId`) recebe `FILTRO_NENHUM`. Os demais talhões
+  ficam sem número.
+- Talhão em várias partes repete o rótulo em cada parte, como a legenda de
+  dias já fazia.
+
+Verificado com Playwright no dev local, com pendências simuladas:
+- sem pendências, nenhum número aparece;
+- com 2 pendentes, só eles têm rótulo, com o texto "11\n14 d".
+
+Detalhe de ambiente: outro projeto do Leo (Next.js) ocupa a porta 3000
+nesta máquina. Pro teste, o backend rodou na 3099 com
+`VITE_API_URL=http://localhost:3099`, e o frontend continuou na 5173
+(porta que o CORS do R2 aceita).
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -40,3 +40,11 @@ export function textoLegendaDias(registros, hoje = new Date()) {
   }
   return partes.join(" · ");
 }
+
+// Rótulo de um talhão pendente no mapa de Voos: número do talhão em cima,
+// dias corridos embaixo. Um rótulo só (e não dois, número + dias) porque o
+// MapLibre esconde um dos dois quando se sobrepõem — os pendentes acabavam
+// mostrando só os dias (pedido do Leo, 2026-10-15: número só nos pendentes).
+export function rotuloTalhaoPendente(talhao, textoDias) {
+  return textoDias ? `${talhao}\n${textoDias}` : String(talhao);
+}
