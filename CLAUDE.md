@@ -3086,6 +3086,49 @@ nesta máquina. Pro teste, o backend rodou na 3099 com
 `VITE_API_URL=http://localhost:3099`, e o frontend continuou na 5173
 (porta que o CORS do R2 aceita).
 
+**Cores dos tipos de voo editáveis + dias com contorno próprio
+(2026-10-15)**: dois pedidos do Leo. O marrom de Levantamento Topográfico
+fica ruim de ver no satélite, e ele sugeriu poder editar as cores. Além
+disso, o número do talhão e os dias saíam com a mesma formatação.
+
+- **Cores**: `frontend/src/lib/coresTiposVoo.js` (novo, com testes) passa a
+  ser a fonte única da cor e da ordem por tipo, com a variante "Falhas
+  Plantio (fornecedor)" e o fallback por hash. Cores personalizadas ficam
+  em `estilo_config.coresTiposVoo` da camada de voos
+  (`{nome: "#rrggbb"}`, sem migration), normalizadas em
+  `normalizarEstiloConfig`.
+- **Editor**: Admin → Camadas → camada de voos → aba Estilo, seção "Cores
+  dos tipos de voo" (seletor de cor por tipo e botão "Padrão"). Como todo
+  estilo, salvar não muda a `versao`. Mapa e chips do painel Voos usam as
+  mesmas cores (`voosInfo.coresTiposVoo`).
+- **Legenda em duas camadas**: `camada-voos-dias` mostra só o número
+  (texto escuro, contorno branco, um pouco acima do centro).
+  `camada-voos-dias-texto` (nova) mostra os dias (texto branco, contorno
+  escuro, abaixo), com `text-allow-overlap` e `text-ignore-placement`. Isso
+  substitui o rótulo único "número\ndias" da entrada anterior
+  (`rotuloTalhaoPendente` foi removido).
+- **Defeito real achado testando, que já existia**: quando o estilo da
+  camada de voos mudava com o mapa aberto, `removerCamada` (`Mapa.jsx`)
+  falhava com "Source cannot be removed while layer camada-voos-anel-0 is
+  using it". Em seguida, "Source already exists" fazia a camada de voos
+  sumir até recarregar. Correções:
+  - `removerCamada` agora tira antes qualquer camada que use a mesma fonte;
+  - o efeito que cria anéis/urgente/dias depende também de
+    `voosInfo.assinatura` e, ao recriar, sobe `versaoCamadasExtras`, pra a
+    coloração rodar de novo (ela roda antes na mesma passada).
+
+Execução delegada:
+- tarefa 1 (módulo puro): camada 1, gemini-3.8-flash, aprovada (saiu por
+  cota no fim, mas o código e os testes estavam completos);
+- tarefa 2 (ligação no hook, mapa e admin): camada 2, Haiku, aprovada;
+- correção do defeito de remontagem: eu.
+
+Verificado com Playwright no dev local (backend na 3099, porque a 3000
+está ocupada por outro projeto), 13 checagens, 3 rodadas seguidas sem
+falha: legendas separadas, cor nova no contorno e no chip depois de
+salvar, legendas preenchidas depois da remontagem, e "Padrão" volta à cor
+original.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

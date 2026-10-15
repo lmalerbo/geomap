@@ -20,6 +20,7 @@ import {
 import { useResumoAdmin } from "../components/LayoutAdmin.jsx";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 import { corDaCamada } from "../lib/paleta.js";
+import { TIPOS_VOO_EDITAVEIS, corTipoVoo } from "../lib/coresTiposVoo.js";
 import IconeLordicon from "../components/IconeLordicon.jsx";
 import {
   normalizarEstiloConfig,
@@ -1183,6 +1184,44 @@ export default function AdminCamadas() {
                   />
                   Camada de apontamento de voo (integração DroneManagement)
                 </label>
+
+                {estiloForm.tipoCamada === "voos" && (
+                  <>
+                    <h3 className="subtitulo-estilo">Cores dos tipos de voo</h3>
+                    <ul className="lista-categorias-estilo">
+                      {TIPOS_VOO_EDITAVEIS.map(([nome]) => (
+                        <li key={nome} className="linha-categoria-estilo">
+                          <label>
+                            <input
+                              type="color"
+                              value={corTipoVoo(nome, estiloForm.coresTiposVoo || {})}
+                              onChange={(e) =>
+                                atualizarEstiloFormCampo("coresTiposVoo", {
+                                  ...(estiloForm.coresTiposVoo || {}),
+                                  [nome]: e.target.value,
+                                })
+                              }
+                            />
+                            <span>{nome}</span>
+                          </label>
+                          {estiloForm.coresTiposVoo?.[nome] && (
+                            <button
+                              type="button"
+                              className="botao-secundario"
+                              onClick={() => {
+                                const restantes = { ...estiloForm.coresTiposVoo };
+                                delete restantes[nome];
+                                atualizarEstiloFormCampo("coresTiposVoo", restantes);
+                              }}
+                            >
+                              Padrão
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
 
                 {!ehPontoAtual && (
                   <>

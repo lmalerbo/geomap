@@ -837,6 +837,7 @@ async function adicionarCamada(map, protocol, mapa) {
     // docs/INTEGRACAO_DRONEMANAGEMENT.md) — decide se o clique nessa
     // camada abre o painel de atributos normal ou o fluxo de apontamento.
     tipoCamada: estilo.tipoCamada,
+    coresTiposVoo: estilo.coresTiposVoo,
     sourceId,
     fillLayerId,
     lineLayerId,
@@ -870,6 +871,15 @@ function removerCamada(map, info) {
   if (map.getLayer(info.circleLayerId)) map.removeLayer(info.circleLayerId);
   if (map.getLayer(info.fillLayerId)) map.removeLayer(info.fillLayerId);
   if (map.getLayer(info.lineLayerId)) map.removeLayer(info.lineLayerId);
+  // Outras camadas desenhadas sobre a mesma fonte (na camada de voos: anéis,
+  // pontilhado de urgente e legenda de dias, criados pelo useApontamentoVoo)
+  // impedem o removeSource — e aí a remontagem falhava com "Source already
+  // exists" e a camada sumia até recarregar (achado em 2026-10-15 ao trocar
+  // uma cor de tipo de voo com o mapa aberto). O hook recria as dele quando
+  // a assinatura da camada muda.
+  for (const layer of map.getStyle()?.layers || []) {
+    if (layer.source === info.sourceId && map.getLayer(layer.id)) map.removeLayer(layer.id);
+  }
   if (map.getSource(info.sourceId)) map.removeSource(info.sourceId);
 }
 
