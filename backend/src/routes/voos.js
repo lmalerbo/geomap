@@ -5,7 +5,7 @@ import { chamarApi } from "../lib/dronemgmt.js";
 import { usuarioTemPermissaoMapa } from "../lib/permissoes.js";
 import { motivoParaNaoApontar, VERSAO_REGRA_PENDENTES } from "../lib/regrasApontamento.js";
 import { contarRegistros, buscarTodosRegistros } from "../lib/consultaDroneMgmt.js";
-import { filtroPendentesDroneMgmt, filtrarEMapearPendentes } from "../lib/pendentesVoo.js";
+import { filtroPendentesDroneMgmt, filtrarEMapearPendentes, cachePendentesVale } from "../lib/pendentesVoo.js";
 import { calcularIndicadores, lerPeriodo, hojeLocal } from "../lib/indicadoresVoo.js";
 import { obterDadosIndicadores } from "../lib/fonteIndicadoresVoo.js";
 import { lerNomesPilotos, pilotoDoUsuario } from "../lib/nomesPilotos.js";
@@ -54,14 +54,14 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
 
     if (!forcar) {
       const { rows } = await pool.query(
-        "SELECT count_dronemgmt, registros FROM voos_pendentes_cache WHERE mapa_id = $1",
+        "SELECT count_dronemgmt, registros, atualizado_em FROM voos_pendentes_cache WHERE mapa_id = $1",
         [mapaId]
       );
-      // Cache novo guarda {regra, itens}; o formato antigo (array puro) ou
-      // uma regra diferente da atual contam como cache vencido.
-      const cache = rows[0]?.registros;
-      if (rows[0]?.count_dronemgmt === countAtual && cache?.regra === VERSAO_REGRA_PENDENTES) {
-        return res.json(cache.itens);
+      // Cache novo guarda {regra, itens}; o formato antigo (array puro), uma
+      // regra diferente da atual ou um cache com mais de 2 min contam como
+      // vencido (ver cachePendentesVale).
+      if (cachePendentesVale({ cache: rows[0], countAtual, regra: VERSAO_REGRA_PENDENTES })) {
+        return res.json(rows[0].registros.itens);
       }
     }
 

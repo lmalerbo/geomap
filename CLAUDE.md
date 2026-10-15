@@ -3043,6 +3043,24 @@ binários nunca tinham sido instalados lá.
   `root\lib\gdalplugins`, mais `tippecanoe.exe` e `tile-join.exe`. São
   334 MB (127 MB zipado), em vez de 1,6 GB.
 
+**Voo cancelado continuava no mapa (2026-10-15)**: o Leo cancelou no
+DroneManagement os 9 talhões de Falhas Plantio da 10324 (status 11,
+14/10 às 15h53), mas eles continuaram pendentes no mapa de voos.
+
+- **Causa**: a cópia de pendências no servidor (`voos_pendentes_cache`) só
+  era refeita quando a **contagem** do DroneManagement mudava. Nesse dia a
+  contagem empatou (296 = 296): saíram 9 cancelados e entraram 9
+  agendados. O risco estava anotado desde a criação do cache (só havia
+  `?forcar=1` como saída). Na época, a busca completa custava ~18 s com
+  ~3.700 registros; hoje são ~300.
+- **Correção**: `cachePendentesVale` (`backend/src/lib/pendentesVoo.js`,
+  com teste) exige a mesma contagem, a mesma regra e uma cópia com menos
+  de 2 minutos. Passado isso, o servidor busca a lista inteira. O app
+  continua mostrando na hora a cópia do aparelho (ver "Pendências de voo
+  aparecem na hora"), então ninguém espera por isso.
+- **Indicadores**: o cache deles já tinha validade
+  (`cacheAindaValido`/`VALIDADE_CACHE_MS`) e não foi mexido.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

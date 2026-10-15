@@ -94,3 +94,19 @@ export function filtrarEMapearPendentes(brutos) {
     })
     .map(mapearRegistroPendente);
 }
+
+// Cache de pendências (voos_pendentes_cache): só vale se a contagem do
+// DroneManagement for a mesma E ele tiver menos de IDADE_MAXIMA_CACHE_MS.
+// Só a contagem não basta — talhões cancelados e outros agendados no mesmo
+// intervalo empatam o número e o cache velho ficava valendo (caso real,
+// 2026-10-14: 9 talhões de Falhas Plantio da 10324 cancelados continuaram
+// no mapa). Com ~300 registros a busca completa é barata, e o app já mostra
+// a cópia do aparelho na hora, então a idade curta não pesa pra ninguém.
+export const IDADE_MAXIMA_CACHE_MS = 2 * 60 * 1000;
+
+export function cachePendentesVale({ cache, countAtual, regra, agora = Date.now() }) {
+  if (!cache || cache.count_dronemgmt !== countAtual) return false;
+  if (cache.registros?.regra !== regra) return false;
+  const idade = agora - new Date(cache.atualizado_em).getTime();
+  return idade >= 0 && idade < IDADE_MAXIMA_CACHE_MS;
+}

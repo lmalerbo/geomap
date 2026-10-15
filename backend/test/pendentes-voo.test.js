@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { filtrarEMapearPendentes, filtroPendentesDroneMgmt } from "../src/lib/pendentesVoo.js";
+import { filtrarEMapearPendentes, filtroPendentesDroneMgmt, cachePendentesVale } from "../src/lib/pendentesVoo.js";
 import { ESTAGIO } from "../src/lib/regrasApontamento.js";
 
 function bruto({ projeto, propriedade = "PROPRIA", internship = ESTAGIO.CORTE_02, harvest = 2026, area = 10 } = {}) {
@@ -53,4 +53,16 @@ test("pendente mantém urgente e data de referência do mapa de Voos", () => {
   ]);
   assert.equal(item.urgente, true);
   assert.equal(item.dataReferencia, "2026-08-01T00:00:00Z");
+});
+
+// Caso real (2026-10-14): cancelamentos e novos agendamentos empataram a
+// contagem (296 = 296) e o cache velho ficou valendo com talhões cancelados.
+test("cache de pendências só vale com a mesma contagem, mesma regra e menos de 2 min", () => {
+  const agora = Date.parse("2026-10-14T19:00:00Z");
+  const cache = (min) => ({ count_dronemgmt: 296, registros: { regra: "r1", itens: [] }, atualizado_em: new Date(agora - min * 60000).toISOString() });
+  assert.equal(cachePendentesVale({ cache: cache(1), countAtual: 296, regra: "r1", agora }), true);
+  assert.equal(cachePendentesVale({ cache: cache(10), countAtual: 296, regra: "r1", agora }), false, "contagem igual mas cache velho");
+  assert.equal(cachePendentesVale({ cache: cache(1), countAtual: 295, regra: "r1", agora }), false, "contagem mudou");
+  assert.equal(cachePendentesVale({ cache: cache(1), countAtual: 296, regra: "r2", agora }), false, "regra mudou");
+  assert.equal(cachePendentesVale({ cache: undefined, countAtual: 296, regra: "r1", agora }), false, "sem cache");
 });
