@@ -7,28 +7,18 @@ async function tratarResposta(resp) {
     // A fila offline de pins (lib/syncPins.js) decide entre "tentar de novo"
     // e "descartar" pelo status — erro de rede não tem status.
     erro.status = resp.status;
+    erro.precisaTrocarSenha = corpo.precisaTrocarSenha === true;
     throw erro;
   }
   return resp;
 }
 
-export async function login(email, senha) {
-  const resp = await fetch(`${API_URL}/login`, {
+// Login único: troca o token do Hub pelo token do GeoMap.
+export async function entrarComHub(accessToken) {
+  const resp = await fetch(`${API_URL}/auth/hub`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, senha }),
-  });
-  await tratarResposta(resp);
-  return resp.json();
-}
-
-// Auto-atendido — mesma rota serve tanto o 1º login (senha temporária de
-// criação) quanto depois de um reset feito pelo admin.
-export async function definirSenha(token, novaSenha) {
-  const resp = await fetch(`${API_URL}/senha`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ novaSenha }),
+    body: JSON.stringify({ accessToken }),
   });
   await tratarResposta(resp);
   return resp.json();

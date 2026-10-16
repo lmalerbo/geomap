@@ -50,11 +50,10 @@ function RotaAdmin({ children }) {
   return sessao.usuario.papel === "admin" ? children : <Navigate to="/inicio" replace />;
 }
 
-// A própria tela de definir senha também exige sessão (o token da senha
-// temporária), mas não pode reentrar em si mesma pelo gate acima.
+// Login único: a própria tela de definir senha se resolve sozinha (sem sessão
+// do Hub ela manda para /login), então não passa pelo gate de precisaTrocarSenha.
 function RotaDefinirSenha({ children }) {
-  const { sessao } = useAuth();
-  return sessao ? children : <Navigate to="/login" replace />;
+  return children;
 }
 
 // key={mapaId}: força o componente a remontar do zero ao trocar de mapa

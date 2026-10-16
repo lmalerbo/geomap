@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback } from "react";
+import { hub } from "../lib/hub.js";
 
 const AuthContext = createContext(null);
 
@@ -39,6 +40,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const sair = useCallback(() => {
+    hub.auth.signOut().catch(() => {});
     localStorage.removeItem("geoportal_sessao");
     setSessao(null);
   }, []);

@@ -1,13 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { login } from "../lib/api.js";
+import { entrarComHub } from "../lib/api.js";
+import { hub } from "../lib/hub.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
-// Logica de autenticação compartilhada entre a tela de Login normal e a
-// de Primeiro Acesso — as duas fazem exatamente a mesma chamada
-// (POST /login, que já serve tanto senha definitiva quanto a temporária
-// fixa) e o mesmo redirecionamento por precisaTrocarSenha; só mudam a
-// moldura/copy em volta (ver Login.jsx / PrimeiroAcesso.jsx).
+// Login único: entra no Supabase do Hub e troca o token pelo do GeoMap.
+// Compartilhado entre Login e PrimeiroAcesso (só muda a moldura).
 export function useFormularioLogin() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -16,23 +14,41 @@ export function useFormularioLogin() {
   const { entrar } = useAuth();
   const navigate = useNavigate();
 
+  async function concluir(accessToken) {
+    try {
+      const { token, usuario } = await entrarComHub(accessToken);
+      entrar(token, usuario, false);
+      navigate("/inicio");
+    } catch (err) {
+      if (err.precisaTrocarSenha) return navigate("/definir-senha");
+      throw err;
+    }
+  }
+
+  // Já entrou no Hub neste navegador: entra direto.
+  useEffect(() => {
+    hub.auth.getSession().then(({ data }) => {
+      if (data.session) concluir(data.session.access_token).catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setErro(null);
     setCarregando(true);
     try {
-      const { token, usuario, precisaTrocarSenha } = await login(email, senha);
-      entrar(token, usuario, precisaTrocarSenha);
-      navigate(precisaTrocarSenha ? "/definir-senha" : "/inicio");
-    } catch (err) {
-      // fetch() falha com TypeError quando nem chega a completar a
-      // requisição (sem internet, servidor fora do ar) — diferente de um
-      // erro HTTP normal (credenciais erradas), que já vem formatado.
-      if (err instanceof TypeError) {
-        setErro("Sem conexão com o servidor. Verifique sua internet e tente de novo.");
-      } else {
-        setErro(err.message);
+      const { data, error } = await hub.auth.signInWithPassword({ email: email.trim(), password: senha });
+      if (error) {
+        throw new Error(/banned/i.test(error.message)
+          ? "Acesso bloqueado. Fale com o administrador do Hub."
+          : "E-mail ou senha incorretos.");
       }
+      await concluir(data.session.access_token);
+    } catch (err) {
+      setErro(err instanceof TypeError
+        ? "Sem conexão com o servidor. Verifique sua internet e tente de novo."
+        : err.message);
     } finally {
       setCarregando(false);
     }

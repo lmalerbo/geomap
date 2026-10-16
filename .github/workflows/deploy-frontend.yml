@@ -37,6 +37,8 @@ jobs:
         working-directory: frontend
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_HUB_SUPABASE_URL: https://dpvsivypabmvmrrpgmhc.supabase.co
+          VITE_HUB_SUPABASE_ANON_KEY: sb_publishable_3xv0R1kmhSXkoUh3i4vN0A_Q5oLBbVL
           GITHUB_PAGES: "true"
         run: npm run build
 
