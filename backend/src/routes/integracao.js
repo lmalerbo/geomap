@@ -4,6 +4,7 @@ import { chamarApi } from "../lib/dronemgmt.js";
 import { calcularIndicadores, lerPeriodo, hojeLocal } from "../lib/indicadoresVoo.js";
 import { obterDadosIndicadores } from "../lib/fonteIndicadoresVoo.js";
 import { lerNomesPilotos } from "../lib/nomesPilotos.js";
+import { pool } from "../db/pool.js";
 
 // Integração servidor-a-servidor com o Hub Geotech (Regra B da Colheita:
 // revoo de linhas). Só o agente do Hub chama estas rotas — nunca um
@@ -237,3 +238,63 @@ integracaoRouter.get(
     });
   }
 );
+
+// ── Contas (login único, 2026-10) ─────────────────────────────────────────
+// O Hub Geotech é o dono das contas e senhas: o GeoMap só guarda quem está
+// ativo, se é admin e em quais grupos está. Quem chama é a função "contas"
+// do Hub, com a mesma chave do Hub. Grupos e mapas continuam definidos aqui.
+integracaoRouter.use("/integracao/contas", exigirChave("x-hub-token", "HUB_INTEGRACAO_TOKEN"));
+
+integracaoRouter.get("/integracao/contas/grupos", async (req, res) => {
+  const { rows } = await pool.query("SELECT id, nome FROM grupos ORDER BY nome");
+  res.json(rows);
+});
+
+integracaoRouter.get("/integracao/contas/usuarios", async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT lower(u.email) AS email, u.nome, u.status, u.papel, u.precisa_trocar_senha AS "precisaTrocarSenha",
+            coalesce(array_agg(ug.grupo_id) FILTER (WHERE ug.grupo_id IS NOT NULL), '{}') AS "grupoIds"
+       FROM usuarios u LEFT JOIN usuarios_grupos ug ON ug.usuario_id = u.id
+      GROUP BY u.id ORDER BY u.nome`
+  );
+  res.json(rows);
+});
+
+integracaoRouter.put("/integracao/contas/usuario", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const nome = String(req.body?.nome || "").trim();
+  const ativo = req.body?.ativo === true;
+  const papel = req.body?.admin === true ? "admin" : "usuario";
+  const status = ativo ? "ativo" : "inativo";
+  const pedidos = Array.isArray(req.body?.grupoIds) ? req.body.grupoIds.map(Number).filter(Number.isInteger) : [];
+  if (!email.includes("@") || !nome) return res.status(400).json({ erro: "email e nome são obrigatórios" });
+
+  const atual = (await pool.query("SELECT id, papel, status FROM usuarios WHERE lower(email) = $1", [email])).rows[0];
+  if (!atual && !ativo) return res.json({ ok: true, criado: false });
+
+  if (atual && atual.papel === "admin" && atual.status === "ativo" && (papel !== "admin" || status !== "ativo")) {
+    const { rows } = await pool.query(
+      "SELECT count(*)::int AS n FROM usuarios WHERE papel = 'admin' AND status = 'ativo' AND id <> $1", [atual.id]);
+    if (rows[0].n === 0) return res.status(400).json({ erro: "não é possível remover o último admin ativo do GeoMap" });
+  }
+
+  const grupoIds = ativo && pedidos.length
+    ? (await pool.query("SELECT id FROM grupos WHERE id = ANY($1::int[])", [pedidos])).rows.map((g) => g.id)
+    : [];
+
+  let id = atual?.id;
+  if (atual) {
+    await pool.query("UPDATE usuarios SET nome = $1, papel = $2, status = $3 WHERE id = $4", [nome, papel, status, id]);
+  } else {
+    // "!hub" não é um hash bcrypt: ninguém entra pelo login antigo com essa conta.
+    id = (await pool.query(
+      `INSERT INTO usuarios (nome, email, senha_hash, papel, status, precisa_trocar_senha)
+       VALUES ($1, $2, '!hub', $3, $4, false) RETURNING id`, [nome, email, papel, status])).rows[0].id;
+  }
+  await pool.query("DELETE FROM usuarios_grupos WHERE usuario_id = $1", [id]);
+  if (grupoIds.length) {
+    await pool.query(
+      "INSERT INTO usuarios_grupos (usuario_id, grupo_id) SELECT $1, unnest($2::int[]) ON CONFLICT DO NOTHING", [id, grupoIds]);
+  }
+  res.json({ ok: true, criado: !atual, id });
+});

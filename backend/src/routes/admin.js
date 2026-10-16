@@ -20,6 +20,13 @@ import {
   gerarUrlAssinada,
 } from "../lib/storage.js";
 
+// Login único (2026-10): contas, senhas e grupos de cada pessoa são geridos
+// no Hub Geotech. LOGIN_LOCAL=1 religa as telas antigas (caminho de volta).
+function contasNoHub(req, res, next) {
+  if (process.env.LOGIN_LOCAL === "1") return next();
+  return res.status(410).json({ erro: "contas, senhas e grupos de usuário são gerenciados no Hub Geotech" });
+}
+
 export const adminRouter = Router();
 
 // memoryStorage (não diskStorage): o arquivo fica só em req.file.buffer —
@@ -333,7 +340,7 @@ adminRouter.put("/admin/usuarios/:id/piloto", async (req, res) => {
   res.json({ ok: true, pilotUserADId: pilotId || null, pilotoLogin: loginConfirmado });
 });
 
-adminRouter.post("/admin/usuarios", async (req, res) => {
+adminRouter.post("/admin/usuarios", contasNoHub, async (req, res) => {
   const nome = (req.body.nome || "").trim();
   const email = (req.body.email || "").trim().toLowerCase();
   const departamento = (req.body.departamento || "").trim() || null;
@@ -378,7 +385,7 @@ adminRouter.post("/admin/usuarios", async (req, res) => {
 // status; (2) não pode rebaixar/desativar o último admin ativo restante
 // — a trava visual equivalente no frontend evita o clique acidental, mas
 // só a validação aqui impede uma chamada direta à API.
-adminRouter.put("/admin/usuarios/:id", async (req, res) => {
+adminRouter.put("/admin/usuarios/:id", contasNoHub, async (req, res) => {
   const usuarioId = Number(req.params.id);
   if (!Number.isInteger(usuarioId)) {
     return res.status(400).json({ erro: "id de usuário inválido" });
@@ -450,7 +457,7 @@ adminRouter.put("/admin/usuarios/:id", async (req, res) => {
 // Redefine pra senha temporária fixa (nunca uma escolhida pelo admin) e
 // marca precisa_trocar_senha — o usuário só troca de novo por uma senha
 // própria ao logar, na mesma tela usada no 1º login.
-adminRouter.put("/admin/usuarios/:id/senha", async (req, res) => {
+adminRouter.put("/admin/usuarios/:id/senha", contasNoHub, async (req, res) => {
   const usuarioId = Number(req.params.id);
   if (!Number.isInteger(usuarioId)) {
     return res.status(400).json({ erro: "id de usuário inválido" });
@@ -475,7 +482,7 @@ adminRouter.put("/admin/usuarios/:id/senha", async (req, res) => {
 // (migration 010) — nunca perde o registro de auditoria em si, só a
 // referência ao usuário apagado. usuarios_grupos já tinha ON DELETE
 // CASCADE desde o schema original, limpa sozinho.
-adminRouter.delete("/admin/usuarios/:id", async (req, res) => {
+adminRouter.delete("/admin/usuarios/:id", contasNoHub, async (req, res) => {
   const usuarioId = Number(req.params.id);
   if (!Number.isInteger(usuarioId)) {
     return res.status(400).json({ erro: "id de usuário inválido" });
