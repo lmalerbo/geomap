@@ -22,6 +22,8 @@ import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 // mapas que cada grupo vê. Vínculo com o piloto do DroneManagement (antes só
 // direto no banco) agora é feito aqui.
 
+const CONTAS_NO_HUB = true; // login único: contas e grupos de cada pessoa são geridos no Hub
+
 // Só pra exibir (nunca enviada pra API) — precisa bater com
 // SENHA_TEMPORARIA_PADRAO em backend/src/lib/senhaTemporaria.js.
 const SENHA_TEMPORARIA_EXIBIDA = "usina123";
@@ -303,12 +305,13 @@ export default function AdminUsuarios() {
           <h1>Usuários e grupos</h1>
           <p>Quem entra no GeoMap e quais mapas cada grupo vê</p>
         </div>
-        {aba === "usuarios" && (
+        {!CONTAS_NO_HUB && aba === "usuarios" && (
           <button type="button" className="botao-acao-primario" onClick={() => mudarParams({ usuario: "novo" })}>
             + Novo usuário
           </button>
         )}
       </header>
+      {CONTAS_NO_HUB && <p className="adm-aviso-linha">Contas, senhas, papéis e grupos de cada pessoa são gerenciados no Hub Geotech (tela Usuários). Aqui ficam os grupos, os mapas e o vínculo de piloto.</p>}
 
       <div className="segmentado adm-abas" role="tablist" aria-label="Usuários ou grupos">
         <button type="button" role="tab" aria-selected={aba === "usuarios"} className={aba === "usuarios" ? "ativo" : ""} onClick={() => mudarParams({ aba: null })}>
@@ -472,46 +475,52 @@ export default function AdminUsuarios() {
                   <p className="adm-aviso-linha">Sem grupo: essa pessoa entra, mas não vê nenhum mapa.</p>
                 )}
 
-                <label className="adm-campo">
-                  Departamento
-                  <input type="text" value={rascunho.departamento} onChange={(e) => setRascunho({ ...rascunho, departamento: e.target.value })} />
-                </label>
+                {CONTAS_NO_HUB && <p className="adm-suave">{usuario.papel === "admin" ? "Administrador" : "Usuário"} · grupos: {(usuario.grupoIds || []).length}</p>}
 
-                <div className="adm-campo">
-                  Papel
-                  <div className="segmentado" role="group" aria-label="Papel">
-                    {[["usuario", "Usuário"], ["admin", "Administrador"]].map(([v, r]) => (
-                      <button
-                        key={v}
-                        type="button"
-                        disabled={ehVoce}
-                        className={rascunho.papel === v ? "ativo" : ""}
-                        aria-pressed={rascunho.papel === v}
-                        onClick={() => setRascunho({ ...rascunho, papel: v })}
-                      >
-                        {r}
-                      </button>
-                    ))}
-                  </div>
-                  {ehVoce && <small className="adm-suave">Você não pode mudar o próprio papel nem se desativar.</small>}
-                </div>
+                {!CONTAS_NO_HUB && (
+                  <>
+                    <label className="adm-campo">
+                      Departamento
+                      <input type="text" value={rascunho.departamento} onChange={(e) => setRascunho({ ...rascunho, departamento: e.target.value })} />
+                    </label>
 
-                <div className="adm-campo">
-                  Grupos
-                  {gruposDoUsuario(rascunho.grupoIds, (ids) => setRascunho({ ...rascunho, grupoIds: ids }))}
-                </div>
+                    <div className="adm-campo">
+                      Papel
+                      <div className="segmentado" role="group" aria-label="Papel">
+                        {[["usuario", "Usuário"], ["admin", "Administrador"]].map(([v, r]) => (
+                          <button
+                            key={v}
+                            type="button"
+                            disabled={ehVoce}
+                            className={rascunho.papel === v ? "ativo" : ""}
+                            aria-pressed={rascunho.papel === v}
+                            onClick={() => setRascunho({ ...rascunho, papel: v })}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                      {ehVoce && <small className="adm-suave">Você não pode mudar o próprio papel nem se desativar.</small>}
+                    </div>
 
-                {mudou && (
-                  <div className="adm-barra-pendente" role="status">
-                    <span>Alterações não salvas</span>
-                    <button type="button" className="botao-acao-secundario" onClick={() => setRascunho({ departamento: usuario.departamento || "", papel: usuario.papel, status: usuario.status, grupoIds: usuario.grupoIds || [] })}>
-                      Descartar
-                    </button>
-                    <button type="button" className="botao-acao-primario" onClick={() => salvar()} disabled={ocupado === "salvar"}>
-                      {ocupado === "salvar" && <span className="spinner" aria-hidden="true" />}
-                      Salvar
-                    </button>
-                  </div>
+                    <div className="adm-campo">
+                      Grupos
+                      {gruposDoUsuario(rascunho.grupoIds, (ids) => setRascunho({ ...rascunho, grupoIds: ids }))}
+                    </div>
+
+                    {mudou && (
+                      <div className="adm-barra-pendente" role="status">
+                        <span>Alterações não salvas</span>
+                        <button type="button" className="botao-acao-secundario" onClick={() => setRascunho({ departamento: usuario.departamento || "", papel: usuario.papel, status: usuario.status, grupoIds: usuario.grupoIds || [] })}>
+                          Descartar
+                        </button>
+                        <button type="button" className="botao-acao-primario" onClick={() => salvar()} disabled={ocupado === "salvar"}>
+                          {ocupado === "salvar" && <span className="spinner" aria-hidden="true" />}
+                          Salvar
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <div className="adm-bloco-acao">
@@ -566,18 +575,20 @@ export default function AdminUsuarios() {
                   </span>
                 </div>
 
-                <div className="adm-bloco-acao">
-                  <div>
-                    <strong>Senha</strong>
-                    <span className="adm-suave">Volta para a temporária ({SENHA_TEMPORARIA_EXIBIDA}); a pessoa escolhe outra no próximo acesso.</span>
+                {!CONTAS_NO_HUB && (
+                  <div className="adm-bloco-acao">
+                    <div>
+                      <strong>Senha</strong>
+                      <span className="adm-suave">Volta para a temporária ({SENHA_TEMPORARIA_EXIBIDA}); a pessoa escolhe outra no próximo acesso.</span>
+                    </div>
+                    <button type="button" className="botao-acao-secundario" onClick={redefinir} disabled={ocupado === "senha"}>
+                      {ocupado === "senha" && <span className="spinner" aria-hidden="true" />}
+                      Redefinir
+                    </button>
                   </div>
-                  <button type="button" className="botao-acao-secundario" onClick={redefinir} disabled={ocupado === "senha"}>
-                    {ocupado === "senha" && <span className="spinner" aria-hidden="true" />}
-                    Redefinir
-                  </button>
-                </div>
+                )}
 
-                {!ehVoce && (
+                {!CONTAS_NO_HUB && !ehVoce && (
                   <div className="adm-bloco-acao adm-bloco-acao--perigo">
                     <div>
                       <strong>{usuario.status === "ativo" ? "Desativar acesso" : "Reativar acesso"}</strong>
