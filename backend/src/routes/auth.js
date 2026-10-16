@@ -7,8 +7,15 @@ import { lerContaHub } from "../lib/contaHub.js";
 
 export const authRouter = Router();
 
+// Contas de serviço (ex.: automação diária) que mantêm o login próprio mesmo
+// com LOGIN_LOCAL desligado. Lista em CONTAS_LOGIN_LOCAL, separada por vírgula.
+function contaComLoginLocal(email) {
+  const lista = (process.env.CONTAS_LOGIN_LOCAL || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return lista.includes(String(email || "").trim().toLowerCase());
+}
+
 authRouter.post("/login", async (req, res) => {
-  if (process.env.LOGIN_LOCAL !== "1") {
+  if (process.env.LOGIN_LOCAL !== "1" && !contaComLoginLocal(req.body?.email)) {
     return res.status(410).json({ erro: "o login agora é feito com a conta do Hub Geotech" });
   }
 

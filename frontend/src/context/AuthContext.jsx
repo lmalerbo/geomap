@@ -40,7 +40,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const sair = useCallback(() => {
-    hub.auth.signOut().catch(() => {});
+    // scope local: sair do GeoMap não derruba a sessão do Hub em outros aparelhos (sem teste automatizado).
+    hub.auth.signOut({ scope: "local" }).catch(() => {});
     localStorage.removeItem("geoportal_sessao");
     setSessao(null);
   }, []);

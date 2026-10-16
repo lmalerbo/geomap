@@ -14,6 +14,9 @@ export async function lerContaHub(accessToken) {
   const p = await fetch(`${url()}/rest/v1/usuarios?id=eq.${encodeURIComponent(u.id)}&select=precisa_trocar_senha`, {
     headers: { ...h, "Accept-Profile": "hub" },
   });
-  const linhas = p.ok ? await p.json() : [];
-  return { id: u.id, email: String(u.email).trim().toLowerCase(), precisaTrocarSenha: !!linhas[0]?.precisa_trocar_senha };
+  // Sem a flag não dá pra saber se a senha é provisória: não deixa passar.
+  const linhas = p.ok ? await p.json() : null;
+  const linha = Array.isArray(linhas) ? linhas[0] : undefined;
+  if (!linha) return null;
+  return { id: u.id, email: String(u.email).trim().toLowerCase(), precisaTrocarSenha: !!linha.precisa_trocar_senha };
 }
