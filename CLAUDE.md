@@ -3129,6 +3129,63 @@ falha: legendas separadas, cor nova no contorno e no chip depois de
 salvar, legendas preenchidas depois da remontagem, e "Padrão" volta à cor
 original.
 
+**Planejamento de voos no mapa (2026-10-21)**: o Leo planejava a semana
+fora do app, com prints do mapa de voos, retângulos coloridos por dia e
+envio pelo WhatsApp. Agora o plano vive no mapa de voos. Documentos:
+- desenho: `docs/superpowers/specs/2026-10-16-planejamento-voos-design.md`;
+- plano: `docs/superpowers/plans/2026-10-21-planejamento-voos.md`.
+
+- **Dados**: tabela `planejamentos_voo` (migration 019, já aplicada em
+  produção), com `data`, `poligono` (GeoJSON) e `talhoes`
+  (`[{secao, talhao, fazenda}]`, calculado no aparelho ao salvar).
+- **Rotas**: `GET /mapas/:id/planejamentos` devolve só de hoje em diante
+  (fuso `America/Sao_Paulo`) pra quem vê o mapa. Criar, mudar a data e
+  apagar ficam em `/admin/...`, só pra admin, com auditoria em `logs`. O
+  router é montado **antes** do `adminRouter` (que intercepta tudo sem
+  prefixo).
+- **Frontend**:
+  - `lib/planejamentoVoo.js`: ponto no polígono, resumo por tipo e fazenda,
+    siglas FP/FS/SIS/ED/DA/AMB/EA/LT/PP, rótulos e cores por dia da semana;
+  - `lib/talhoesNoPoligono.js`: lê os pontos da camada `rotulos` do
+    `.pmtiles` de voos no zoom 13;
+  - `hooks/usePlanejamentos.js`: cópia no IndexedDB (store
+    `planejamentos_voo`, banco na versão 6), camadas
+    `planejamento-preenchimento`, `-contorno` e `-rotulo`, e o rascunho;
+  - `components/CartaoPlanejamento.jsx`.
+- **Desenho**: decisão do Leo, a ferramenta reaproveita a **medição de
+  área**. "Planejar" (só admin, só no mapa de voos) abre o Medir em modo
+  área; com 3 ou mais pontos aparece "Salvar como planejamento", que abre
+  o cartão com a data (padrão: amanhã) e a prévia.
+- **Clique no mapa**:
+  - o rótulo do dia sempre abre o resumo;
+  - dentro do polígono, o resumo abre fora de talhão pendente;
+  - talhão pendente abre o próprio talhão. Isso é necessário porque a
+    camada de voos cobre todos os talhões e sempre seria clicável.
+- **Ordem das camadas**: o rótulo do dia fica no fim da lista de
+  `trazerVoosParaCima` (`useApontamentoVoo.js`), senão as camadas de voo
+  remontadas o cobriam.
+
+Execução delegada:
+- tarefas 1, 3 e 5 (código no plano): executor gratuito (Nemotron),
+  aprovadas de primeira;
+- tarefas 2, 4 e 6: Haiku, aprovadas. A 6 já veio com o desenho via
+  medição. Um commit saiu assinado como Haiku e foi corrigido;
+- ajustes da regra de clique e da ordem do rótulo, revisão e testes: eu.
+
+Verificado com Playwright no dev local (backend na 3099), banco preparado
+e restaurado, em duas rodadas:
+- Parte 2, 12 checagens: rótulos, dia passado oculto, resumo, prioridade
+  do talhão, liga/desliga, cópia sem servidor;
+- Parte 3, 12 checagens: desenhar pela medição, prévia com "4 talhões na
+  área" e o nome real da fazenda, salvar sem internet com mensagem,
+  salvar, mudar a data, usuário comum sem "Planejar" mas vendo o polígono,
+  e apagar.
+
+Limitação do teste: no dev, a recarga com a rede desligada não carrega o
+app (não há service worker). Por isso o caso offline foi testado
+bloqueando só o backend; o offline completo não foi testado com o build
+de produção.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
