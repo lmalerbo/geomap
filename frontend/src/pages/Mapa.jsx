@@ -1031,6 +1031,9 @@ export default function Mapa() {
   const voosInfo = [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
   const planejamentos = usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
+  const ehAdmin = sessao?.usuario?.papel === "admin";
+  // Planejar: só admin, e só no mapa de voos (ver usePlanejamentos).
+  const podePlanejar = ehAdmin && Boolean(voosInfo);
   const { adicionarToast } = useJobs();
   const pins = usePins(mapRef, mapaPronto, mapaId, {
     podeEditar,
@@ -1565,6 +1568,9 @@ export default function Mapa() {
       // abre outro card por baixo do formulário, nem troca/descarta o
       // rascunho meio preenchido ao tocar num pin existente.
       if (pins.rascunho) return;
+      // Planejamento novo em andamento (ver CartaoPlanejamento): o clique no
+      // mapa não abre outro cartão por baixo.
+      if (planejamentos.rascunho) return;
 
       // Modo de apontamento de voo (ver useApontamentoVoo.js): clique num
       // talhão pendente da camada "voos" marca/desmarca ele pro lote em
@@ -1689,6 +1695,7 @@ export default function Mapa() {
     pins.modoAdicionar,
     pins.movendoId,
     pins.rascunho,
+    planejamentos.rascunho,
     planejamentos.visivel,
     apontamento.pendenciasDoTalhao,
     podeEditar,
@@ -2108,6 +2115,17 @@ export default function Mapa() {
         aoClicar: () => medicao.setMedindo((m) => !m),
       },
       {
+        id: "planejar",
+        rotulo: "Planejar",
+        rotuloCompleto: "Planejar voo: desenhar a área e salvar",
+        icone: <IconeDockArea />,
+        visivel: podePlanejar,
+        aoClicar: () => {
+          medicao.setMedindo(true);
+          medicao.trocarModoMedicao("area");
+        },
+      },
+      {
         id: "percurso",
         rotulo: "Percurso",
         rotuloCompleto: "Gravar percurso",
@@ -2363,6 +2381,7 @@ export default function Mapa() {
     !pontoSelecionado &&
     !pins.pinSelecionado &&
     !planejamentos.selecionado &&
+    !planejamentos.rascunho &&
     !pins.rascunho &&
     !pins.movendoId &&
     !medicao.medindo &&
@@ -2481,6 +2500,21 @@ export default function Mapa() {
         <IconeDockArea />
         <span>Medir área</span>
       </button>
+      {podePlanejar && (
+        <button
+          type="button"
+          className="bloco-ferramenta"
+          onClick={() =>
+            ativarFerramenta(() => {
+              medicao.setMedindo(true);
+              medicao.trocarModoMedicao("area");
+            })
+          }
+        >
+          <IconeDockArea />
+          <span>Planejar voo</span>
+        </button>
+      )}
       <button
         type="button"
         className="bloco-ferramenta"
@@ -2814,7 +2848,19 @@ export default function Mapa() {
               }
             />
           )}
-          {medicao.medindo && <BarraAcaoMedicao medicao={medicao} />}
+          {medicao.medindo && (
+            <BarraAcaoMedicao
+              medicao={medicao}
+              aoSalvarPlanejamento={
+                podePlanejar
+                  ? () => {
+                      planejamentos.abrirRascunho(medicao.pontosMedicao);
+                      medicao.setMedindo(false);
+                    }
+                  : undefined
+              }
+            />
+          )}
           {voosInfo && apontamento.modoApontamento && <BarraApontamento apontamento={apontamento} />}
           <BarraAnotar
             aberta={barraAnotarAberta}
@@ -3006,6 +3052,12 @@ export default function Mapa() {
           planejamento={planejamentos.selecionado}
           pendentes={apontamento.pendentes}
           aoFechar={() => planejamentos.setSelecionado(null)}
+          rascunho={planejamentos.rascunho}
+          ehAdmin={ehAdmin}
+          aoSalvarRascunho={planejamentos.salvarRascunho}
+          aoCancelarRascunho={planejamentos.cancelarRascunho}
+          aoAlterarData={planejamentos.alterarData}
+          aoApagar={planejamentos.apagar}
         />
 
         <CartaoPin

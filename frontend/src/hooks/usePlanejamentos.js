@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { buscarPlanejamentos } from "../lib/api.js";
+import { alterarDataPlanejamento, apagarPlanejamento, buscarPlanejamentos, criarPlanejamento } from "../lib/api.js";
 import { salvarPlanejamentosLocal, buscarPlanejamentosLocal } from "../lib/db.js";
-import { corDoDia, filtrarDeHojeEmDiante, rotuloDia } from "../lib/planejamentoVoo.js";
+import { corDoDia, filtrarDeHojeEmDiante, hojeLocal, rotuloDia } from "../lib/planejamentoVoo.js";
+import { lerTalhoesNoPoligono } from "../lib/talhoesNoPoligono.js";
 
 // Polígonos do planejamento de voos no mapa (ver
 // docs/superpowers/specs/2026-10-16-planejamento-voos-design.md). Mesmo
@@ -18,16 +19,33 @@ function ordenar(lista) {
   return [...lista].sort((a, b) => a.data.localeCompare(b.data));
 }
 
-function dadosGeoJSON(lista) {
-  return {
-    type: "FeatureCollection",
-    features: lista.map((p) => ({
+function dadosGeoJSON(lista, rascunho) {
+  const features = lista.map((p) => ({
+    type: "Feature",
+    properties: { id: p.id, data: p.data, rotulo: rotuloDia(p.data), cor: corDoDia(p.data) },
+    geometry: p.poligono,
+  }));
+  // Polígono em desenho pelo admin (ainda não salvo): aparece no mapa com a
+  // mesma cor de rascunho usada nos outros desenhos temporários.
+  if (rascunho) {
+    features.push({
       type: "Feature",
-      properties: { id: p.id, data: p.data, rotulo: rotuloDia(p.data), cor: corDoDia(p.data) },
-      geometry: p.poligono,
-    })),
-  };
+      properties: { id: "rascunho", rotulo: "Novo", cor: "#ec4899" },
+      geometry: rascunho.poligono,
+    });
+  }
+  return { type: "FeatureCollection", features };
 }
+
+// Dia seguinte ao de hoje (São Paulo), sem depender do fuso do aparelho.
+function amanhaLocal() {
+  const [a, m, d] = hojeLocal().split("-").map(Number);
+  const dt = new Date(Date.UTC(a, m - 1, d, 12));
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+const MSG_SEM_INTERNET = "Precisa de internet para salvar o planejamento";
 
 // Pode ser chamado com o mapa já desmontado ou com o estilo ainda carregando
 // (map.getLayer lança exceção nesse caso) — por isso o try/catch.
@@ -47,6 +65,8 @@ export function usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, token) {
   const [selecionado, setSelecionado] = useState(null);
   const [visivel, setVisivel] = useState(true);
   const [versaoBusca, setVersaoBusca] = useState(0);
+  // Desenho do admin ainda não salvo (ver abrirRascunho).
+  const [rascunho, setRascunho] = useState(null);
   // Espelho da lista atual: selecionarPorId (chamado pelo clique no mapa)
   // acha o item sem depender de um render recente.
   const listaRef = useRef([]);
@@ -106,7 +126,7 @@ export function usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, token) {
     const map = mapRef.current;
     if (!map || !mapaPronto || !voosInfo) return;
     try {
-      const dados = dadosGeoJSON(planejamentos);
+      const dados = dadosGeoJSON(planejamentos, rascunho);
       const fonte = map.getSource(FONTE);
       if (fonte) {
         fonte.setData(dados);
@@ -157,7 +177,7 @@ export function usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, token) {
     } catch (err) {
       console.warn("Falha ao desenhar planejamentos de voo", err);
     }
-  }, [mapRef, mapaPronto, voosInfo, planejamentos, visivel]);
+  }, [mapRef, mapaPronto, voosInfo, planejamentos, rascunho, visivel]);
 
   function selecionarPorId(id) {
     setSelecionado(listaRef.current.find((p) => p.id === id) || null);
@@ -167,8 +187,76 @@ export function usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, token) {
     setVersaoBusca((v) => v + 1);
   }
 
-  // Alterações feitas pelo admin (ver Tarefa 6): atualizam a tela e a cópia
-  // do aparelho sem esperar a próxima busca.
+  // Novo planejamento a partir da medição de área do admin: o polígono fica
+  // em rascunho (no mapa, sem salvar) até confirmar data e salvar.
+  function abrirRascunho(pontos) {
+    const poligono = { type: "Polygon", coordinates: [[...pontos, pontos[0]]] };
+    setSelecionado(null);
+    setRascunho({
+      id: Date.now(),
+      poligono,
+      data: amanhaLocal(),
+      talhoes: [],
+      semRotulos: false,
+      erro: null,
+      salvando: false,
+      carregando: true,
+    });
+    lerTalhoesNoPoligono(voosInfo, poligono)
+      .then(({ talhoes, semRotulos }) =>
+        setRascunho((r) => (r && r.poligono === poligono ? { ...r, talhoes, semRotulos, carregando: false } : r))
+      )
+      .catch(() =>
+        setRascunho((r) =>
+          r && r.poligono === poligono
+            ? { ...r, carregando: false, erro: "Não foi possível ler os talhões desta área" }
+            : r
+        )
+      );
+  }
+
+  function cancelarRascunho() {
+    setRascunho(null);
+  }
+
+  function falharRascunho(erro) {
+    setRascunho((r) => (r ? { ...r, salvando: false, erro } : r));
+  }
+
+  async function salvarRascunho(data) {
+    if (!rascunho) return;
+    const { poligono, talhoes } = rascunho;
+    setRascunho((r) => (r ? { ...r, data, salvando: true, erro: null } : r));
+    if (!navigator.onLine) {
+      falharRascunho(MSG_SEM_INTERNET);
+      return;
+    }
+    try {
+      const planejamento = await criarPlanejamento(token, mapaId, { data, poligono, talhoes });
+      adicionarLocal(planejamento);
+      setRascunho(null);
+      setSelecionado(planejamento);
+    } catch (err) {
+      // fetch sem resposta lança TypeError (rede caiu no meio); erro do
+      // servidor vem com a mensagem dele (ver tratarResposta em api.js).
+      falharRascunho(err instanceof TypeError ? MSG_SEM_INTERNET : err.message || "Não foi possível salvar o planejamento");
+    }
+  }
+
+  async function alterarData(id, data) {
+    const atualizado = await alterarDataPlanejamento(token, id, data);
+    atualizarLocal(atualizado);
+    setSelecionado(atualizado);
+  }
+
+  async function apagar(id) {
+    await apagarPlanejamento(token, id);
+    removerLocal(id);
+    setSelecionado(null);
+  }
+
+  // Alterações feitas pelo admin: atualizam a tela e a cópia do aparelho
+  // sem esperar a próxima busca.
   function adicionarLocal(planejamento) {
     salvarLista([...listaRef.current.filter((p) => p.id !== planejamento.id), planejamento]);
   }
@@ -194,5 +282,11 @@ export function usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, token) {
     adicionarLocal,
     atualizarLocal,
     removerLocal,
+    rascunho,
+    abrirRascunho,
+    cancelarRascunho,
+    salvarRascunho,
+    alterarData,
+    apagar,
   };
 }
