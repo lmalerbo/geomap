@@ -143,10 +143,13 @@ export function usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, token) {
               "symbol-placement": "point",
             },
             paint: { "text-color": "#1e293b", "text-halo-color": "#ffffff", "text-halo-width": 2 },
-          },
-          antes
+          }
         );
       }
+      // O rótulo do dia fica no topo (acima dos contornos e números dos
+      // voos); o polígono continua embaixo da camada de voos. Reposicionado
+      // a cada passada porque a camada de voos é remontada e vai pro topo.
+      if (map.getLayer(CAMADA_ROTULO)) map.moveLayer(CAMADA_ROTULO);
       const visibility = visivel ? "visible" : "none";
       for (const id of CAMADAS) {
         if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);

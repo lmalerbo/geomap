@@ -130,6 +130,8 @@ export function trazerVoosParaCima(map, voosInfo) {
     CAMADA_SELECAO,
     CAMADA_DIAS,
     CAMADA_DIAS_TEXTO,
+    // Rótulo do dia do planejamento (usePlanejamentos) — acima de tudo.
+    "planejamento-rotulo",
   ];
   for (const id of ids) {
     if (id && getLayerSeguro(map, id)) map.moveLayer(id);
