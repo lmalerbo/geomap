@@ -27,6 +27,7 @@ import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import { useApontamentoVoo, trazerVoosParaCima } from "../hooks/useApontamentoVoo.js";
+import { usePlanejamentos } from "../hooks/usePlanejamentos.js";
 import { usePins } from "../hooks/usePins.js";
 import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
 import { useApontamentosNaFila } from "../hooks/useApontamentosNaFila.js";
@@ -61,6 +62,7 @@ import LegendaCamada, {
 import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 import CartaoPonto from "../components/CartaoPonto.jsx";
+import CartaoPlanejamento from "../components/CartaoPlanejamento.jsx";
 import CartaoPin from "../components/pins/CartaoPin.jsx";
 import BarraAnotar from "../components/pins/BarraAnotar.jsx";
 import BarraAcaoMedicao from "../components/BarraAcaoMedicao.jsx";
@@ -1028,6 +1030,7 @@ export default function Mapa() {
   // cada rodada desse efeito.
   const voosInfo = [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
+  const planejamentos = usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
   const { adicionarToast } = useJobs();
   const pins = usePins(mapRef, mapaPronto, mapaId, {
     podeEditar,
@@ -1236,6 +1239,13 @@ export default function Mapa() {
     setGavetaAberta(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apontamento.modoApontamento]);
+
+  // Cartão de informação aberto (atributos, ponto, anotação) fecha o do
+  // planejamento de voo — no máximo 1 cartão por vez.
+  useEffect(() => {
+    if (selecao || pontoSelecionado || pins.pinSelecionado) planejamentos.setSelecionado(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecao, pontoSelecionado, pins.pinSelecionado]);
 
   // 1b) mantém o botão de fundo satélite em sincronia com o estado (ícone
   // ativo/inativo, bloqueado quando offline) e persiste a preferência.
@@ -1592,6 +1602,27 @@ export default function Mapa() {
       }
       pins.fecharPin();
 
+      // Planejamento de voos: o rótulo do dia sempre abre o resumo; dentro do
+      // polígono, só fora de talhão pendente (talhão pendente abre o talhão).
+      if (planejamentos.visivel && map.getLayer("planejamento-preenchimento")) {
+        const noRotulo = map.queryRenderedFeatures(e.point, { layers: ["planejamento-rotulo"] });
+        const noPoligono = noRotulo.length > 0 ? noRotulo : map.queryRenderedFeatures(e.point, { layers: ["planejamento-preenchimento"] });
+        let talhaoPendente = false;
+        if (noRotulo.length === 0 && noPoligono.length > 0 && voosInfo?.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
+          const t = map.queryRenderedFeatures(e.point, { layers: [voosInfo.fillLayerId] })[0];
+          talhaoPendente = !!t && apontamento.pendenciasDoTalhao(t.properties.SECAO, t.properties.TALHAO).length > 0;
+        }
+        if (noPoligono.length > 0 && !talhaoPendente) {
+          setSelecao(null);
+          setPontoSelecionado(null);
+          setPainelCamadasAberto(false);
+          setPainelVoosAberto(false);
+          planejamentos.selecionarPorId(noPoligono[0].properties.id);
+          return;
+        }
+      }
+      planejamentos.setSelecionado(null);
+
       const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
@@ -1658,6 +1689,8 @@ export default function Mapa() {
     pins.modoAdicionar,
     pins.movendoId,
     pins.rascunho,
+    planejamentos.visivel,
+    apontamento.pendenciasDoTalhao,
     podeEditar,
   ]);
 
@@ -2023,6 +2056,7 @@ export default function Mapa() {
   // antes (2026-08-21 / 2026-09-22), só que agora disparada pela barra de
   // ferramentas em vez dos botões circulares.
   function fecharCartoesDeInformacao() {
+    planejamentos.setSelecionado(null);
     setSelecao(null);
     setPontoSelecionado(null);
     pins.fecharPin();
@@ -2200,6 +2234,15 @@ export default function Mapa() {
                   );
                 })}
 
+                {voosInfo && (
+                  <div className="linha-camada-bloco">
+                    <label className="linha-camada">
+                      <input type="checkbox" checked={planejamentos.visivel} onChange={() => planejamentos.setVisivel((v) => !v)} />
+                      <span className="nome-camada">Planejamento</span>
+                    </label>
+                  </div>
+                )}
+
                 {(pins.pins.length > 0 || podeEditar) && (
                   <div className="linha-camada-bloco">
                     <label className="linha-camada">
@@ -2319,6 +2362,7 @@ export default function Mapa() {
     !selecao &&
     !pontoSelecionado &&
     !pins.pinSelecionado &&
+    !planejamentos.selecionado &&
     !pins.rascunho &&
     !pins.movendoId &&
     !medicao.medindo &&
@@ -2956,6 +3000,12 @@ export default function Mapa() {
             pins.abrirNovo(lngLat);
           }}
           aoFechar={() => setPontoSelecionado(null)}
+        />
+
+        <CartaoPlanejamento
+          planejamento={planejamentos.selecionado}
+          pendentes={apontamento.pendentes}
+          aoFechar={() => planejamentos.setSelecionado(null)}
         />
 
         <CartaoPin

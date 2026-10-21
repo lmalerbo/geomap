@@ -421,6 +421,46 @@ export async function apontarVoos(token, { mapaId, dataVoo, registros }) {
   return resp.json();
 }
 
+// Planejamento de voos no mapa (ver backend/src/routes/planejamentos.js).
+// Leitura pra quem vê o mapa; escrita só admin.
+export async function buscarPlanejamentos(token, mapaId) {
+  const resp = await fetch(`${API_URL}/mapas/${mapaId}/planejamentos`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return (await resp.json()).planejamentos;
+}
+
+export async function criarPlanejamento(token, mapaId, corpo) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/planejamentos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(corpo),
+  });
+  await tratarResposta(resp);
+  return (await resp.json()).planejamento;
+}
+
+export async function alterarDataPlanejamento(token, id, data) {
+  const resp = await fetch(`${API_URL}/admin/planejamentos/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ data }),
+  });
+  await tratarResposta(resp);
+  return (await resp.json()).planejamento;
+}
+
+export async function apagarPlanejamento(token, id) {
+  const resp = await fetch(`${API_URL}/admin/planejamentos/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return true;
+}
+
 // Indicadores de voo (página /indicadores) — ver backend/src/routes/voos.js.
 export async function buscarAcessoIndicadores(token) {
   const resp = await fetch(`${API_URL}/voos/indicadores/acesso`, {
