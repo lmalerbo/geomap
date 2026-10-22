@@ -3186,6 +3186,60 @@ app (não há service worker). Por isso o caso offline foi testado
 bloqueando só o backend; o offline completo não foi testado com o build
 de produção.
 
+**Ponte mais robusta: vigia, atalhos e fila quando cai (2026-10-22)**: a
+ponte caía com frequência. Causa principal, achada nesta data: a tarefa
+agendada "ao fazer login" nunca tinha sido criada (`schtasks /sc onlogon`
+exige administrador e respondia "Acesso negado"). A ponte só rodava
+enquanto alguém deixasse a janela aberta.
+
+- **No login, sem admin**: atalho na pasta Inicializar do usuário
+  (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\GeoMap
+  Ponte.cmd`), já criado no servidor geo.
+- **Vigia** (`automacao/ponte-dronemgmt/vigia.mjs` + `vigia.cmd`), agendado
+  a cada 5 min (`schtasks /sc minute /mo 5`, que não exige admin):
+  - a ponte grava `estado.json` (pid e última consulta OK) a cada consulta;
+  - o vigia lista os processos de verdade (`Get-CimInstance
+    Win32_Process`), o Node da ponte e o laço do `iniciar.cmd`;
+  - Node sem sinal de vida há mais de 3 min: encerra o Node e o laço
+    religa;
+  - nada rodando: abre o `iniciar.cmd`;
+  - nunca abre uma segunda ponte;
+  - `--reiniciar`: encerra tudo e abre uma ponte nova.
+- **Defeito achado testando com uma ponte falsa**: `spawn("cmd", ["/c",
+  "start", '"Título"', ...])` sem `windowsVerbatimArguments` escapa as
+  aspas e o `start` fica pendurado sem abrir nada. Pior, o processo
+  pendurado parecia "o laço", e o vigia nunca religava. Corrigido com a
+  linha de comando literal.
+- **Diagnóstico do portal**: resposta que não é do GeoMap (portal da rede,
+  erro do Render) é gravada em `portal-ultima-resposta.html`. Login
+  automático no portal ficou de fora: o TI não fornece conta de serviço e
+  usar a senha pessoal do Leo em texto puro não vale o risco.
+- **Atalhos** em `automacao/atalhos/` (só ASCII): Reiniciar ponte, Renovar
+  portal da rede, Rodar automacao agora, Ver log da ponte e Atualizar
+  GeoMap (`git pull` + `npm ci` se o `package-lock` mudar).
+- **App, com a ponte caída**:
+  - `POST /voos/apontamentos` responde 503 `{ponteDesligada: true}` antes
+    de tentar;
+  - se a ponte cai no meio, os itens restantes voltam em `adiados`;
+  - o app guarda na fila do aparelho (`ehErroTransitorio` em
+    `filaApontamentos.js`: sem status, 503, ou 502 com "ponte");
+  - reenvia a cada 3 min enquanto houver fila.
+
+Pendente: um atalho para "forçar atualização de usuário" do login pelo
+Hub Geotech, que espera 1h. Fica com a sessão do `feat/login-hub`.
+
+Execução:
+- sinal de vida, vigia e atalhos: executor gratuito, com 3 defeitos
+  corrigidos por mim na revisão (pontes duplicadas, `start` com aspas
+  escapadas, caracteres fora do ASCII);
+- fila com a ponte caída: Haiku, aprovado.
+
+Testes:
+- vigia com ponte falsa: sempre 1 ponte e 1 laço;
+- Playwright: 503 → "Guardado no aparelho" → ponte volta → fila enviada
+  e vazia;
+- 94 do backend e 81 do frontend passando.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
