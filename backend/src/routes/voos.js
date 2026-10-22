@@ -2,6 +2,7 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao } from "../middleware/auth.js";
 import { chamarApi } from "../lib/dronemgmt.js";
+import { ponte } from "../lib/ponteDroneMgmt.js";
 import { usuarioTemPermissaoMapa } from "../lib/permissoes.js";
 import { motivoParaNaoApontar, VERSAO_REGRA_PENDENTES } from "../lib/regrasApontamento.js";
 import { contarRegistros, buscarTodosRegistros } from "../lib/consultaDroneMgmt.js";
@@ -116,9 +117,19 @@ voosRouter.post("/voos/apontamentos", async (req, res) => {
     return res.status(400).json({ erro: "seu usuário não está associado a um piloto do DroneManagement" });
   }
 
+  // Ponte desligada: nada é enviado ao DroneManagement; o app guarda o
+  // lote na fila do aparelho e reenvia quando a ponte voltar.
+  if (process.env.DM_VIA_PONTE === "1" && !ponte.estado().conectada) {
+    return res.status(503).json({
+      erro: "A ponte com o DroneManagement está desligada; o apontamento fica guardado e é enviado quando ela voltar.",
+      ponteDesligada: true,
+    });
+  }
+
   const dataIso = new Date(dataVoo).toISOString();
   const sucesso = [];
   const falha = [];
+  const adiados = [];
 
   for (const registro of registros) {
     try {
@@ -178,11 +189,18 @@ voosRouter.post("/voos/apontamentos", async (req, res) => {
       );
       sucesso.push(registro.id);
     } catch (err) {
+      if (err.name === "ErroPonte") {
+        // A ponte caiu no meio do lote: este item e os seguintes não foram
+        // tentados e voltam pra fila do aparelho (não são falha definitiva).
+        const i = registros.indexOf(registro);
+        adiados.push(...registros.slice(i).map((r) => r.id));
+        break;
+      }
       falha.push({ id: registro.id, erro: err.message });
     }
   }
 
-  res.json({ sucesso, falha });
+  res.json({ sucesso, falha, adiados });
 });
 
 // --- Indicadores de voo (página /indicadores) ---

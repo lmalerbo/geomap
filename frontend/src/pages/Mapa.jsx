@@ -120,7 +120,12 @@ function iniciaisDoNome(nome) {
 function textoResultadoApontamento(r) {
   const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
   if (r.naFila) {
-    return `Guardado no aparelho: ${plural(r.naFila, "apontamento", "apontamentos")} · envia sozinho quando o sinal voltar.`;
+    // Se parte do lote foi enviada antes da ponte cair, o aviso mostra as duas coisas.
+    const partes = [];
+    if (r.motivo) partes.push(r.motivo);
+    if (r.sucesso?.length > 0) partes.push(`${plural(r.sucesso.length, "apontamento enviado", "apontamentos enviados")} com sucesso.`);
+    partes.push(`Guardado no aparelho: ${plural(r.naFila, "apontamento", "apontamentos")} · envia sozinho quando o sinal voltar.`);
+    return partes.join(" ");
   }
   const partes = [];
   if (r.daFila) {
