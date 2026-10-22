@@ -76,6 +76,9 @@ test("sem cadastro ativo no GeoMap: 403", async () => {
 test("login antigo desligado sem LOGIN_LOCAL", async () => {
   const r = await req(`${srv.url}/login`, null, { method: "POST", body: { email: "a@b", senha: "x" } });
   assert.equal(r.status, 410);
+  // Virada de 22/10: quem está com o app antigo em cache vê esta mensagem; ela diz o que fazer.
+  assert.match(r.corpo.erro, /feche e abra o app/i);
+  assert.match(r.corpo.erro, /mesma senha/i);
 });
 
 test("desativado perde o acesso mesmo com token válido", async () => {

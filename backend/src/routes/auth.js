@@ -16,7 +16,8 @@ function contaComLoginLocal(email) {
 
 authRouter.post("/login", async (req, res) => {
   if (process.env.LOGIN_LOCAL !== "1" && !contaComLoginLocal(req.body?.email)) {
-    return res.status(410).json({ erro: "o login agora é feito com a conta do Hub Geotech" });
+    // Quem cai aqui está com o app antigo em cache: a mensagem diz o que fazer (o app novo entra pelo Hub).
+    return res.status(410).json({ erro: "O GeoMap foi atualizado. Feche e abra o app (ou recarregue a página) e entre com a mesma senha." });
   }
 
   const { email, senha } = req.body;
