@@ -77,3 +77,60 @@ test("telas de usuário do admin travadas sem LOGIN_LOCAL", async () => {
   const r = await req(`${srv.url}/admin/usuarios`, tokenPara(adm), { method: "POST", body: { nome: "Z", email: `z-${sufixo}@t.local` } });
   assert.equal(r.status, 410);
 });
+
+test("PUT com mapas grava acesso individual; sem mapas mantém; ativo false apaga", async () => {
+  const mapa = (await pool.query("INSERT INTO mapas (nome) VALUES ($1) RETURNING id", [`__mapa_put_${sufixo}`])).rows[0];
+  const email = `mapas-${sufixo}@t.local`;
+  const linhas = async (usuarioId) =>
+    (await pool.query("SELECT mapa_id, pode_editar FROM permissoes_usuario WHERE usuario_id = $1", [usuarioId])).rows;
+  try {
+    const r1 = await put({ email, nome: "Mapas", ativo: true, grupoIds: [], mapas: [{ mapaId: mapa.id, podeEditar: true }] });
+    assert.equal(r1.status, 200);
+    assert.deepEqual(await linhas(r1.corpo.id), [{ mapa_id: mapa.id, pode_editar: true }]);
+
+    const r2 = await put({ email, nome: "Mapas", ativo: true, grupoIds: [] });
+    assert.equal(r2.status, 200);
+    assert.deepEqual(await linhas(r1.corpo.id), [{ mapa_id: mapa.id, pode_editar: true }], "sem mapas: mantém");
+
+    const r3 = await put({ email, nome: "Mapas", ativo: false, grupoIds: [] });
+    assert.equal(r3.status, 200);
+    assert.deepEqual(await linhas(r1.corpo.id), [], "ativo false: apaga");
+  } finally {
+    await pool.query("DELETE FROM mapas WHERE id = $1", [mapa.id]);
+  }
+});
+
+test("GET usuarios devolve os mapas individuais de cada pessoa", async () => {
+  const mapa = (await pool.query("INSERT INTO mapas (nome) VALUES ($1) RETURNING id", [`__mapa_lista_${sufixo}`])).rows[0];
+  const email = `lista-mapas-${sufixo}@t.local`;
+  try {
+    await put({ email, nome: "Lista Mapas", ativo: true, grupoIds: [], mapas: [{ mapaId: mapa.id, podeEditar: false }] });
+    const u = await (await fetch(`${srv.url}/integracao/contas/usuarios`, { headers: H })).json();
+    const linha = u.find((x) => x.email === email);
+    assert.deepEqual(linha.mapas, [{ mapaId: mapa.id, podeEditar: false }]);
+  } finally {
+    await pool.query("DELETE FROM mapas WHERE id = $1", [mapa.id]);
+  }
+});
+
+test("GET contas/mapas lista cada mapa com os grupos e podeEditar", async () => {
+  const g = (await pool.query("INSERT INTO grupos (nome) VALUES ($1) RETURNING id", [`gm-${sufixo}`])).rows[0];
+  const mapa = (await pool.query("INSERT INTO mapas (nome) VALUES ($1) RETURNING id", [`__mapa_gm_${sufixo}`])).rows[0];
+  await pool.query("INSERT INTO permissoes (mapa_id, grupo_id, pode_editar) VALUES ($1, $2, true)", [mapa.id, g.id]);
+  try {
+    const lista = await (await fetch(`${srv.url}/integracao/contas/mapas`, { headers: H })).json();
+    const m = lista.find((x) => x.id === mapa.id);
+    assert.equal(m.nome, `__mapa_gm_${sufixo}`);
+    assert.deepEqual(m.grupos, [{ grupoId: g.id, podeEditar: true }]);
+  } finally {
+    await pool.query("DELETE FROM mapas WHERE id = $1", [mapa.id]);
+    await pool.query("DELETE FROM grupos WHERE id = $1", [g.id]);
+  }
+});
+
+test("rotas de mapas e usuários sem x-hub-token: 401", async () => {
+  for (const rota of ["/integracao/contas/mapas", "/integracao/contas/usuarios"]) {
+    const r = await fetch(`${srv.url}${rota}`);
+    assert.equal(r.status, 401, rota);
+  }
+});

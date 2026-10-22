@@ -7,17 +7,16 @@ export const mapasRouter = Router();
 
 mapasRouter.use(exigirAutenticacao);
 
-// Só retorna mapas que algum grupo do usuário tem permissão de ver, cada
+// Só retorna mapas que o usuário pode ver (por grupo ou individual), cada
 // um já com as camadas dele aninhadas — o frontend sincroniza tudo (todos
 // os mapas permitidos, mesmo os que o usuário ainda não abriu) com uma
 // chamada só, sem N+1.
 mapasRouter.get("/mapas", async (req, res) => {
   const { rows: mapas } = await pool.query(
-    `SELECT m.id, m.nome, m.descricao, bool_or(p.pode_editar) AS pode_editar
+    `SELECT m.id, m.nome, m.descricao, bool_or(pe.pode_editar) AS pode_editar
      FROM mapas m
-     JOIN permissoes p ON p.mapa_id = m.id
-     JOIN usuarios_grupos ug ON ug.grupo_id = p.grupo_id
-     WHERE ug.usuario_id = $1
+     JOIN permissoes_efetivas pe ON pe.mapa_id = m.id
+     WHERE pe.usuario_id = $1
      GROUP BY m.id
      ORDER BY m.nome`,
     [req.usuarioId]
@@ -65,9 +64,8 @@ mapasRouter.get("/camadas/:id/download", async (req, res) => {
     `SELECT DISTINCT c.id, c.nome, c.arquivo_path
      FROM camadas c
      JOIN mapas m ON m.id = c.mapa_id
-     JOIN permissoes p ON p.mapa_id = m.id
-     JOIN usuarios_grupos ug ON ug.grupo_id = p.grupo_id
-     WHERE ug.usuario_id = $1 AND c.id = $2`,
+     JOIN permissoes_efetivas pe ON pe.mapa_id = m.id
+     WHERE pe.usuario_id = $1 AND c.id = $2`,
     [req.usuarioId, camadaId]
   );
   const camada = rows[0];

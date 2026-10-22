@@ -241,8 +241,9 @@ integracaoRouter.get(
 
 // ── Contas (login único, 2026-10) ─────────────────────────────────────────
 // O Hub Geotech é o dono das contas e senhas: o GeoMap só guarda quem está
-// ativo, se é admin e em quais grupos está. Quem chama é a função "contas"
-// do Hub, com a mesma chave do Hub. Grupos e mapas continuam definidos aqui.
+// ativo, se é admin, em quais grupos está e os mapas individuais. Quem chama
+// é a função "contas" do Hub, com a mesma chave do Hub. Grupos e mapas
+// continuam definidos aqui.
 integracaoRouter.use("/integracao/contas", exigirChave("x-hub-token", "HUB_INTEGRACAO_TOKEN"));
 
 integracaoRouter.get("/integracao/contas/grupos", async (req, res) => {
@@ -250,10 +251,23 @@ integracaoRouter.get("/integracao/contas/grupos", async (req, res) => {
   res.json(rows);
 });
 
+integracaoRouter.get("/integracao/contas/mapas", async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT m.id, m.nome,
+            coalesce(json_agg(json_build_object('grupoId', p.grupo_id, 'podeEditar', p.pode_editar)
+                              ORDER BY p.grupo_id) FILTER (WHERE p.grupo_id IS NOT NULL), '[]') AS grupos
+       FROM mapas m LEFT JOIN permissoes p ON p.mapa_id = m.id
+      GROUP BY m.id ORDER BY m.nome`
+  );
+  res.json(rows);
+});
+
 integracaoRouter.get("/integracao/contas/usuarios", async (req, res) => {
   const { rows } = await pool.query(
     `SELECT lower(u.email) AS email, u.nome, u.status, u.papel, u.precisa_trocar_senha AS "precisaTrocarSenha",
-            coalesce(array_agg(ug.grupo_id) FILTER (WHERE ug.grupo_id IS NOT NULL), '{}') AS "grupoIds"
+            coalesce(array_agg(ug.grupo_id) FILTER (WHERE ug.grupo_id IS NOT NULL), '{}') AS "grupoIds",
+            (SELECT coalesce(json_agg(json_build_object('mapaId', pu.mapa_id, 'podeEditar', pu.pode_editar) ORDER BY pu.mapa_id), '[]')
+               FROM permissoes_usuario pu WHERE pu.usuario_id = u.id) AS mapas
        FROM usuarios u LEFT JOIN usuarios_grupos ug ON ug.usuario_id = u.id
       GROUP BY u.id ORDER BY u.nome`
   );
@@ -295,6 +309,25 @@ integracaoRouter.put("/integracao/contas/usuario", async (req, res) => {
   if (grupoIds.length) {
     await pool.query(
       "INSERT INTO usuarios_grupos (usuario_id, grupo_id) SELECT $1, unnest($2::int[]) ON CONFLICT DO NOTHING", [id, grupoIds]);
+  }
+
+  // "mapas" é opcional: um Hub antigo não manda e os mapas individuais ficam como estão.
+  if (!ativo || Array.isArray(req.body?.mapas)) {
+    // Mapa repetido: vale a última ocorrência (o ON CONFLICT não aceita duas no mesmo INSERT).
+    const pedidosMapa = [...new Map(ativo ? req.body.mapas
+      .map((m) => ({ mapaId: Number(m?.mapaId), podeEditar: m?.podeEditar === true }))
+      .filter((m) => Number.isInteger(m.mapaId))
+      .map((m) => [m.mapaId, m]) : []).values()];
+    await pool.query("DELETE FROM permissoes_usuario WHERE usuario_id = $1", [id]);
+    if (pedidosMapa.length) {
+      await pool.query(
+        `INSERT INTO permissoes_usuario (usuario_id, mapa_id, pode_editar)
+         SELECT $1, x.mapa_id, x.pode_editar
+           FROM unnest($2::int[], $3::bool[]) AS x(mapa_id, pode_editar)
+           JOIN mapas m ON m.id = x.mapa_id
+         ON CONFLICT (usuario_id, mapa_id) DO UPDATE SET pode_editar = excluded.pode_editar`,
+        [id, pedidosMapa.map((m) => m.mapaId), pedidosMapa.map((m) => m.podeEditar)]);
+    }
   }
   res.json({ ok: true, criado: !atual, id });
 });
