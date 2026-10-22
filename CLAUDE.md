@@ -3129,6 +3129,117 @@ falha: legendas separadas, cor nova no contorno e no chip depois de
 salvar, legendas preenchidas depois da remontagem, e "Padrão" volta à cor
 original.
 
+**Planejamento de voos no mapa (2026-10-21)**: o Leo planejava a semana
+fora do app, com prints do mapa de voos, retângulos coloridos por dia e
+envio pelo WhatsApp. Agora o plano vive no mapa de voos. Documentos:
+- desenho: `docs/superpowers/specs/2026-10-16-planejamento-voos-design.md`;
+- plano: `docs/superpowers/plans/2026-10-21-planejamento-voos.md`.
+
+- **Dados**: tabela `planejamentos_voo` (migration 019, já aplicada em
+  produção), com `data`, `poligono` (GeoJSON) e `talhoes`
+  (`[{secao, talhao, fazenda}]`, calculado no aparelho ao salvar).
+- **Rotas**: `GET /mapas/:id/planejamentos` devolve só de hoje em diante
+  (fuso `America/Sao_Paulo`) pra quem vê o mapa. Criar, mudar a data e
+  apagar ficam em `/admin/...`, só pra admin, com auditoria em `logs`. O
+  router é montado **antes** do `adminRouter` (que intercepta tudo sem
+  prefixo).
+- **Frontend**:
+  - `lib/planejamentoVoo.js`: ponto no polígono, resumo por tipo e fazenda,
+    siglas FP/FS/SIS/ED/DA/AMB/EA/LT/PP, rótulos e cores por dia da semana;
+  - `lib/talhoesNoPoligono.js`: lê os pontos da camada `rotulos` do
+    `.pmtiles` de voos no zoom 13;
+  - `hooks/usePlanejamentos.js`: cópia no IndexedDB (store
+    `planejamentos_voo`, banco na versão 6), camadas
+    `planejamento-preenchimento`, `-contorno` e `-rotulo`, e o rascunho;
+  - `components/CartaoPlanejamento.jsx`.
+- **Desenho**: decisão do Leo, a ferramenta reaproveita a **medição de
+  área**. "Planejar" (só admin, só no mapa de voos) abre o Medir em modo
+  área; com 3 ou mais pontos aparece "Salvar como planejamento", que abre
+  o cartão com a data (padrão: amanhã) e a prévia.
+- **Clique no mapa**:
+  - o rótulo do dia sempre abre o resumo;
+  - dentro do polígono, o resumo abre fora de talhão pendente;
+  - talhão pendente abre o próprio talhão. Isso é necessário porque a
+    camada de voos cobre todos os talhões e sempre seria clicável.
+- **Ordem das camadas**: o rótulo do dia fica no fim da lista de
+  `trazerVoosParaCima` (`useApontamentoVoo.js`), senão as camadas de voo
+  remontadas o cobriam.
+
+Execução delegada:
+- tarefas 1, 3 e 5 (código no plano): executor gratuito (Nemotron),
+  aprovadas de primeira;
+- tarefas 2, 4 e 6: Haiku, aprovadas. A 6 já veio com o desenho via
+  medição. Um commit saiu assinado como Haiku e foi corrigido;
+- ajustes da regra de clique e da ordem do rótulo, revisão e testes: eu.
+
+Verificado com Playwright no dev local (backend na 3099), banco preparado
+e restaurado, em duas rodadas:
+- Parte 2, 12 checagens: rótulos, dia passado oculto, resumo, prioridade
+  do talhão, liga/desliga, cópia sem servidor;
+- Parte 3, 12 checagens: desenhar pela medição, prévia com "4 talhões na
+  área" e o nome real da fazenda, salvar sem internet com mensagem,
+  salvar, mudar a data, usuário comum sem "Planejar" mas vendo o polígono,
+  e apagar.
+
+Limitação do teste: no dev, a recarga com a rede desligada não carrega o
+app (não há service worker). Por isso o caso offline foi testado
+bloqueando só o backend; o offline completo não foi testado com o build
+de produção.
+
+**Ponte mais robusta: vigia, atalhos e fila quando cai (2026-10-22)**: a
+ponte caía com frequência. Causa principal, achada nesta data: a tarefa
+agendada "ao fazer login" nunca tinha sido criada (`schtasks /sc onlogon`
+exige administrador e respondia "Acesso negado"). A ponte só rodava
+enquanto alguém deixasse a janela aberta.
+
+- **No login, sem admin**: atalho na pasta Inicializar do usuário
+  (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\GeoMap
+  Ponte.cmd`), já criado no servidor geo.
+- **Vigia** (`automacao/ponte-dronemgmt/vigia.mjs` + `vigia.cmd`), agendado
+  a cada 5 min (`schtasks /sc minute /mo 5`, que não exige admin):
+  - a ponte grava `estado.json` (pid e última consulta OK) a cada consulta;
+  - o vigia lista os processos de verdade (`Get-CimInstance
+    Win32_Process`), o Node da ponte e o laço do `iniciar.cmd`;
+  - Node sem sinal de vida há mais de 3 min: encerra o Node e o laço
+    religa;
+  - nada rodando: abre o `iniciar.cmd`;
+  - nunca abre uma segunda ponte;
+  - `--reiniciar`: encerra tudo e abre uma ponte nova.
+- **Defeito achado testando com uma ponte falsa**: `spawn("cmd", ["/c",
+  "start", '"Título"', ...])` sem `windowsVerbatimArguments` escapa as
+  aspas e o `start` fica pendurado sem abrir nada. Pior, o processo
+  pendurado parecia "o laço", e o vigia nunca religava. Corrigido com a
+  linha de comando literal.
+- **Diagnóstico do portal**: resposta que não é do GeoMap (portal da rede,
+  erro do Render) é gravada em `portal-ultima-resposta.html`. Login
+  automático no portal ficou de fora: o TI não fornece conta de serviço e
+  usar a senha pessoal do Leo em texto puro não vale o risco.
+- **Atalhos** em `automacao/atalhos/` (só ASCII): Reiniciar ponte, Renovar
+  portal da rede, Rodar automacao agora, Ver log da ponte e Atualizar
+  GeoMap (`git pull` + `npm ci` se o `package-lock` mudar).
+- **App, com a ponte caída**:
+  - `POST /voos/apontamentos` responde 503 `{ponteDesligada: true}` antes
+    de tentar;
+  - se a ponte cai no meio, os itens restantes voltam em `adiados`;
+  - o app guarda na fila do aparelho (`ehErroTransitorio` em
+    `filaApontamentos.js`: sem status, 503, ou 502 com "ponte");
+  - reenvia a cada 3 min enquanto houver fila.
+
+Pendente: um atalho para "forçar atualização de usuário" do login pelo
+Hub Geotech, que espera 1h. Fica com a sessão do `feat/login-hub`.
+
+Execução:
+- sinal de vida, vigia e atalhos: executor gratuito, com 3 defeitos
+  corrigidos por mim na revisão (pontes duplicadas, `start` com aspas
+  escapadas, caracteres fora do ASCII);
+- fila com a ponte caída: Haiku, aprovado.
+
+Testes:
+- vigia com ponte falsa: sempre 1 ponte e 1 laço;
+- Playwright: 503 → "Guardado no aparelho" → ponte volta → fila enviada
+  e vazia;
+- 94 do backend e 81 do frontend passando.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

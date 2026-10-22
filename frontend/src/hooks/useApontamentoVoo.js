@@ -7,6 +7,7 @@ import {
   enviarApontamentosPendentes,
   EVENTO_FILA_APONTAMENTOS,
 } from "../lib/filaApontamentosApp.js";
+import { ehErroTransitorio } from "../lib/filaApontamentos.js";
 import { useApontamentosNaFila } from "./useApontamentosNaFila.js";
 import { textoLegendaDias } from "../lib/diasCorridos.js";
 import { CHAVE_FALHAS_PLANTIO_FORNECEDOR, corTipoVoo, ordemTipoVoo } from "../lib/coresTiposVoo.js";
@@ -130,6 +131,8 @@ export function trazerVoosParaCima(map, voosInfo) {
     CAMADA_SELECAO,
     CAMADA_DIAS,
     CAMADA_DIAS_TEXTO,
+    // Rótulo do dia do planejamento (usePlanejamentos) — acima de tudo.
+    "planejamento-rotulo",
   ];
   for (const id of ids) {
     if (id && getLayerSeguro(map, id)) map.moveLayer(id);
@@ -382,6 +385,18 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     window.addEventListener(EVENTO_FILA_APONTAMENTOS, aoMudarFila);
     return () => window.removeEventListener(EVENTO_FILA_APONTAMENTOS, aoMudarFila);
   }, []);
+
+  // Fila com lotes guardados: enquanto houver algum e o aparelho estiver
+  // online, tenta enviar a cada 3 minutos (a ponte pode voltar sem o piloto
+  // mexer em nada).
+  useEffect(() => {
+    if (!(fila.qtdPendentes > 0)) return undefined;
+    const id = setInterval(() => {
+      if (!navigator.onLine) return;
+      enviarApontamentosPendentes(token).catch((e) => console.warn("Falha ao reenviar apontamentos guardados", e));
+    }, 3 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [fila.qtdPendentes, token]);
 
   // Mantém o índice secao-talhao -> registros[] sempre alinhado com o que
   // está sendo mostrado/colorido no momento (pendentesFiltrados, não a
@@ -822,7 +837,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // Sem sinal (ou a rede caiu no meio do envio): o lote vai pra fila do
   // aparelho com a data do voo escolhida, sai das pendências na hora e é
   // enviado sozinho quando a conexão voltar (redesenho, fase 4).
-  async function guardarNaFila() {
+  async function guardarNaFila(motivo) {
     const registros = [...selecionados.values()].map(({ id, secao, talhao, projeto, areaHa }) => ({
       id,
       secao,
@@ -831,7 +846,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       areaHa,
     }));
     await filaApontamentos.enfileirar({ mapaId, dataVoo, registros });
-    setResultado({ sucesso: [], falha: [], naFila: registros.length });
+    setResultado({ sucesso: [], falha: [], naFila: registros.length, motivo });
     setSelecionados(new Map());
     setEscolhaPendente(null);
     setModoApontamento(false);
@@ -852,7 +867,30 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     try {
       const registros = [...selecionados.values()].map((r) => ({ id: r.id, secao: r.secao, talhao: r.talhao }));
       const resposta = await apontarVoos(token, { mapaId, dataVoo, registros });
-      setResultado(resposta);
+      // Ponte caiu no meio do lote: os itens que não foram tentados (`adiados`)
+      // vão pra fila do aparelho, com a mesma data e mapa. Não contam como
+      // sucesso nem falha e continuam fora das pendências só depois de enviados.
+      const adiados = resposta.adiados || [];
+      if (adiados.length > 0) {
+        const idsAdiados = new Set(adiados);
+        await filaApontamentos.enfileirar({
+          mapaId,
+          dataVoo,
+          registros: registros
+            .filter((r) => idsAdiados.has(r.id))
+            .map((r) => {
+              const s = selecionados.get(r.id);
+              return { id: r.id, secao: r.secao, talhao: r.talhao, projeto: s?.projeto, areaHa: s?.areaHa };
+            }),
+        });
+        setResultado({
+          ...resposta,
+          naFila: adiados.length,
+          motivo: "A ponte com o DroneManagement caiu no meio do envio.",
+        });
+      } else {
+        setResultado(resposta);
+      }
       const sucessoIds = new Set(resposta.sucesso);
       // Sai da lista quem foi apontado agora e quem o servidor recusou por
       // já não estar pendente (`resolvido`) — senão um talhão já voado ficava
@@ -890,8 +928,10 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     } catch (err) {
       // Falha de rede (TypeError do fetch, sem status HTTP): mesmo caso de
       // "sem sinal" — guarda na fila em vez de perder o lote.
-      if (err instanceof TypeError) {
-        await guardarNaFila();
+      if (err instanceof TypeError || ehErroTransitorio(err)) {
+        // Ponte do DroneManagement desligada (503) também cai aqui: o servidor
+        // explica o motivo, que aparece no aviso junto do "guardado no aparelho".
+        await guardarNaFila(err instanceof TypeError ? undefined : err.message);
         return;
       }
       // A chamada inteira falhou antes do backend processar qualquer item

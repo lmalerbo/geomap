@@ -6,6 +6,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeFile } from "node:fs/promises";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const CAMINHO_LOG = path.join(DIR, "log.txt");
@@ -94,12 +95,19 @@ await log(`ponte iniciada — GeoMap em ${API}`);
 for (;;) {
   try {
     const r = await fetch(`${API}/ponte-dm/tarefas`, { headers: CABECALHO, signal: AbortSignal.timeout(60_000) });
+    const ehJson = (r.headers.get("content-type") || "").includes("json");
+    // Resposta que não veio do GeoMap (portal da rede, página de erro do
+    // Render): guarda pra diagnóstico, mesmo com status de erro.
+    if (!ehJson) {
+      const texto = await r.text().catch(() => "");
+      const cabecalho = `<!-- ${new Date().toISOString()} ${r.url} HTTP ${r.status} -->\n`;
+      writeFile(path.join(DIR, "portal-ultima-resposta.html"), cabecalho + texto.slice(0, 200000)).catch(() => {});
+    }
     if (r.status === 401) throw new Error("o GeoMap recusou o token da ponte (PONTE_DM_TOKEN diferente do Render?)");
     if (!r.ok) throw new Error(`GeoMap respondeu HTTP ${r.status}`);
-    if (!(r.headers.get("content-type") || "").includes("json")) {
-      throw new Error("resposta não é do GeoMap (o portal de autenticação da rede expirou?)");
-    }
+    if (!ehJson) throw new Error("resposta não é do GeoMap (o portal de autenticação da rede expirou?)");
     const { tarefas } = await r.json();
+    writeFile(path.join(DIR, "estado.json"), JSON.stringify({ pid: process.pid, ultimaConsultaOk: new Date().toISOString() })).catch(() => {});
     if (conectado !== true) {
       conectado = true;
       ultimoErro = null;

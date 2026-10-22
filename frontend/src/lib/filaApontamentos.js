@@ -14,6 +14,16 @@
 // - recusa do servidor (registro que não está mais pendente, sem vínculo de
 //   piloto, sem permissão…) nunca some em silêncio: o lote vira "recusado"
 //   com o motivo de cada talhão, até o piloto tentar de novo ou descartar.
+// Erro que não é culpa do lote (o servidor não recusou os dados): sem
+// resposta de rede, ponte com o DroneManagement desligada (503) ou ponte sem
+// resposta (502 cuja mensagem fala da ponte). Nesses casos o lote continua
+// pendente e a fila para, sem marcar nada como recusado.
+export function ehErroTransitorio(erro) {
+  if (!erro.status) return true;
+  if (erro.status === 503) return true;
+  return erro.status === 502 && /ponte/i.test(String(erro.message || ""));
+}
+
 export function criarFilaApontamentos({ api, store, aoMudar = () => {}, gerarId = () => crypto.randomUUID() }) {
   async function enfileirar({ mapaId, dataVoo, registros }) {
     const lote = {
@@ -46,8 +56,8 @@ export function criarFilaApontamentos({ api, store, aoMudar = () => {}, gerarId 
           registros: lote.registros.map(({ id, secao, talhao }) => ({ id, secao, talhao })),
         });
       } catch (erro) {
-        if (!erro.status) {
-          // Rede: para aqui, os próximos lotes também falhariam.
+        if (ehErroTransitorio(erro)) {
+          // Rede ou ponte fora do ar: para aqui, os próximos lotes também falhariam.
           restantes = true;
           break;
         }

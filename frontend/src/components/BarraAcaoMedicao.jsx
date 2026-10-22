@@ -4,7 +4,7 @@ import { IconeDesfazer, IconeFechar } from "./IconesAcao.jsx";
 // docs/REDESENHO_FRONTEND.md). Substitui o cartão do canto direito: o valor
 // medido fica sempre à vista no meio da tela, perto de onde o usuário está
 // tocando, e o mapa à direita fica livre pro painel de atributos.
-export default function BarraAcaoMedicao({ medicao }) {
+export default function BarraAcaoMedicao({ medicao, aoSalvarPlanejamento }) {
   const {
     modoMedicao,
     trocarModoMedicao,
@@ -114,6 +114,11 @@ export default function BarraAcaoMedicao({ medicao }) {
           {pontosMedicao.length > 0 && !capturandoGps && (
             <button type="button" className="botao-acao-secundario" onClick={() => setPontosMedicao([])}>
               Limpar
+            </button>
+          )}
+          {aoSalvarPlanejamento && modoMedicao === "area" && pontosMedicao.length >= 3 && (
+            <button type="button" className="botao-acao-primario" onClick={() => aoSalvarPlanejamento()}>
+              Salvar como planejamento
             </button>
           )}
           {resultadoMedicaoAtual && !capturandoGps && (

@@ -19,6 +19,7 @@ import { adminRouter } from "./routes/admin.js";
 import { voosRouter } from "./routes/voos.js";
 import { integracaoRouter } from "./routes/integracao.js";
 import { pinsRouter } from "./routes/pins.js";
+import { planejamentosRouter } from "./routes/planejamentos.js";
 import { ponteDmRouter } from "./routes/ponteDm.js";
 
 export const app = express();
@@ -55,6 +56,8 @@ app.use(mapasRouter);
 // porque só foi testado logado como admin.
 app.use(voosRouter);
 app.use(pinsRouter);
+// Antes do adminRouter pelo mesmo motivo do voosRouter (ver comentário acima).
+app.use(planejamentosRouter);
 app.use(adminRouter);
 
 // Rede de segurança final — sem isso, o erro capturado por

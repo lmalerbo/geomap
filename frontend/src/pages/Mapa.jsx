@@ -27,6 +27,7 @@ import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
 import { useApontamentoVoo, trazerVoosParaCima } from "../hooks/useApontamentoVoo.js";
+import { usePlanejamentos } from "../hooks/usePlanejamentos.js";
 import { usePins } from "../hooks/usePins.js";
 import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
 import { useApontamentosNaFila } from "../hooks/useApontamentosNaFila.js";
@@ -61,6 +62,7 @@ import LegendaCamada, {
 import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 import CartaoPonto from "../components/CartaoPonto.jsx";
+import CartaoPlanejamento from "../components/CartaoPlanejamento.jsx";
 import CartaoPin from "../components/pins/CartaoPin.jsx";
 import BarraAnotar from "../components/pins/BarraAnotar.jsx";
 import BarraAcaoMedicao from "../components/BarraAcaoMedicao.jsx";
@@ -118,7 +120,12 @@ function iniciaisDoNome(nome) {
 function textoResultadoApontamento(r) {
   const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
   if (r.naFila) {
-    return `Guardado no aparelho: ${plural(r.naFila, "apontamento", "apontamentos")} · envia sozinho quando o sinal voltar.`;
+    // Se parte do lote foi enviada antes da ponte cair, o aviso mostra as duas coisas.
+    const partes = [];
+    if (r.motivo) partes.push(r.motivo);
+    if (r.sucesso?.length > 0) partes.push(`${plural(r.sucesso.length, "apontamento enviado", "apontamentos enviados")} com sucesso.`);
+    partes.push(`Guardado no aparelho: ${plural(r.naFila, "apontamento", "apontamentos")} · envia sozinho quando o sinal voltar.`);
+    return partes.join(" ");
   }
   const partes = [];
   if (r.daFila) {
@@ -1028,6 +1035,10 @@ export default function Mapa() {
   // cada rodada desse efeito.
   const voosInfo = [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
+  const planejamentos = usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
+  const ehAdmin = sessao?.usuario?.papel === "admin";
+  // Planejar: só admin, e só no mapa de voos (ver usePlanejamentos).
+  const podePlanejar = ehAdmin && Boolean(voosInfo);
   const { adicionarToast } = useJobs();
   const pins = usePins(mapRef, mapaPronto, mapaId, {
     podeEditar,
@@ -1236,6 +1247,13 @@ export default function Mapa() {
     setGavetaAberta(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apontamento.modoApontamento]);
+
+  // Cartão de informação aberto (atributos, ponto, anotação) fecha o do
+  // planejamento de voo — no máximo 1 cartão por vez.
+  useEffect(() => {
+    if (selecao || pontoSelecionado || pins.pinSelecionado) planejamentos.setSelecionado(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecao, pontoSelecionado, pins.pinSelecionado]);
 
   // 1b) mantém o botão de fundo satélite em sincronia com o estado (ícone
   // ativo/inativo, bloqueado quando offline) e persiste a preferência.
@@ -1555,6 +1573,9 @@ export default function Mapa() {
       // abre outro card por baixo do formulário, nem troca/descarta o
       // rascunho meio preenchido ao tocar num pin existente.
       if (pins.rascunho) return;
+      // Planejamento novo em andamento (ver CartaoPlanejamento): o clique no
+      // mapa não abre outro cartão por baixo.
+      if (planejamentos.rascunho) return;
 
       // Modo de apontamento de voo (ver useApontamentoVoo.js): clique num
       // talhão pendente da camada "voos" marca/desmarca ele pro lote em
@@ -1591,6 +1612,27 @@ export default function Mapa() {
         }
       }
       pins.fecharPin();
+
+      // Planejamento de voos: o rótulo do dia sempre abre o resumo; dentro do
+      // polígono, só fora de talhão pendente (talhão pendente abre o talhão).
+      if (planejamentos.visivel && map.getLayer("planejamento-preenchimento")) {
+        const noRotulo = map.queryRenderedFeatures(e.point, { layers: ["planejamento-rotulo"] });
+        const noPoligono = noRotulo.length > 0 ? noRotulo : map.queryRenderedFeatures(e.point, { layers: ["planejamento-preenchimento"] });
+        let talhaoPendente = false;
+        if (noRotulo.length === 0 && noPoligono.length > 0 && voosInfo?.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
+          const t = map.queryRenderedFeatures(e.point, { layers: [voosInfo.fillLayerId] })[0];
+          talhaoPendente = !!t && apontamento.pendenciasDoTalhao(t.properties.SECAO, t.properties.TALHAO).length > 0;
+        }
+        if (noPoligono.length > 0 && !talhaoPendente) {
+          setSelecao(null);
+          setPontoSelecionado(null);
+          setPainelCamadasAberto(false);
+          setPainelVoosAberto(false);
+          planejamentos.selecionarPorId(noPoligono[0].properties.id);
+          return;
+        }
+      }
+      planejamentos.setSelecionado(null);
 
       const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
@@ -1658,6 +1700,9 @@ export default function Mapa() {
     pins.modoAdicionar,
     pins.movendoId,
     pins.rascunho,
+    planejamentos.rascunho,
+    planejamentos.visivel,
+    apontamento.pendenciasDoTalhao,
     podeEditar,
   ]);
 
@@ -2023,6 +2068,7 @@ export default function Mapa() {
   // antes (2026-08-21 / 2026-09-22), só que agora disparada pela barra de
   // ferramentas em vez dos botões circulares.
   function fecharCartoesDeInformacao() {
+    planejamentos.setSelecionado(null);
     setSelecao(null);
     setPontoSelecionado(null);
     pins.fecharPin();
@@ -2072,6 +2118,17 @@ export default function Mapa() {
         icone: <IconeDockMedir />,
         ativo: medicao.medindo,
         aoClicar: () => medicao.setMedindo((m) => !m),
+      },
+      {
+        id: "planejar",
+        rotulo: "Planejar",
+        rotuloCompleto: "Planejar voo: desenhar a área e salvar",
+        icone: <IconeDockArea />,
+        visivel: podePlanejar,
+        aoClicar: () => {
+          medicao.setMedindo(true);
+          medicao.trocarModoMedicao("area");
+        },
       },
       {
         id: "percurso",
@@ -2200,6 +2257,15 @@ export default function Mapa() {
                   );
                 })}
 
+                {voosInfo && (
+                  <div className="linha-camada-bloco">
+                    <label className="linha-camada">
+                      <input type="checkbox" checked={planejamentos.visivel} onChange={() => planejamentos.setVisivel((v) => !v)} />
+                      <span className="nome-camada">Planejamento</span>
+                    </label>
+                  </div>
+                )}
+
                 {(pins.pins.length > 0 || podeEditar) && (
                   <div className="linha-camada-bloco">
                     <label className="linha-camada">
@@ -2319,6 +2385,8 @@ export default function Mapa() {
     !selecao &&
     !pontoSelecionado &&
     !pins.pinSelecionado &&
+    !planejamentos.selecionado &&
+    !planejamentos.rascunho &&
     !pins.rascunho &&
     !pins.movendoId &&
     !medicao.medindo &&
@@ -2437,6 +2505,21 @@ export default function Mapa() {
         <IconeDockArea />
         <span>Medir área</span>
       </button>
+      {podePlanejar && (
+        <button
+          type="button"
+          className="bloco-ferramenta"
+          onClick={() =>
+            ativarFerramenta(() => {
+              medicao.setMedindo(true);
+              medicao.trocarModoMedicao("area");
+            })
+          }
+        >
+          <IconeDockArea />
+          <span>Planejar voo</span>
+        </button>
+      )}
       <button
         type="button"
         className="bloco-ferramenta"
@@ -2770,7 +2853,19 @@ export default function Mapa() {
               }
             />
           )}
-          {medicao.medindo && <BarraAcaoMedicao medicao={medicao} />}
+          {medicao.medindo && (
+            <BarraAcaoMedicao
+              medicao={medicao}
+              aoSalvarPlanejamento={
+                podePlanejar
+                  ? () => {
+                      planejamentos.abrirRascunho(medicao.pontosMedicao);
+                      medicao.setMedindo(false);
+                    }
+                  : undefined
+              }
+            />
+          )}
           {voosInfo && apontamento.modoApontamento && <BarraApontamento apontamento={apontamento} />}
           <BarraAnotar
             aberta={barraAnotarAberta}
@@ -2956,6 +3051,18 @@ export default function Mapa() {
             pins.abrirNovo(lngLat);
           }}
           aoFechar={() => setPontoSelecionado(null)}
+        />
+
+        <CartaoPlanejamento
+          planejamento={planejamentos.selecionado}
+          pendentes={apontamento.pendentes}
+          aoFechar={() => planejamentos.setSelecionado(null)}
+          rascunho={planejamentos.rascunho}
+          ehAdmin={ehAdmin}
+          aoSalvarRascunho={planejamentos.salvarRascunho}
+          aoCancelarRascunho={planejamentos.cancelarRascunho}
+          aoAlterarData={planejamentos.alterarData}
+          aoApagar={planejamentos.apagar}
         />
 
         <CartaoPin
