@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
+import { cspContent } from './csp.js';
 const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
@@ -35,36 +36,7 @@ const base = process.env.GITHUB_PAGES ? '/geomap/' : '/';
 //    index.html só em modo dev (`vite`/`command === "serve"`), nunca no
 //    build de produção (que só gera <script src> externos). Por isso
 //    'unsafe-inline' em script-src é liberado só em dev.
-function cspContent(command) {
-  const apiUrl = process.env.VITE_API_URL || 'http://localhost:3000';
-  // *.r2.cloudflarestorage.com — desde que o download de camadas passou a
-  // buscar o .pmtiles direto do R2 (URL assinada, ver lib/api.js), em vez
-  // de streaming pelo backend, sem isso a própria CSP do app bloqueia essa
-  // conexão (confirmado: "Refused to connect because it violates the
-  // document's Content Security Policy", não é CORS do bucket).
-  const conectaCom = [
-    "'self'",
-    apiUrl,
-    'https://server.arcgisonline.com',
-    'https://*.r2.cloudflarestorage.com',
-  ].join(' ');
-  const scriptSrc = command === 'serve' ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
-  return [
-    "default-src 'self'",
-    scriptSrc,
-    // 'unsafe-inline' necessário porque o app usa muito style={{...}}
-    // inline do React (swatches de cor de camada, posicionamento de
-    // painéis) — CSP restringe atributo style inline, não só <style>/<link>.
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://server.arcgisonline.com",
-    "font-src 'self'",
-    `connect-src ${conectaCom}`,
-    "worker-src 'self' blob:",
-    "manifest-src 'self'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ].join('; ');
-}
+// cspContent está em ./csp.js (testada em src/lib/csp.test.js).
 
 function injetarCsp(command) {
   return {
