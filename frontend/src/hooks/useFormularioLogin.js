@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { entrarComHub } from "../lib/api.js";
 import { hub } from "../lib/hub.js";
+import { mensagemErroLogin } from "../lib/erroLogin.js";
 import { useAuth } from "../context/AuthContext.jsx";
 
 // Login único: entra no Supabase do Hub e troca o token pelo do GeoMap.
@@ -25,25 +26,25 @@ export function useFormularioLogin() {
     }
   }
 
-  // Já entrou no Hub neste navegador: entra direto.
+  // Já entrou no Hub neste navegador: entra direto. Enquanto confere, o formulário fica ocupado
+  // (um clique em Entrar no meio disso disputava a sessão com esta entrada e mostrava erro falso).
   useEffect(() => {
-    hub.auth.getSession().then(({ data }) => {
-      if (data.session) concluir(data.session.access_token).catch(() => {});
-    });
+    setCarregando(true);
+    hub.auth.getSession()
+      .then(({ data }) => (data.session ? concluir(data.session.access_token) : null))
+      .catch(() => {})
+      .finally(() => setCarregando(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (carregando) return;
     setErro(null);
     setCarregando(true);
     try {
       const { data, error } = await hub.auth.signInWithPassword({ email: email.trim(), password: senha });
-      if (error) {
-        throw new Error(/banned/i.test(error.message)
-          ? "Acesso bloqueado. Fale com o administrador do Hub."
-          : "E-mail ou senha incorretos.");
-      }
+      if (error) throw new Error(mensagemErroLogin(error));
       await concluir(data.session.access_token);
     } catch (err) {
       setErro(err instanceof TypeError
