@@ -7,7 +7,7 @@ git pull
 certutil -hashfile %LOCK% SHA256 > "%TEMP%\hash_depois.txt" 2>nul
 fc "%TEMP%\hash_antes.txt" "%TEMP%\hash_depois.txt" >nul
 if errorlevel 1 (
-    echo package-lock.json mudou — rodando npm ci...
+    echo package-lock.json mudou - rodando npm ci...
     cd backend
     npm ci --omit=dev
     cd ..

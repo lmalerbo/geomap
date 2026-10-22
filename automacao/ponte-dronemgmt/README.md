@@ -53,21 +53,20 @@ FortiGate (`fortinet-ca.pem`).
    DroneManagement (servidor geo) conectada". Feche a janela depois do teste.
 
 5. **Deixe a ponte iniciando sozinha** sempre que o usuário entrar no
-   Windows. Feche antes a janela de teste (Ctrl+C e `S`), pra não ficarem
-   duas pontes rodando. Comando usado no servidor geo:
+   Windows. A tarefa agendada "ao fazer login" (`schtasks /sc onlogon`)
+   exige administrador e falha com "Acesso negado" no servidor geo (achado
+   em 2026-10-22: ela nunca tinha sido criada, e a ponte só rodava enquanto
+   alguém deixasse a janela aberta). Sem admin, use a pasta Inicializar
+   do usuário e o vigia (seção "Vigia e atalhos"):
 
    ```powershell
-   schtasks /create /sc onlogon /tn "GeoMap - Ponte DroneManagement" /tr "C:\Users\geotecnologia\Documents\geomap\automacao\ponte-dronemgmt\iniciar.cmd"
-   schtasks /run /tn "GeoMap - Ponte DroneManagement"
+   Set-Content -Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\GeoMap Ponte.cmd" -Value '@start "GeoMap - Ponte DroneManagement" /min "C:\Users\geotecnologia\Documents\geomap\automacao\ponte-dronemgmt\iniciar.cmd"'
+   schtasks /create /sc minute /mo 5 /tn "GeoMap - Vigia da ponte" /tr "C:\Users\geotecnologia\Documents\geomap\automacao\ponte-dronemgmt\vigia.cmd" /f
    ```
 
-   Em outra máquina, troque o caminho pelo caminho real do repositório. Se
-   o caminho tiver espaços, rode o comando no **Prompt de Comando** (cmd), e
-   não no PowerShell, com o caminho entre `\"...\"`. O PowerShell 5.1 estraga
-   as aspas internas e o `schtasks` recusa o argumento.
-
+   Em outra máquina, troque o caminho pelo caminho real do repositório.
    O `iniciar.cmd` repete sem parar: se o programa cair, ele volta sozinho
-   em 10 segundos.
+   em 10 segundos; se travar ou a janela for fechada, o vigia religa.
 
 ## Quando der problema
 
