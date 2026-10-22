@@ -6,6 +6,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeFile } from "node:fs/promises";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const CAMINHO_LOG = path.join(DIR, "log.txt");
@@ -97,9 +98,14 @@ for (;;) {
     if (r.status === 401) throw new Error("o GeoMap recusou o token da ponte (PONTE_DM_TOKEN diferente do Render?)");
     if (!r.ok) throw new Error(`GeoMap respondeu HTTP ${r.status}`);
     if (!(r.headers.get("content-type") || "").includes("json")) {
+      const texto = await r.text();
+      const trecho = texto.slice(0, 200000);
+      const cabecalho = `<!-- ${new Date().toISOString()} ${r.url} ${r.status} -->\n`;
+      writeFile(path.join(DIR, "portal-ultima-resposta.html"), cabecalho + trecho).catch(() => {});
       throw new Error("resposta não é do GeoMap (o portal de autenticação da rede expirou?)");
     }
     const { tarefas } = await r.json();
+    writeFile(path.join(DIR, "estado.json"), JSON.stringify({ pid: process.pid, ultimaConsultaOk: new Date().toISOString() })).catch(() => {});
     if (conectado !== true) {
       conectado = true;
       ultimoErro = null;

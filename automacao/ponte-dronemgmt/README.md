@@ -94,3 +94,64 @@ FortiGate (`fortinet-ca.pem`).
 
 O `log.txt` desta pasta só registra as mudanças de estado (conectou, caiu,
 erro) e um resumo por hora.
+
+## Vigia e atalhos
+
+### O que o vigia faz
+
+O `vigia.mjs` roda a cada 5 minutos (agendado pelo Windows) e verifica se a
+ponte está viva lendo o `estado.json` (gravado a cada consulta bem-sucedida).
+Se o sinal de vida tem mais de 3 minutos:
+- **Processo existe (travado):** encerra com `taskkill /F`; o laço do
+  `iniciar.cmd` sobe a ponte de novo em 10 s.
+- **Processo não existe (janela fechada, PC reiniciou com login):** abre o
+  `iniciar.cmd` minimizado via `start /min`.
+
+Isso cobre o caso "janela aberta mas ponte nunca conectou" (portal expirado):
+o processo existe, o sinal de vida está velho, o vigia encerra e o laço religa
+— tenta de novo automaticamente.
+
+### Agendar o vigia (sem admin)
+
+Rode no Prompt de Comando (cmd) no servidor geo:
+
+```cmd
+schtasks /create /sc minute /mo 5 /tn "GeoMap - Vigia da ponte" /tr "C:\Users\geotecnologia\Documents\geomap\automacao\ponte-dronemgmt\vigia.cmd" /f
+```
+
+Troque o caminho se o repositório estiver em outro lugar.
+
+### Ponte no login (pasta Inicializar)
+
+A tarefa "ao fazer login" do Agendador exige administrador. Para subir a ponte
+sem admin, crie um atalho na pasta Inicializar do usuário:
+
+```
+%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\GeoMap Ponte.cmd
+```
+
+Conteúdo do atalho (`.cmd`):
+
+```cmd
+@echo off
+cd /d "C:\Users\geotecnologia\Documents\geomap\automacao\ponte-dronemgmt"
+set NODE_EXTRA_CA_CERTS=..\vigiar-talhoes-limites\fortinet-ca.pem
+start "GeoMap - Ponte DroneManagement" /min iniciar.cmd
+```
+
+### Atalhos em `automacao/atalhos/`
+
+| Atalho | Para que serve |
+|--------|----------------|
+| `Reiniciar ponte.cmd` | Lê o PID do `estado.json`, mata o processo se houver e abre o `iniciar.cmd` minimizado. |
+| `Renovar portal da rede.cmd` | Abre no navegador a página de login do FortiGate (`fechanet.jsp`). |
+| `Rodar automacao agora.cmd` | Dispara a tarefa agendada `GeoMap - Sincronizar Talhoes Limites` imediatamente. |
+| `Ver log da ponte.cmd` | Mostra as últimas 40 linhas do `log.txt` e fica acompanhando (`tail -f`). |
+| `Atualizar GeoMap.cmd` | Faz `git pull` na raiz do repo; se `backend/package-lock.json` mudou, roda `npm ci --omit=dev` no backend. |
+
+### `portal-ultima-resposta.html`
+
+Quando a ponte recebe uma resposta que não é JSON (portal da rede expirado), o
+texto da resposta (até 200.000 caracteres) é salvo neste arquivo com um
+cabeçalho HTML contendo data, URL final e status HTTP. Útil para diagnosticar
+o que o portal devolveu.
