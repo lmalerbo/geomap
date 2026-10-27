@@ -44,9 +44,17 @@ Plano de implementação:
 
 ## Esperas encontradas
 
-Levantamento de 2026-10-27 no `master`. Sessão = em qual sessão do plano o
-ponto é refeito (1 base, 2 login, 3 sincronização e mapa, 4 conversão de
-camada, 5 ferramentas e admin).
+Levantamento de 2026-10-27. Sessão = em qual sessão do plano o ponto é
+refeito (1 base, 2 login, 3 sincronização e mapa, 4 conversão de camada,
+5 ferramentas e admin).
+
+**Atenção:** a fase 5 do redesenho do admin (`LayoutAdmin.jsx`,
+`AdminVisaoGeral.jsx`, telas de admin reescritas) está nos branches
+`feat/redesenho-fase5` / `feat/indicadores-voo`, ainda fora do `master`. As
+linhas marcadas com *(fase 5)* só existem lá. Esses branches também ainda
+importam `IconeLordicon.jsx` (Remover/Excluir nas telas de admin): ao
+juntá-los com este, trocar esses usos pelo spinner, como foi feito aqui, ou o
+build quebra.
 
 | Onde | Espera | Peça | Sessão | Situação |
 |---|---|---|---|---|
@@ -66,10 +74,11 @@ camada, 5 ferramentas e admin).
 | `Mapa.jsx` Importar KML/SHP | ler arquivo grande | `useOcupado` ("Lendo o arquivo…") | 5 | pendente |
 | `PainelVoos.jsx` / `Mapa.jsx` "Carregando pendências…" | pendências do DroneManagement | `<Esboco discreto>` com os números antigos à vista | 5 | pendente |
 | `BarraApontamento.jsx` Confirmar | envio do apontamento | `useOcupado` | 5 | pendente |
-| `LayoutAdmin.jsx` "Carregando…" | resumo da administração | `<Esboco>` | 5 | pendente |
-| `AdminVisaoGeral.jsx` "Carregando…" | visão geral | `<Esboco>` + cascata | 5 | pendente |
+| `LayoutAdmin.jsx` "Carregando…" *(fase 5)* | resumo da administração | `<Esboco>` | 5 | pendente |
+| `AdminVisaoGeral.jsx` "Carregando…" *(fase 5)* | visão geral | `<Esboco>` + cascata | 5 | pendente |
 | `AdminMapas.jsx` lista e botões (criar, ordem, acesso, detalhes, duplicar, remover) | admin | `<Esboco>` + `useOcupado` | 5 | pendente |
 | `AdminUsuarios.jsx` lista e botões (criar, salvar, piloto, senha, excluir) | admin | `<Esboco>` + `useOcupado` | 5 | pendente |
 | `AdminCamadas.jsx` detalhe, prévia, versões, Salvar nome/estilo/atributos, Duplicar, Remover, Gerar categorias/faixas/formas | admin | `<Esboco>` + `useOcupado`; o "✓ Salvo às…" (`useAutoDismiss`) sai, o ✓ do botão substitui | 5 | pendente |
 | `AdminCamadas.jsx` Remover camada (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | pendente |
+| `AdminMapas.jsx` Remover, `AdminUsuarios.jsx` Excluir e Remover grupo (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | pendente |
 | `AdminEstatisticas.jsx` "Carregando…" | estatísticas | `<Esboco>` | 5 | pendente |

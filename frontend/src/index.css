@@ -1,3 +1,7 @@
+/* Biblioteca de movimento das esperas (porte do Hub) — ver
+   docs/movimento-esperas.md. @import precisa vir antes de tudo. */
+@import "./lib/movimento.css";
+
 :root {
   --text: #1f2933;
   --text-muted: #52606d;
@@ -114,10 +118,13 @@ button:disabled:active {
 
 /* Desliga/reduz animação pra quem pede no SO — sem isso, animações podem
    disparar enjoo, migrânea ou convulsão em usuários sensíveis a
-   movimento (nenhuma regra assim existia no projeto). Mantém o essencial
-   (spinners de loading continuam girando — sem eles, "carregando" vira
-   uma tela estática sem nenhum feedback), mas achata todo o resto:
-   transições de painel, entrada de conteúdo, feedback de clique. */
+   movimento (nenhuma regra assim existia no projeto). Achata transições
+   de painel, entrada de conteúdo e feedback de clique. As esperas ficam
+   paradas, como no Hub: o spinner antigo para de girar e o campo da
+   biblioteca de movimento fica em degraus; o texto ao lado continua
+   dizendo o que acontece (ver docs/movimento-esperas.md). Só o botão de
+   gravação do percurso continua pulsando, porque indica gravação ao vivo,
+   não espera. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -128,8 +135,6 @@ button:disabled:active {
     scroll-behavior: auto !important;
   }
 
-  .spinner,
-  .spinner--grande,
   .botao-track-gravando {
     animation-duration: revert !important;
     animation-iteration-count: infinite !important;
@@ -1124,9 +1129,7 @@ input[type="file"]::file-selector-button:hover {
   animation: entrada 200ms ease;
 }
 
-/* "Pop" só no ✓ (scale+fade, toca uma vez) — sem ícone Lordicon aqui
-   porque o catálogo indexado não tem nenhum de check/sucesso; CSS
-   sozinho já dá o efeito de "confirmação animada" pedido. */
+/* "Pop" só no ✓ (scale+fade, toca uma vez), em CSS puro. */
 .marca-check-salvo {
   display: inline-block;
   animation: pop-check 280ms var(--ease-saida);
