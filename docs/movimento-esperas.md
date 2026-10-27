@@ -69,9 +69,9 @@ build quebra.
 
 | Onde | Espera | Peça | Sessão | Situação |
 |---|---|---|---|---|
-| `Login.jsx` Entrar | login; 30–60 s com o servidor dormindo | `useOcupado` + aviso com `<Campo pequeno>` depois de 8 s | 2 | pendente |
-| `PrimeiroAcesso.jsx` Continuar | mesmo login | `useOcupado` + aviso de 8 s | 2 | pendente |
-| `DefinirSenha.jsx` Salvar e continuar | troca de senha | `useOcupado` | 2 | pendente |
+| `Login.jsx` Entrar | login; 30–60 s com o servidor dormindo | `useOcupado` ("Entrando…") + aviso com `<Campo pequeno>` depois de 8 s (`NotaServidorAcordando`) | 2 | **feito** |
+| `PrimeiroAcesso.jsx` Continuar | mesmo login | `useOcupado` + aviso de 8 s (os dois via `useFormularioLogin`) | 2 | **feito** |
+| `DefinirSenha.jsx` Salvar e continuar | troca de senha | `useOcupado` ("Salvando…") | 2 | **feito** |
 | `App.jsx` `CarregandoRota` (Suspense) | baixar o pedaço da tela (o do mapa tem ~350 KB) | `<Campo tamanho="grande">` + texto respirando | 3 | pendente |
 | `Inicio.jsx` "Sincronizando…" | primeira sincronização | status com `<Campo pequeno>` | 3 | pendente |
 | `AvisoPrimeiraSincronizacao.jsx` | download de todas as camadas no 1º acesso | `<Progresso>` por camada e MB; `<Esboco>` nos cartões; `<Concluido>` no fim | 3 | pendente |
@@ -93,3 +93,8 @@ build quebra.
 | `AdminCamadas.jsx` Remover camada (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | ícone removido; botão pendente |
 | `AdminMapas.jsx` Remover, `AdminUsuarios.jsx` Excluir e Remover grupo (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | ícone removido; botão pendente |
 | `AdminEstatisticas.jsx` "Carregando…" | estatísticas | `<Esboco>` | 5 | pendente |
+
+Erro com ✕ no botão: a mensagem (`AlertaErro semTremida`) aparece junto do
+✕ e só entra com fade — o botão já treme, duas tremidas juntas confundem.
+A conferência local de "senhas diferentes" (Definir senha) não passa pelo
+botão e mantém a tremida da mensagem.

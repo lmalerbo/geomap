@@ -184,10 +184,10 @@ a "Situação" da tabela para **feito** e verifica com Playwright no dev local
 
 **Files:** `pages/Login.jsx`, `pages/PrimeiroAcesso.jsx`, `pages/DefinirSenha.jsx`, `hooks/useFormularioLogin.js`.
 
-- [ ] `useFormularioLogin` passa a usar `useOcupado().executar` no envio; botões com `propsBotao`/`conteudo`.
-- [ ] Aviso "O servidor estava em repouso e está acordando. A primeira entrada do dia leva até 1 minuto." com `<Campo tamanho="pequeno">`, aparece só se a resposta passar de 8 s (timer limpo ao terminar/desmontar).
-- [ ] Erro de credencial: ✕ no botão + a mensagem de erro de sempre (já tem tremida — não somar duas tremidas).
-- [ ] Teste: Playwright com `page.route('**/login')` atrasando 10 s (aviso aparece) e respondendo 401 (✕ e mensagem).
+- [x] `useFormularioLogin` passa a usar `useOcupado().executar` no envio; botões com `propsBotao`/`conteudo`.
+- [x] Aviso "O servidor estava em repouso e está acordando. A primeira entrada do dia leva até 1 minuto." com `<Campo tamanho="pequeno">`, aparece só se a resposta passar de 8 s (timer limpo ao terminar/desmontar).
+- [x] Erro de credencial: ✕ no botão + a mensagem de erro de sempre (já tem tremida — não somar duas tremidas).
+- [x] Teste: Playwright com `page.route('**/login')` atrasando 10 s (aviso aparece) e respondendo 401 (✕ e mensagem).
 
 ### Sessão 3 — primeira sincronização e abertura do mapa
 

@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useFormularioLogin } from "../hooks/useFormularioLogin.js";
+import AlertaErro from "../components/AlertaErro.jsx";
+import NotaServidorAcordando from "../components/NotaServidorAcordando.jsx";
 
 export default function Login() {
-  const { email, setEmail, senha, setSenha, erro, carregando, handleSubmit } = useFormularioLogin();
+  const { email, setEmail, senha, setSenha, erro, botao, servidorAcordando, handleSubmit } =
+    useFormularioLogin();
   // Não existe reset de senha por e-mail hoje (auth 100% própria, sem
   // provedor de e-mail configurado) — "Esqueci minha senha" só orienta a
   // falar com o admin, que redefine pela tela de Gerenciar Usuários.
@@ -32,19 +35,9 @@ export default function Login() {
             required
           />
         </label>
-        {erro && (
-          <p className="alerta-erro" role="alert">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            {erro}
-          </p>
-        )}
-        <button type="submit" disabled={carregando}>
-          {carregando ? "Entrando..." : "Entrar"}
-        </button>
+        {erro && <AlertaErro semTremida>{erro}</AlertaErro>}
+        <button {...botao.propsBotao({ type: "submit" })}>{botao.conteudo("Entrar")}</button>
+        {servidorAcordando && <NotaServidorAcordando />}
         <div className="links-login">
           <button type="button" className="link-botao" onClick={() => setMostrarAjudaSenha((v) => !v)}>
             Esqueci minha senha

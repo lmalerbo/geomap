@@ -308,6 +308,11 @@ input[type="file"]::file-selector-button:hover {
   flex-shrink: 0;
 }
 
+/* Erro que chega junto do ✕ do botão (useOcupado): só o botão treme. */
+.alerta-erro.sem-tremida {
+  animation: entrada 200ms ease;
+}
+
 .aviso {
   background: #fff4e5;
   border: 1px solid #f0c36d;
@@ -405,6 +410,24 @@ input[type="file"]::file-selector-button:hover {
   color: var(--text-muted);
   font-size: 13px;
   animation: entrada 150ms ease;
+}
+
+/* Login com o servidor acordando (NotaServidorAcordando). */
+.nota-espera {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-suave);
+  color: var(--text-muted);
+  font-size: 13px;
+  animation: mo-entra 0.35s var(--mo-sai);
+}
+
+.nota-espera .mo-campo {
+  margin-top: 3px;
 }
 
 /* Mapa */

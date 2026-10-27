@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import { useFormularioLogin } from "../hooks/useFormularioLogin.js";
+import AlertaErro from "../components/AlertaErro.jsx";
+import NotaServidorAcordando from "../components/NotaServidorAcordando.jsx";
 
 // Porta de entrada dedicada pra quem nunca logou — por baixo é o MESMO
 // POST /login de sempre (useFormularioLogin), só com moldura/copy
@@ -7,7 +9,8 @@ import { useFormularioLogin } from "../hooks/useFormularioLogin.js";
 // administrador (nunca auto-cadastro: sem a senha temporária certa,
 // ninguém entra — ver decisão registrada no histórico do projeto).
 export default function PrimeiroAcesso() {
-  const { email, setEmail, senha, setSenha, erro, carregando, handleSubmit } = useFormularioLogin();
+  const { email, setEmail, senha, setSenha, erro, botao, servidorAcordando, handleSubmit } =
+    useFormularioLogin();
 
   return (
     <main className="tela-login">
@@ -36,19 +39,9 @@ export default function PrimeiroAcesso() {
             required
           />
         </label>
-        {erro && (
-          <p className="alerta-erro" role="alert">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            {erro}
-          </p>
-        )}
-        <button type="submit" disabled={carregando}>
-          {carregando ? "Entrando..." : "Continuar"}
-        </button>
+        {erro && <AlertaErro semTremida>{erro}</AlertaErro>}
+        <button {...botao.propsBotao({ type: "submit" })}>{botao.conteudo("Continuar")}</button>
+        {servidorAcordando && <NotaServidorAcordando />}
         <div className="links-login">
           <Link to="/login" className="link-botao">
             ← Voltar pro login
