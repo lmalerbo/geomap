@@ -17,7 +17,7 @@ import {
 } from "../lib/api.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 import { corDaCamada } from "../lib/paleta.js";
-import IconeLordicon from "../components/IconeLordicon.jsx";
+import { Campo } from "../components/movimento";
 import {
   normalizarEstiloConfig,
   gerarCategorias,
@@ -738,7 +738,8 @@ export default function AdminCamadas() {
             <ul className="lista-jobs-em-andamento">
               {jobsPendentes.map((job) => (
                 <li key={job.jobId}>
-                  <IconeLordicon nome="upload-file" trigger="loop" tamanho={20} />
+                  {/* provisório: a sessão 4 do plano de movimento põe o voo do drone */}
+                  <Campo tamanho="pequeno" />
                   Processando "{job.rotulo}"…
                 </li>
               ))}
@@ -967,11 +968,7 @@ export default function AdminCamadas() {
                   onClick={removerCamadaSelecionada}
                   disabled={removendo}
                 >
-                  {removendo ? (
-                    <span className="spinner" aria-hidden="true" />
-                  ) : (
-                    <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
-                  )}
+                  {removendo && <span className="spinner" aria-hidden="true" />}
                   {removendo ? "Removendo…" : "Remover camada"}
                 </button>
               </div>

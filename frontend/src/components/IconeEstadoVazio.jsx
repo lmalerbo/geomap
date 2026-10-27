@@ -2,9 +2,7 @@
 // sem downloads, busca sem resultado) — antes era só texto puro em todo
 // lugar. Mesmo estilo de traço (stroke 2px, currentColor) dos ícones já
 // existentes em Mapa.jsx/MenuLateral.jsx, pra não destoar visualmente.
-// Placeholder até a conexão com o MCP do Lordicon ser resolvida (ver
-// PROPOSTA_ANIMACOES.md) — trocar por um ícone animado (buscar "empty
-// box"/"no data") quando disponível, mantendo o mesmo tamanho/posição.
+// Fica em SVG fixo: o Lordicon saiu do app (docs/movimento-esperas.md).
 export default function IconeEstadoVazio({ tamanho = 20 }) {
   return (
     <svg

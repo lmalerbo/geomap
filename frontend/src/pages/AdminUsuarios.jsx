@@ -12,7 +12,6 @@ import {
   removerGrupoAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import IconeLordicon from "../components/IconeLordicon.jsx";
 
 const FORM_USUARIO_VAZIO = {
   nome: "",
@@ -377,11 +376,7 @@ export default function AdminUsuarios() {
                     disabled={ehVoce || excluindoId === u.id}
                     title={ehVoce ? "Você não pode excluir a própria conta" : undefined}
                   >
-                    {excluindoId === u.id ? (
-                      <span className="spinner" aria-hidden="true" />
-                    ) : (
-                      <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
-                    )}
+                    {excluindoId === u.id && <span className="spinner" aria-hidden="true" />}
                     {excluindoId === u.id ? "Excluindo…" : "Excluir"}
                   </button>
                 </div>
@@ -486,11 +481,7 @@ export default function AdminUsuarios() {
                       onClick={() => removerGrupo(g)}
                       disabled={removendoGrupoId === g.id}
                     >
-                      {removendoGrupoId === g.id ? (
-                        <span className="spinner" aria-hidden="true" />
-                      ) : (
-                        <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
-                      )}
+                      {removendoGrupoId === g.id && <span className="spinner" aria-hidden="true" />}
                       {removendoGrupoId === g.id ? "Removendo…" : "Remover"}
                     </button>
                   </>

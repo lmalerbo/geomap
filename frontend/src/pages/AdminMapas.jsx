@@ -11,7 +11,6 @@ import {
   atualizarOrdemCamadasAdmin,
 } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import IconeLordicon from "../components/IconeLordicon.jsx";
 
 const FORM_VAZIO = { nome: "", descricao: "", permissoes: [] };
 
@@ -350,11 +349,7 @@ export default function AdminMapas() {
                   disabled={removendoId === m.id || m.camadaCount > 0}
                   title={m.camadaCount > 0 ? "Remova as camadas desse mapa antes de removê-lo" : undefined}
                 >
-                  {removendoId === m.id ? (
-                    <span className="spinner" aria-hidden="true" />
-                  ) : (
-                    <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
-                  )}
+                  {removendoId === m.id && <span className="spinner" aria-hidden="true" />}
                   {removendoId === m.id ? "Removendo…" : "Remover"}
                 </button>
               </div>
