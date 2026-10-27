@@ -108,10 +108,27 @@ export default function useOcupado() {
     } else if (estado === "ok" || estado === "erro") {
       sobre = createElement("span", { className: "ico" }, estado === "ok" ? "✓" : "✕");
     }
+    // O rótulo e uma cópia invisível do "campo + texto" ficam empilhados na
+    // mesma célula: o botão cresce para caber o texto de espera (nunca
+    // encolhe, por causa do minWidth), em vez de cortar "Salvando…".
+    const fantasma =
+      estado === "ocupado" && texto
+        ? createElement(
+            "span",
+            { className: "mo-fantasma", "aria-hidden": true },
+            createElement(Campo, { herdaCor: true }),
+            createElement("span", null, texto),
+          )
+        : null;
     return createElement(
       Fragment,
       null,
-      createElement("span", { className: "mo-rot" }, children),
+      createElement(
+        "span",
+        { className: "mo-pilha" },
+        createElement("span", { className: "mo-rot" }, children),
+        fantasma,
+      ),
       createElement("span", { className: "mo-sobre", "aria-hidden": estado === "parado" ? true : undefined }, sobre),
     );
   };

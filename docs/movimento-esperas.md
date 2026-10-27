@@ -42,6 +42,17 @@ Plano de implementação:
   cascata); cor, texto, %, ✓ e ✕ continuam. O spinner antigo também para de
   girar (antes uma regra do `index.css` forçava o giro).
 
+## Biblioteca (sessão 1)
+
+Feita em 2026-10-27: `frontend/src/lib/movimento.css`,
+`frontend/src/lib/movimento.js` (cálculos, com testes) e
+`frontend/src/components/movimento/`. Cada peça tem story no Storybook
+(`Movimento/*`, com play function: `npx vitest run --project storybook
+src/components/movimento`, Node 22.12 via `fnm use`).
+
+Diferença do Hub: no `useOcupado` o botão cresce para caber o texto de espera
+("Salvando…") em vez de cortar; continua sem encolher.
+
 ## Esperas encontradas
 
 Levantamento de 2026-10-27. Sessão = em qual sessão do plano o ponto é
@@ -66,7 +77,7 @@ build quebra.
 | `AvisoPrimeiraSincronizacao.jsx` | download de todas as camadas no 1º acesso | `<Progresso>` por camada e MB; `<Esboco>` nos cartões; `<Concluido>` no fim | 3 | pendente |
 | `Mapa.jsx` "Carregando mapa…" | ler as camadas do aparelho | `<Campo tamanho="grande">` + texto respirando | 3 | pendente |
 | `Mapa.jsx` status de sincronização no cartão do topo | sincronização em segundo plano | `<Campo pequeno>` | 3 | pendente |
-| `AdminCamadas.jsx` lista "Processando …" | conversão do shapefile (até 12 min) | `<Campo pequeno>` (provisório desde a sessão 1); `<Voo desde>` sobre a prévia; pouso em `<Concluido>` ou erro | 4 | pendente |
+| `AdminCamadas.jsx` lista "Processando …" | conversão do shapefile (até 12 min) | `<Campo pequeno>` (provisório desde a sessão 1); `<Voo desde>` sobre a prévia; pouso em `<Concluido>` ou erro | 4 | campo provisório (sessão 1); voo pendente |
 | `AdminCamadas.jsx` Enviar / Atualizar arquivo | envio do arquivo | `useOcupado` ("Enviando…", "Convertendo…") | 4 | pendente |
 | `JobsContext.jsx` aviso global | fim da conversão em outra tela | toast com ✓/✕ | 4 | pendente |
 | `BarraAnotar.jsx` Na minha localização | GPS (até 15 s com sinal fraco) | `useOcupado` ("Buscando o GPS…") | 5 | pendente |
@@ -79,6 +90,6 @@ build quebra.
 | `AdminMapas.jsx` lista e botões (criar, ordem, acesso, detalhes, duplicar, remover) | admin | `<Esboco>` + `useOcupado` | 5 | pendente |
 | `AdminUsuarios.jsx` lista e botões (criar, salvar, piloto, senha, excluir) | admin | `<Esboco>` + `useOcupado` | 5 | pendente |
 | `AdminCamadas.jsx` detalhe, prévia, versões, Salvar nome/estilo/atributos, Duplicar, Remover, Gerar categorias/faixas/formas | admin | `<Esboco>` + `useOcupado`; o "✓ Salvo às…" (`useAutoDismiss`) sai, o ✓ do botão substitui | 5 | pendente |
-| `AdminCamadas.jsx` Remover camada (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | pendente |
-| `AdminMapas.jsx` Remover, `AdminUsuarios.jsx` Excluir e Remover grupo (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | pendente |
+| `AdminCamadas.jsx` Remover camada (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | ícone removido; botão pendente |
+| `AdminMapas.jsx` Remover, `AdminUsuarios.jsx` Excluir e Remover grupo (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | ícone removido; botão pendente |
 | `AdminEstatisticas.jsx` "Carregando…" | estatísticas | `<Esboco>` | 5 | pendente |

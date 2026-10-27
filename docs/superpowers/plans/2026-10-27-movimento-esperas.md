@@ -163,6 +163,16 @@ Comportamento (igual ao Hub): `iniciar` mede a largura do botão (ref) e trava `
 
 ---
 
+## Registro da sessão 1 (2026-10-27)
+
+Tarefas 1–10 feitas no branch `feat/movimento-esperas`.
+
+- Tarefa 1: camada 1 (gemini-3.8-flash) escreveu só o teste (faltou importar `vi`) e a cota diária do OpenRouter acabou; implementação na camada 3 (tarefa de 3 min, mais barata que abrir sub-agente).
+- Tarefas 2–8 (CSS e componentes): camada 3 — porte delicado de animação, decisões de API.
+- Stories: camada 2 (Haiku), aprovadas na revisão; 20 testes passando. A revisão por print achou um corte no botão ocupado com texto, corrigido (o botão cresce para caber o texto) e coberto na story `Sucesso`.
+- Tarefa 9: camada 3; achou mais 3 usos do Lordicon (AdminMapas, AdminUsuarios) que o levantamento inicial, feito em outro branch, não tinha.
+- O `storybook build` estático falha por causa do plugin PWA (precache do Storybook passa de 2 MiB); já era assim antes desta sessão. Use o servidor de desenvolvimento.
+
 # Sessões seguintes
 
 Cada sessão começa relendo `docs/movimento-esperas.md`, detalha os passos

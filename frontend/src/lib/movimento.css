@@ -53,7 +53,22 @@
 
 /* ── useOcupado (botão vivo) ──────────────────────────────── */
 .mo-btn { position: relative; overflow: hidden; }
-.mo-btn > .mo-rot {
+.mo-btn > .mo-pilha {
+  display: inline-grid;
+  align-items: center;
+  justify-items: center;
+  gap: inherit;
+}
+.mo-pilha > * { grid-area: 1 / 1; }
+/* cópia invisível do conteúdo ocupado: só ocupa espaço (ver useOcupado) */
+.mo-fantasma {
+  visibility: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.mo-btn .mo-rot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -77,8 +92,8 @@
 /* O app deixa botão desabilitado com 0,6 de opacidade; o botão vivo não. */
 .mo-btn.mo-ocupado:disabled,
 .mo-btn.mo-fim:disabled { opacity: 1; cursor: progress; }
-.mo-btn.mo-ocupado > .mo-rot,
-.mo-btn.mo-fim > .mo-rot { opacity: 0; transform: translateY(-8px); }
+.mo-btn.mo-ocupado .mo-rot,
+.mo-btn.mo-fim .mo-rot { opacity: 0; transform: translateY(-8px); }
 .mo-btn.mo-ocupado > .mo-sobre,
 .mo-btn.mo-fim > .mo-sobre { opacity: 1; transform: none; }
 /* faixa de luz que atravessa enquanto espera: mostra que está vivo */
@@ -426,7 +441,7 @@
   .mo-btn.mo-ocupado::after,
   .mo-esboco > i::after,
   .mo-prog-barra::after { animation: none; display: none; }
-  .mo-btn > .mo-rot,
+  .mo-btn .mo-rot,
   .mo-btn > .mo-sobre,
   .mo-prog-barra { transition: none; }
   .mo-btn.mo-erro,
