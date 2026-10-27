@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { JobsProvider } from "./context/JobsContext.jsx";
 import AvisoPinsDescartados from "./components/AvisoPinsDescartados.jsx";
+import Campo from "./components/movimento/Campo.jsx";
 
 // Code-splitting por rota (Lighthouse apontou ~230 KiB de JS não usado no
 // primeiro load — em boa parte MapLibre GL + libs de importação de
@@ -23,8 +24,9 @@ const DefinirSenha = lazy(() => import("./pages/DefinirSenha.jsx"));
 
 function CarregandoRota() {
   return (
-    <main className="carregando-rota">
-      <span className="spinner spinner--grande" aria-hidden="true" />
+    <main className="carregando-rota" role="status">
+      <Campo tamanho="grande" />
+      <p className="mo-respira">Abrindo…</p>
     </main>
   );
 }

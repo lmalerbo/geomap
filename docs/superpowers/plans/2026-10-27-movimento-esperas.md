@@ -193,11 +193,11 @@ a "Situação" da tabela para **feito** e verifica com Playwright no dev local
 
 **Files:** `lib/sync.js`, `components/AvisoPrimeiraSincronizacao.jsx`, `pages/Inicio.jsx`, `App.jsx` (`CarregandoRota`), `pages/Mapa.jsx` (carregamento inicial, status do cartão do topo).
 
-- [ ] `sync.js` passa a informar progresso: `aoProgredir({camadaAtual, camadasFeitas, camadasTotal, bytes, bytesTotal})` (bytes do `fetch` lidos com `response.body.getReader()`; sem `Content-Length` → progresso por camada, `mb={false}`). Teste unitário do agregador de progresso.
-- [ ] Aviso da primeira sincronização com `<Progresso>` ("Talhões · 2 de 6 camadas", "8 MB de 31 MB"), cartões de mapa em `<Esboco>`, `<Concluido texto="Pronto para usar sem internet">` no fim.
-- [ ] `CarregandoRota` e "Carregando mapa…" → `<Campo tamanho="grande">` + texto `.mo-respira`; camadas entram em sequência (fade de opacidade da camada no MapLibre, `fill-opacity-transition`), sem cascata no canvas.
-- [ ] Status no cartão do topo: `<Campo tamanho="pequeno">` no lugar do spinner.
-- [ ] Teste: Playwright com IndexedDB vazio e downloads atrasados via `page.route`; também offline.
+- [x] `sync.js` passa a informar progresso: `aoProgredir({camadaAtual, camadasFeitas, camadasTotal, bytes, bytesTotal})` (bytes do `fetch` lidos com `response.body.getReader()`; sem `Content-Length` → progresso por camada, `mb={false}`). Teste unitário do agregador de progresso.
+- [x] Aviso da primeira sincronização com `<Progresso>` ("Talhões · 2 de 6 camadas", "8 MB de 31 MB"), cartões de mapa em `<Esboco>`, `<Concluido texto="Pronto para usar sem internet">` no fim.
+- [x] `CarregandoRota` e "Carregando mapa…" → `<Campo tamanho="grande">` + texto `.mo-respira`; camadas entram em sequência (fade de opacidade da camada no MapLibre, `fill-opacity-transition`), sem cascata no canvas.
+- [x] Status no cartão do topo: `<Campo tamanho="pequeno">` no lugar do spinner.
+- [x] Teste: Playwright com IndexedDB vazio e downloads atrasados via `page.route`; também offline.
 
 ### Sessão 4 — conversão de camada
 

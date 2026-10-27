@@ -3,7 +3,8 @@ import { fracao, textoMb } from "../../lib/movimento.js";
 // Barra de progresso — porte de Mo.progresso do Hub, declarativa.
 // `valor`/`total` em bytes (ou em passos, com mb={false}). Chegou em 100 %
 // e o servidor ainda grava → a barra "respira" (estado "processando", ou
-// "enviando" com valor >= total). `ok` troca o % por ✓.
+// "enviando" com valor >= total). `ok` troca o % por ✓. `detalhe` substitui
+// a linha de MB (ex.: "2 de 6 camadas · 24,1 MB de 39,7 MB").
 const TEXTO_PADRAO = {
   enviando: "Preparando…",
   processando: "Gravando no servidor…",
@@ -11,7 +12,7 @@ const TEXTO_PADRAO = {
   erro: "Envio interrompido",
 };
 
-export default function Progresso({ valor = 0, total = 0, mb = true, texto, estado = "enviando", className = "" }) {
+export default function Progresso({ valor = 0, total = 0, mb = true, texto, detalhe, estado = "enviando", className = "" }) {
   const f = estado === "ok" || estado === "processando" ? 1 : fracao(valor, total);
   const pct = Math.round(f * 100);
   const processando = estado === "processando" || (estado === "enviando" && f >= 1);
@@ -36,7 +37,7 @@ export default function Progresso({ valor = 0, total = 0, mb = true, texto, esta
       <div className="mo-prog-trilho">
         <div className="mo-prog-barra" style={{ transform: `scaleX(${f})` }} />
       </div>
-      <div className="mo-prog-mb">{mb ? textoMb(valor, total) : ""}</div>
+      <div className="mo-prog-mb">{detalhe ?? (mb ? textoMb(valor, total) : "")}</div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -60,6 +60,9 @@ import LegendaCamada, {
 } from "../components/LegendaCamada.jsx";
 import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
+import { Campo, Concluido } from "../components/movimento/index.js";
+import { prefereMenosMovimento } from "../components/movimento/usePrefereMenosMovimento.js";
+import { entrarEmSequencia } from "../lib/entradaCamadas.js";
 import CartaoPonto from "../components/CartaoPonto.jsx";
 import CartaoPin from "../components/pins/CartaoPin.jsx";
 import BarraAnotar from "../components/pins/BarraAnotar.jsx";
@@ -917,6 +920,13 @@ export default function Mapa() {
   // IndexedDB, não num "já vi isso" salvo em localStorage.
   const [semCamadasLocais, setSemCamadasLocais] = useState(false);
   const [avisoSincronizacaoFechado, setAvisoSincronizacaoFechado] = useState(false);
+  // Progresso do download e selo de concluído da 1ª sincronização — mesmo
+  // esquema de Inicio.jsx (lib/progressoSync.js).
+  const [progressoSync, setProgressoSync] = useState(null);
+  const [comemorar, setComemorar] = useState(false);
+  // Cobertura "Carregando mapa…" continua montada nos 400 ms do fade de
+  // saída depois que o mapa fica pronto.
+  const [cobrindoMapa, setCobrindoMapa] = useState(true);
   const [selecao, setSelecao] = useState(null);
   // Clique fora de qualquer feição consultável: mostra a coordenada
   // (CartaoPonto). Mutuamente exclusivo com `selecao` — no máximo 1 card
@@ -958,7 +968,7 @@ export default function Mapa() {
   // dela no render (voosInfo, legenda) só aparecia por acaso, no próximo
   // render causado por outra coisa (achado na fase 4: na primeira abertura
   // do mapa de voos, o painel Voos e as pendências não apareciam).
-  const [, setVersaoCamadas] = useState(0);
+  const [versaoCamadas, setVersaoCamadas] = useState(0);
   const [buscaTexto, setBuscaTexto] = useState("");
   // Fazenda selecionada pela busca (resultado inteiro, ver
   // selecionarResultadoBusca) — dirige tanto o destaque visual do limite no
@@ -1288,9 +1298,16 @@ export default function Mapa() {
   useEffect(() => {
     if (!mapaPronto) return;
     let cancelado = false;
+    let ultimoProgresso = null;
 
-    sincronizarMapas(sessao.token).then(async (resultado) => {
+    sincronizarMapas(sessao.token, {
+      aoProgredir: (p) => {
+        ultimoProgresso = p;
+        if (!cancelado) setProgressoSync(p);
+      },
+    }).then(async (resultado) => {
       if (cancelado) return;
+      if (resultado.online && ultimoProgresso && ultimoProgresso.falhas === 0) setComemorar(true);
       const doMapa = resultado.mapas.filter((c) => c.mapaId === mapaId);
       setMapasLocais(doMapa);
       setCamadasVisiveis((atual) => {
@@ -1516,6 +1533,34 @@ export default function Mapa() {
       }
     }
   }, [camadasVisiveis, mapaPronto, mapasLocais]);
+
+  // 5b) camadas novas entram uma por vez (docs/movimento-esperas.md). Roda
+  // depois de cada rodada de aplicar() que mudou o conjunto de camadas e só
+  // anima as que ainda não apareceram nesta tela — reconstruir uma camada
+  // (troca de estilo) não repete a entrada.
+  const camadasJaMostradasRef = useRef(new Set());
+  const camadasVisiveisRef = useRef(camadasVisiveis);
+  camadasVisiveisRef.current = camadasVisiveis;
+  // Uma entrada em andamento não é cortada por outra rodada de aplicar() —
+  // só pela saída da tela (senão as camadas pendentes surgiriam de uma vez).
+  const cancelarEntradasRef = useRef([]);
+  useLayoutEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapaPronto || versaoCamadas === 0) return;
+    const novas = [...camadasCarregadasRef.current]
+      .filter(([id]) => !camadasJaMostradasRef.current.has(id))
+      .map(([id, info]) => ({ id, info }));
+    for (const { id } of novas) camadasJaMostradasRef.current.add(id);
+    if (novas.length === 0 || prefereMenosMovimento()) return;
+    cancelarEntradasRef.current.push(entrarEmSequencia(map, novas, (id) => camadasVisiveisRef.current.has(id)));
+  }, [versaoCamadas, mapaPronto]);
+  useLayoutEffect(() => () => cancelarEntradasRef.current.forEach((cancelar) => cancelar()), []);
+
+  useEffect(() => {
+    if (!mapaPronto) return undefined;
+    const t = setTimeout(() => setCobrindoMapa(false), 400);
+    return () => clearTimeout(t);
+  }, [mapaPronto]);
 
   // 6) clique consolidado nas camadas visíveis — junta todas as feições no
   // ponto clicado (mesmo de camadas diferentes sobrepostas) com paginação.
@@ -2464,18 +2509,23 @@ export default function Mapa() {
       />
 
       <AvisoPrimeiraSincronizacao
-        mostrar={sincronizando && semCamadasLocais && !avisoSincronizacaoFechado}
+        mostrar={(sincronizando || comemorar) && semCamadasLocais && !avisoSincronizacaoFechado}
+        progresso={progressoSync}
         aoFechar={() => setAvisoSincronizacaoFechado(true)}
       />
 
       <div className="area-mapa">
         <div ref={containerRef} className="mapa-container" />
 
-        {!mapaPronto && (
-          <div className="carregando-mapa">
-            <span className="spinner spinner--grande" aria-hidden="true" />
-            <p>Carregando mapa…</p>
+        {cobrindoMapa && (
+          <div className={`carregando-mapa${mapaPronto ? " sai" : ""}`} role="status">
+            <Campo tamanho="grande" />
+            <p className="mo-respira">Carregando mapa…</p>
           </div>
+        )}
+
+        {comemorar && semCamadasLocais && !avisoSincronizacaoFechado && (
+          <Concluido texto="Mapas prontos para usar sem internet" onFim={() => setComemorar(false)} />
         )}
 
         <div className="barra-topo">
@@ -2498,7 +2548,7 @@ export default function Mapa() {
             <span className="divisor-vertical" aria-hidden="true" />
             <span className={`status-sincronizacao status-sincronizacao--${estadoSync}`} aria-live="polite" title={textoSyncCompleto}>
               {sincronizando ? (
-                <span className="spinner" aria-hidden="true" />
+                <Campo tamanho="pequeno" />
               ) : (
                 <span className="ponto-status" aria-hidden="true" />
               )}

@@ -53,6 +53,42 @@ src/components/movimento`, Node 22.12 via `fnm use`).
 Diferença do Hub: no `useOcupado` o botão cresce para caber o texto de espera
 ("Salvando…") em vez de cortar; continua sem encolher.
 
+## Sincronização e abertura do mapa (sessão 3)
+
+Feita em 2026-10-27.
+
+- **Progresso do download.** `sincronizarMapas(token, { aoProgredir })`
+  (`lib/sync.js`) avisa o andamento das camadas que precisam ser baixadas.
+  O agregador fica em `lib/progressoSync.js` (sem React, com testes): cada
+  camada passa por baixando → guardando (gravando no IndexedDB) → feita ou
+  falhou. `baixarCamada` lê o download aos pedaços (`body.getReader()`) e
+  informa os bytes; o tamanho vem do `Content-Length`. As camadas descem em
+  paralelo, então o total em MB só aparece quando todas informaram o
+  tamanho; antes disso a barra conta camadas. A troca para MB só acontece
+  quando não faz a barra voltar atrás, e não se desfaz. Sem
+  `Content-Length`, fica por camada até o fim.
+- **Fim da primeira sincronização.** Se tudo baixou sem falha, o
+  `<Concluido>` cobre a tela inicial (ou o mapa) e o aviso sai junto. Com
+  alguma camada falhando, o aviso só some, sem comemoração.
+- **`<Progresso detalhe>`.** Prop nova: substitui a linha de MB por um
+  texto livre ("2 de 6 camadas · 24,1 MB de 39,7 MB").
+- **Camadas entram em sequência** (`lib/entradaCamadas.js`, efeito 5b do
+  `Mapa.jsx`). Roda depois que o `aplicar()` adicionou as camadas, **sem
+  mexer nele**: lê a opacidade que cada layer já tem, zera e devolve essa
+  mesma opacidade com fade de 550 ms, uma camada a cada 220 ms. Só anima
+  camada que ainda não apareceu nesta tela (reconstruir por troca de
+  estilo não repete a entrada). Camada desligada no painel durante a
+  entrada continua desligada. No fim a transição volta aos 300 ms do
+  liga/desliga. Uma entrada em andamento só é cortada pela saída da tela.
+  Com menos movimento, não roda.
+
+Verificação (Playwright, backend e Postgres locais, downloads servidos de
+`backend/storage` por um servidor lento simulado, sem tocar o R2): IndexedDB
+vazio pela tela inicial e direto no mapa, progresso com MB e sempre
+crescente, selo de concluído, esboço dos cartões, entrada das camadas com a
+opacidade final igual à de menos movimento, e offline no build de produção
+(tela inicial e mapa com o que estava salvo, sem aviso nem selo).
+
 ## Esperas encontradas
 
 Levantamento de 2026-10-27. Sessão = em qual sessão do plano o ponto é
@@ -72,11 +108,11 @@ build quebra.
 | `Login.jsx` Entrar | login; 30–60 s com o servidor dormindo | `useOcupado` ("Entrando…") + aviso com `<Campo pequeno>` depois de 8 s (`NotaServidorAcordando`) | 2 | **feito** |
 | `PrimeiroAcesso.jsx` Continuar | mesmo login | `useOcupado` + aviso de 8 s (os dois via `useFormularioLogin`) | 2 | **feito** |
 | `DefinirSenha.jsx` Salvar e continuar | troca de senha | `useOcupado` ("Salvando…") | 2 | **feito** |
-| `App.jsx` `CarregandoRota` (Suspense) | baixar o pedaço da tela (o do mapa tem ~350 KB) | `<Campo tamanho="grande">` + texto respirando | 3 | pendente |
-| `Inicio.jsx` "Sincronizando…" | primeira sincronização | status com `<Campo pequeno>` | 3 | pendente |
-| `AvisoPrimeiraSincronizacao.jsx` | download de todas as camadas no 1º acesso | `<Progresso>` por camada e MB; `<Esboco>` nos cartões; `<Concluido>` no fim | 3 | pendente |
-| `Mapa.jsx` "Carregando mapa…" | ler as camadas do aparelho | `<Campo tamanho="grande">` + texto respirando | 3 | pendente |
-| `Mapa.jsx` status de sincronização no cartão do topo | sincronização em segundo plano | `<Campo pequeno>` | 3 | pendente |
+| `App.jsx` `CarregandoRota` (Suspense) | baixar o pedaço da tela (o do mapa tem ~350 KB) | `<Campo tamanho="grande">` + "Abrindo…" respirando | 3 | **feito** |
+| `Inicio.jsx` "Sincronizando…" | primeira sincronização | status com `<Campo pequeno>`; cartões dos mapas em `<Esboco>` + cascata | 3 | **feito** |
+| `AvisoPrimeiraSincronizacao.jsx` (Início e Mapa) | download de todas as camadas no 1º acesso | `<Progresso>` ("Baixando Talhões", "2 de 6 camadas · 24,1 MB de 39,7 MB", "Guardando no aparelho…"); `<Concluido>` "Mapas prontos para usar sem internet" no fim | 3 | **feito** |
+| `Mapa.jsx` "Carregando mapa…" | ler as camadas do aparelho | `<Campo tamanho="grande">` + texto respirando, sai com fade; camadas entram uma por vez | 3 | **feito** |
+| `Mapa.jsx` status de sincronização no cartão do topo | sincronização em segundo plano | `<Campo pequeno>` | 3 | **feito** |
 | `AdminCamadas.jsx` lista "Processando …" | conversão do shapefile (até 12 min) | `<Campo pequeno>` (provisório desde a sessão 1); `<Voo desde>` sobre a prévia; pouso em `<Concluido>` ou erro | 4 | campo provisório (sessão 1); voo pendente |
 | `AdminCamadas.jsx` Enviar / Atualizar arquivo | envio do arquivo | `useOcupado` ("Enviando…", "Convertendo…") | 4 | pendente |
 | `JobsContext.jsx` aviso global | fim da conversão em outra tela | toast com ✓/✕ | 4 | pendente |

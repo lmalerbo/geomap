@@ -236,9 +236,10 @@ input[type="file"]::file-selector-button:hover {
   font-size: 13px;
 }
 
-.carregando-mapa {
-  position: absolute;
-  inset: 0;
+/* Espera de abrir o mapa e de trocar de tela: o "campo" grande com o
+   texto respirando (components/movimento, docs/movimento-esperas.md). */
+.carregando-mapa,
+.carregando-rota {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -247,18 +248,31 @@ input[type="file"]::file-selector-button:hover {
   background: var(--bg);
   color: var(--text-muted);
   font-size: 14px;
+  font-weight: 600;
 }
 
-/* Fallback do <Suspense> em App.jsx — code-splitting por rota, aparece
-   por uma fração de segundo enquanto o chunk da página é baixado. Não
-   pode usar position:absolute como .carregando-mapa (não tem nenhum
-   ancestral posicionado nesse ponto, é a primeira coisa a renderizar). */
+.carregando-mapa p,
+.carregando-rota p {
+  margin: 0;
+}
+
+.carregando-mapa {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.4s var(--mo-sai);
+}
+
+/* O mapa ficou pronto: a cobertura sai com fade antes de desmontar. */
+.carregando-mapa.sai {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Fallback do <Suspense> em App.jsx — code-splitting por rota. Não pode
+   usar position:absolute como .carregando-mapa (não tem nenhum ancestral
+   posicionado nesse ponto, é a primeira coisa a renderizar). */
 .carregando-rota {
   min-height: 100svh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
 }
 
 .erro {
@@ -322,26 +336,39 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .aviso-sincronizacao {
+  position: relative;
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 10px;
   margin: 12px 16px 0;
+  padding: 14px 44px 14px 16px;
+  border-radius: 12px;
+  background: var(--accent-suave);
   font-size: 14px;
+  animation: mo-entra 0.3s var(--mo-sai);
+}
+
+.aviso-sincronizacao strong {
+  font-size: 14.5px;
+  line-height: 1.35;
 }
 
 .aviso-sincronizacao p {
   margin: 0;
-  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-muted);
 }
 
 .aviso-sincronizacao button {
-  flex-shrink: 0;
+  position: absolute;
+  top: 8px;
+  right: 8px;
   min-height: 28px;
   min-width: 28px;
   padding: 0;
   border: none;
   background: none;
-  color: #8a5a00;
+  color: var(--accent-escuro);
   font-size: 18px;
 }
 
@@ -448,6 +475,9 @@ input[type="file"]::file-selector-button:hover {
 
 .status-sync {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text-muted);
   font-size: 13px;
 }
