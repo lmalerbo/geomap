@@ -1,4 +1,5 @@
 import { PALETA_HEX } from "./paleta.js";
+import { normalizarCoresTiposVoo } from "./coresTiposVoo.js";
 
 const PREENCHIMENTO_VAZIO = {
   modo: "simples",
@@ -146,6 +147,7 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
       // campo de nível superior novo, mesmo padrão de tipoDesenho: sem
       // migration (estilo_config é jsonb livre), lido direto do bruto.
       tipoCamada: bruto?.tipoCamada || "padrao",
+      coresTiposVoo: normalizarCoresTiposVoo(bruto?.coresTiposVoo),
       preenchimento: preenchimentoFinal,
       contorno: contornoFinal,
       rotulo: {
@@ -172,6 +174,7 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
   return {
     tipoDesenho: tipoDesenhoOuPadrao(bruto, preenchimentoAntigo, contornoAntigo),
     tipoCamada: bruto?.tipoCamada || "padrao",
+    coresTiposVoo: normalizarCoresTiposVoo(bruto?.coresTiposVoo),
     preenchimento: preenchimentoAntigo,
     contorno: contornoAntigo,
     rotulo: { ...ROTULO_VAZIO, mostrar, zoomMinimo },

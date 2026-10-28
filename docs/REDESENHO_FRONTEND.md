@@ -79,7 +79,7 @@ referência visual, este arquivo é a referência do "por quê".
   envio); falha por conflito (talhão já apontado/cancelado no
   DroneManagement nesse meio-tempo) aparece com o motivo, nunca some em
   silêncio; a fila é apagada ao sair da conta (mesmo motivo dos pins).
-- **Fase 5 — administração**: menu lateral fixo; Visão geral com saúde da
+- **Fase 5 — administração** *(pronta no branch, 2026-10-01)*: menu lateral fixo; Visão geral com saúde da
   automação (resultado por dia, camadas atrasadas, passo a passo quando
   falha); Mapas em cards com painel de camadas/acesso/detalhes; Camadas
   em 3 colunas com prévia ao vivo do estilo; Usuários e grupos em tabela

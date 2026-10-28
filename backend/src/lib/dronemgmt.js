@@ -1,4 +1,6 @@
 import { chromium } from "playwright";
+import { criarSessaoCompartilhada } from "./sessaoCompartilhada.js";
+import { ponte, resultadoParaResponse } from "./ponteDroneMgmt.js";
 
 // Integração com a API interna do DroneManagement (Torre de Controle,
 // prd-dronemgmt.pedraagroindustrial.com.br) — ver docs/INTEGRACAO_DRONEMANAGEMENT.md
@@ -15,13 +17,14 @@ const UNIT_ID = process.env.DRONEMGMT_UNIT_ID || "";
 const USUARIO = process.env.DRONEMGMT_USUARIO || "";
 const SENHA = process.env.DRONEMGMT_SENHA || "";
 
-const TIMEOUT_LOGIN_MS = 30_000;
+// 60s: no Render free o login sozinho já leva ~30s (medido em 2026-08-19).
+const TIMEOUT_LOGIN_MS = 60_000;
 
 // Estado em memória do processo — Render free tier roda 1 instância só,
 // sem necessidade de compartilhar isso entre processos. Login é "lazy" (só
 // acontece quando alguém pede a sessão, nunca por cron fixo) — evita logar
 // de novo toda hora enquanto o backend está ocioso ou dormindo.
-let sessaoCache = null; // { cookie, xsrfToken, obtidaEm }
+
 
 // Chromium aberto só durante o login e fechado logo em seguida. Chegou a
 // ficar vivo o tempo todo (2026-08-20, pra acelerar relogins), mas isso
@@ -29,7 +32,7 @@ let sessaoCache = null; // { cookie, xsrfToken, obtidaEm }
 // diária de Talhões (ogr2ogr/tippecanoe/rótulos) começou a estourar a
 // memória — processo morto no meio do job em 20/09, 22/09 e 26/09, com
 // alerta "exceeded its memory limit" do Render (2026-09-28). Login é raro
-// (a sessão fica em sessaoCache) e a lentidão do mapa de voos já foi
+// (a sessão fica guardada, ver sessaoCompartilhada.js) e a lentidão do mapa de voos já foi
 // resolvida pelo cache de pendências, então reabrir o Chromium no próximo
 // login custa pouco.
 function abrirNavegador() {
@@ -112,15 +115,15 @@ async function logar() {
   }
 }
 
-async function obterSessao() {
-  if (sessaoCache) return sessaoCache;
-  const { cookie, xsrfToken } = await logar();
-  sessaoCache = { cookie, xsrfToken, obtidaEm: Date.now() };
-  return sessaoCache;
+// Um login por vez para o processo inteiro (ver sessaoCompartilhada.js).
+const sessao = criarSessaoCompartilhada(logar);
+
+function obterSessao() {
+  return sessao.obter();
 }
 
-function invalidarSessao() {
-  sessaoCache = null;
+function invalidarSessao(sessaoQueFalhou) {
+  sessao.invalidar(sessaoQueFalhou);
 }
 
 // Chamada autenticada genérica contra a API do DroneManagement — usada
@@ -128,6 +131,12 @@ function invalidarSessao() {
 // DELETE .../formdata). Reloga automaticamente 1x se a sessão em cache
 // tiver expirado (401/403) — nunca em loop.
 export async function chamarApi(caminho, { method = "GET", params, body } = {}) {
+  // DroneManagement fora do alcance da nuvem desde 07/10/2026: com
+  // DM_VIA_PONTE=1 o pedido vai pelo servidor geo (ver
+  // docs/PONTE_DRONEMGMT.md). Quem chama recebe um Response igual.
+  if (process.env.DM_VIA_PONTE === "1") {
+    return resultadoParaResponse(await ponte.chamar({ method, caminho, params, body }));
+  }
   const executar = async (sessao) => {
     const url = new URL(`${BASE_URL}${caminho}`);
     if (params) {
@@ -150,14 +159,32 @@ export async function chamarApi(caminho, { method = "GET", params, body } = {}) 
     });
   };
 
-  let sessao = await obterSessao();
-  let resposta = await executar(sessao);
+  let sessaoUsada = await obterSessao();
+  let resposta = await executar(sessaoUsada);
   if (resposta.status === 401 || resposta.status === 403) {
-    invalidarSessao();
-    sessao = await obterSessao();
-    resposta = await executar(sessao);
+    invalidarSessao(sessaoUsada);
+    sessaoUsada = await obterSessao();
+    resposta = await executar(sessaoUsada);
   }
   return resposta;
+}
+
+// Acha a conta de um usuário no DroneManagement pelo login (o mesmo usuário
+// da tela de entrada da plataforma, não o e-mail). O `id` devolvido é o
+// mesmo usado como `pilotUserADId` nos voos — confirmado comparando com um
+// vínculo já existente (2026-10-08). A plataforma responde 500 pra login
+// inexistente; qualquer resposta sem id vira null ("não encontrado").
+export async function buscarUsuarioPorLogin(login) {
+  const resp = await chamarApi(`/portal/api/v1/gateway/identity/appuser/by-username/${encodeURIComponent(login)}`);
+  // 502 = falha do lado da ponte (servidor geo), não "usuário não existe".
+  if (resp.status === 502) {
+    const falha = await resp.json().catch(() => null);
+    throw new Error(falha?.erro || "DroneManagement indisponível");
+  }
+  if (!resp.ok) return null;
+  const corpo = await resp.json().catch(() => null);
+  if (!corpo?.id) return null;
+  return { id: corpo.id, login: corpo.userName || login };
 }
 
 // Só pra diagnóstico (ver rota temporária GET /admin/dronemgmt/teste-login,

@@ -17,10 +17,9 @@ export const CORES_FERRAMENTAS = {
   pinPadrao: "#16a34a",
   pinPendente: "#f59e0b",
   // Apontamento de voo pelo mapa (ver
-  // docs/INTEGRACAO_DRONEMANAGEMENT.md) — cor por tipo de voo em si é
-  // fixa por nome (ORDEM_E_COR_TIPO_VOO em useApontamentoVoo.js, pedido
-  // exato do Leo 2026-08-20: verde/amarelo/branco/vermelho/amarelo
-  // florescente/rosa/roxo/marrom claro/azul). Só as 3 cores de "estado",
+  // docs/INTEGRACAO_DRONEMANAGEMENT.md) — cor por tipo de voo em si fica
+  // em lib/coresTiposVoo.js (padrão por nome, editável no estilo da camada
+  // de voos). Só as 3 cores de "estado",
   // não de tipo, vivem aqui — precisam ser diferentes de TODAS as 9 cores
   // de tipo (aparecem juntas na mesma tela): ciano de alto contraste pro
   // que o piloto já selecionou no modo de apontamento; cinza-escuro quase

@@ -19,16 +19,6 @@ export function IconeCamadas() {
   );
 }
 
-function IconeUsuarios() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-  );
-}
 
 function IconeGrafico() {
   return (
@@ -36,6 +26,15 @@ function IconeGrafico() {
       <line x1="18" y1="20" x2="18" y2="10" />
       <line x1="12" y1="20" x2="12" y2="4" />
       <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  );
+}
+
+function IconeIndicadores() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 17 9 11 13 15 21 7" />
+      <polyline points="15 7 21 7 21 13" />
     </svg>
   );
 }
@@ -50,30 +49,13 @@ function IconeAjuda() {
   );
 }
 
-// Movido de Admin.jsx (tela removida — vira só as entradas aqui dentro).
+// Uma entrada só: a Administração tem menu lateral próprio (LayoutAdmin.jsx,
+// redesenho fase 5) com Visão geral, Mapas, Camadas, Usuários e Estatísticas.
 const SECOES_ADMIN = [
   {
-    titulo: "Gerenciar mapas",
-    descricao: "Criar mapas (projetos/fazendas) e definir quais grupos têm acesso a cada um.",
-    rota: "/admin/mapas",
-    Icone: IconeMapas,
-  },
-  {
-    titulo: "Gerenciar camadas",
-    descricao: "Upload, arquivo, simbologia e atributos de cada camada, tudo num só lugar.",
-    rota: "/admin/camadas",
-    Icone: IconeCamadas,
-  },
-  {
-    titulo: "Gerenciar usuários",
-    descricao: "Criar/editar usuários, papel, senha e os grupos que definem permissão.",
-    rota: "/admin/usuarios",
-    Icone: IconeUsuarios,
-  },
-  {
-    titulo: "Estatísticas",
-    descricao: "Camadas mais baixadas, usuários mais ativos.",
-    rota: "/admin/estatisticas",
+    titulo: "Administração",
+    descricao: "Visão geral da automação, mapas, camadas, usuários e grupos.",
+    rota: "/admin",
     Icone: IconeGrafico,
   },
 ];
@@ -82,7 +64,7 @@ const SECOES_ADMIN = [
 // seções administrativas (só pra quem é admin) + Sair sempre no rodapé.
 // Sempre montado (mesmo fechado) pra permitir a transição de slide/fade
 // via CSS, em vez de aparecer/sumir abruptamente.
-export default function MenuLateral({ aberto, aoFechar, ehAdmin, aoSair }) {
+export default function MenuLateral({ aberto, aoFechar, ehAdmin, mostrarIndicadores = false, aoSair }) {
   useEffect(() => {
     if (!aberto) return;
     function aoTeclar(e) {
@@ -120,6 +102,17 @@ export default function MenuLateral({ aberto, aoFechar, ehAdmin, aoSair }) {
                 </span>
               </Link>
             ))}
+          {mostrarIndicadores && (
+            <Link to="/indicadores" className="item-menu-lateral" onClick={aoFechar}>
+              <span className="icone-item-menu-lateral" aria-hidden="true">
+                <IconeIndicadores />
+              </span>
+              <span className="texto-item-menu-lateral">
+                <strong>Indicadores de voo</strong>
+                <small>Hectares voados, o que falta voar e o rendimento por piloto.</small>
+              </span>
+            </Link>
+          )}
           {/* Visível pra qualquer usuário logado (não só admin) — antes essa
               área ficava completamente vazia pra quem não é admin, só com o
               "Sair" no rodapé. */}

@@ -47,9 +47,30 @@ export const ESTAGIOS_FALHAS_SOCA_POR_SAFRA = {
 // (voos_pendentes_cache) guarda esse texto e é descartado quando não bate,
 // senão a regra nova só valeria quando a contagem do DroneManagement
 // mudasse por outro motivo.
-export const VERSAO_REGRA_PENDENTES = "falhas-soca-safra-v1";
+export const VERSAO_REGRA_PENDENTES = "falhas-soca-safra-v1+datas-urgente";
 
 export function estagioValidoParaFalhasSoca(layerDetails) {
   const permitidos = ESTAGIOS_FALHAS_SOCA_POR_SAFRA[layerDetails?.harvest];
   return Boolean(permitidos?.has(layerDetails?.internship));
+}
+
+// "Verificar Porte" = Voar urgente (formdata.verifyFlightSize).
+export const VOAR_URGENTE = 6;
+const FALHAS_PLANTIO = "Falhas Plantio";
+const FALHAS_SOCA = "Falhas Soca";
+
+// Urgente com destaque no mapa (pontilhado vermelho) só vale pras Falhas —
+// pedido do Leo (2026-10-01).
+export function ehFalhasUrgente(projeto, verifyFlightSize) {
+  return verifyFlightSize === VOAR_URGENTE && (projeto === FALHAS_PLANTIO || projeto === FALHAS_SOCA);
+}
+
+// Data a partir da qual o mapa conta os dias corridos de cada pendência:
+// Falhas Plantio conta do plantio, Falhas Soca do corte, as demais do
+// agendamento no DroneManagement. null quando o dado não vem.
+export function dataReferenciaVoo(projeto, registroBruto) {
+  const talhao = registroBruto?.layerDetails || {};
+  if (projeto === FALHAS_PLANTIO) return talhao.datePlanting || null;
+  if (projeto === FALHAS_SOCA) return talhao.cutDate || null;
+  return registroBruto?.scheduledDate || null;
 }

@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { timingSafeEqual } from "node:crypto";
 import { chamarApi } from "../lib/dronemgmt.js";
+import { calcularIndicadores, lerPeriodo, hojeLocal } from "../lib/indicadoresVoo.js";
+import { obterDadosIndicadores } from "../lib/fonteIndicadoresVoo.js";
+import { lerNomesPilotos } from "../lib/nomesPilotos.js";
+import { pool } from "../db/pool.js";
 
 // Integração servidor-a-servidor com o Hub Geotech (Regra B da Colheita:
 // revoo de linhas). Só o agente do Hub chama estas rotas — nunca um
@@ -14,11 +18,14 @@ import { chamarApi } from "../lib/dronemgmt.js";
 //
 // Montado ANTES dos outros routers em app.js: voosRouter/adminRouter aplicam
 // middleware sem prefixo e interceptariam /integracao/*. Aqui o middleware
-// fica preso ao prefixo /integracao.
+// do Hub fica preso ao prefixo /integracao/dronemgmt.
+//
+// Também mora aqui GET /integracao/voos/indicadores (2026-10-01): só
+// leitura, para o agente que monta a apresentação do gerente, com chave
+// própria (INDICADORES_TOKEN) — a chave do Hub não abre essa rota e vice-versa.
 
 export const integracaoRouter = Router();
 
-const TOKEN = process.env.HUB_INTEGRACAO_TOKEN || "";
 const UNIT_ID = process.env.DRONEMGMT_UNIT_ID || "";
 
 // Projeto de voo "Linhas de Colheita" (lista de projetos do DroneManagement,
@@ -32,16 +39,22 @@ const FLIGHT_TYPE = 3;
 const STATUS_A_VOAR = 2;
 const PORTE_VOO_LIBERADO = 5;
 
-function exigirTokenHub(req, res, next) {
-  const recebido = Buffer.from(req.get("x-hub-token") || "");
-  const esperado = Buffer.from(TOKEN);
-  if (!TOKEN || recebido.length !== esperado.length || !timingSafeEqual(recebido, esperado)) {
-    return res.status(401).json({ erro: "não autorizado" });
-  }
-  next();
+// Lê a variável a cada pedido (não no carregamento do módulo) e compara em
+// tempo constante. Variável vazia = rota fechada.
+function exigirChave(cabecalho, variavel) {
+  return (req, res, next) => {
+    const esperado = Buffer.from(process.env[variavel] || "");
+    const recebido = Buffer.from(req.get(cabecalho) || "");
+    if (!esperado.length || recebido.length !== esperado.length || !timingSafeEqual(recebido, esperado)) {
+      return res.status(401).json({ erro: "não autorizado" });
+    }
+    next();
+  };
 }
 
-integracaoRouter.use("/integracao", exigirTokenHub);
+// Só as rotas do Hub (agendar/consultar Linhas de Colheita). Antes era
+// "/integracao" inteiro; os indicadores de voo usam outra chave.
+integracaoRouter.use("/integracao/dronemgmt", exigirChave("x-hub-token", "HUB_INTEGRACAO_TOKEN"));
 
 // Registros de Linhas de Colheita já existentes para o talhão na safra (menos
 // os cancelados: controlStatus 11). Usado pra NÃO duplicar: um voo agendado
@@ -189,4 +202,132 @@ integracaoRouter.post("/integracao/dronemgmt/situacao", async (req, res) => {
     }
   }
   res.json({ resultados });
+});
+
+// --- Indicadores de voo para o agente de apresentação ---
+// Só leitura, chave própria (INDICADORES_TOKEN). Mesmo cálculo da página
+// /indicadores, sempre com a lista por piloto e sem "meu rendimento".
+// Contrato documentado em docs/INTEGRACAO_DRONEMANAGEMENT.md.
+integracaoRouter.get(
+  "/integracao/voos/indicadores",
+  exigirChave("x-indicadores-token", "INDICADORES_TOKEN"),
+  async (req, res) => {
+    const hoje = hojeLocal();
+    const periodo = lerPeriodo(req.query, hoje);
+    if (periodo.erro) return res.status(400).json({ erro: periodo.erro });
+
+    let dados;
+    try {
+      dados = await obterDadosIndicadores({ forcar: req.query.forcar === "1" });
+    } catch (err) {
+      console.error("Indicadores de voo (agente): falha ao consultar o DroneManagement:", err);
+      return res.status(502).json({ erro: "Não foi possível consultar o DroneManagement agora." });
+    }
+
+    res.json({
+      ...calcularIndicadores({
+        realizados: dados.realizados,
+        pendentes: dados.pendentes,
+        ...periodo,
+        hoje,
+        nomesPilotos: await lerNomesPilotos(),
+        incluirPorPiloto: true,
+      }),
+      atualizadoEm: dados.atualizadoEm,
+      desatualizado: dados.desatualizado,
+    });
+  }
+);
+
+// ── Contas (login único, 2026-10) ─────────────────────────────────────────
+// O Hub Geotech é o dono das contas e senhas: o GeoMap só guarda quem está
+// ativo, se é admin, em quais grupos está e os mapas individuais. Quem chama
+// é a função "contas" do Hub, com a mesma chave do Hub. Grupos e mapas
+// continuam definidos aqui.
+integracaoRouter.use("/integracao/contas", exigirChave("x-hub-token", "HUB_INTEGRACAO_TOKEN"));
+
+integracaoRouter.get("/integracao/contas/grupos", async (req, res) => {
+  const { rows } = await pool.query("SELECT id, nome FROM grupos ORDER BY nome");
+  res.json(rows);
+});
+
+integracaoRouter.get("/integracao/contas/mapas", async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT m.id, m.nome,
+            coalesce(json_agg(json_build_object('grupoId', p.grupo_id, 'podeEditar', p.pode_editar)
+                              ORDER BY p.grupo_id) FILTER (WHERE p.grupo_id IS NOT NULL), '[]') AS grupos
+       FROM mapas m LEFT JOIN permissoes p ON p.mapa_id = m.id
+      GROUP BY m.id ORDER BY m.nome`
+  );
+  res.json(rows);
+});
+
+integracaoRouter.get("/integracao/contas/usuarios", async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT lower(u.email) AS email, u.nome, u.status, u.papel, u.precisa_trocar_senha AS "precisaTrocarSenha",
+            coalesce(array_agg(ug.grupo_id) FILTER (WHERE ug.grupo_id IS NOT NULL), '{}') AS "grupoIds",
+            (SELECT coalesce(json_agg(json_build_object('mapaId', pu.mapa_id, 'podeEditar', pu.pode_editar) ORDER BY pu.mapa_id), '[]')
+               FROM permissoes_usuario pu WHERE pu.usuario_id = u.id) AS mapas
+       FROM usuarios u LEFT JOIN usuarios_grupos ug ON ug.usuario_id = u.id
+      GROUP BY u.id ORDER BY u.nome`
+  );
+  res.json(rows);
+});
+
+integracaoRouter.put("/integracao/contas/usuario", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const nome = String(req.body?.nome || "").trim();
+  const ativo = req.body?.ativo === true;
+  const papel = req.body?.admin === true ? "admin" : "usuario";
+  const status = ativo ? "ativo" : "inativo";
+  const pedidos = Array.isArray(req.body?.grupoIds) ? req.body.grupoIds.map(Number).filter(Number.isInteger) : [];
+  if (!email.includes("@") || !nome) return res.status(400).json({ erro: "email e nome são obrigatórios" });
+
+  const atual = (await pool.query("SELECT id, papel, status FROM usuarios WHERE lower(email) = $1", [email])).rows[0];
+  if (!atual && !ativo) return res.json({ ok: true, criado: false });
+
+  if (atual && atual.papel === "admin" && atual.status === "ativo" && (papel !== "admin" || status !== "ativo")) {
+    const { rows } = await pool.query(
+      "SELECT count(*)::int AS n FROM usuarios WHERE papel = 'admin' AND status = 'ativo' AND id <> $1", [atual.id]);
+    if (rows[0].n === 0) return res.status(400).json({ erro: "não é possível remover o último admin ativo do GeoMap" });
+  }
+
+  const grupoIds = ativo && pedidos.length
+    ? (await pool.query("SELECT id FROM grupos WHERE id = ANY($1::int[])", [pedidos])).rows.map((g) => g.id)
+    : [];
+
+  let id = atual?.id;
+  if (atual) {
+    await pool.query("UPDATE usuarios SET nome = $1, papel = $2, status = $3 WHERE id = $4", [nome, papel, status, id]);
+  } else {
+    // "!hub" não é um hash bcrypt: ninguém entra pelo login antigo com essa conta.
+    id = (await pool.query(
+      `INSERT INTO usuarios (nome, email, senha_hash, papel, status, precisa_trocar_senha)
+       VALUES ($1, $2, '!hub', $3, $4, false) RETURNING id`, [nome, email, papel, status])).rows[0].id;
+  }
+  await pool.query("DELETE FROM usuarios_grupos WHERE usuario_id = $1", [id]);
+  if (grupoIds.length) {
+    await pool.query(
+      "INSERT INTO usuarios_grupos (usuario_id, grupo_id) SELECT $1, unnest($2::int[]) ON CONFLICT DO NOTHING", [id, grupoIds]);
+  }
+
+  // "mapas" é opcional: um Hub antigo não manda e os mapas individuais ficam como estão.
+  if (!ativo || Array.isArray(req.body?.mapas)) {
+    // Mapa repetido: vale a última ocorrência (o ON CONFLICT não aceita duas no mesmo INSERT).
+    const pedidosMapa = [...new Map(ativo ? req.body.mapas
+      .map((m) => ({ mapaId: Number(m?.mapaId), podeEditar: m?.podeEditar === true }))
+      .filter((m) => Number.isInteger(m.mapaId))
+      .map((m) => [m.mapaId, m]) : []).values()];
+    await pool.query("DELETE FROM permissoes_usuario WHERE usuario_id = $1", [id]);
+    if (pedidosMapa.length) {
+      await pool.query(
+        `INSERT INTO permissoes_usuario (usuario_id, mapa_id, pode_editar)
+         SELECT $1, x.mapa_id, x.pode_editar
+           FROM unnest($2::int[], $3::bool[]) AS x(mapa_id, pode_editar)
+           JOIN mapas m ON m.id = x.mapa_id
+         ON CONFLICT (usuario_id, mapa_id) DO UPDATE SET pode_editar = excluded.pode_editar`,
+        [id, pedidosMapa.map((m) => m.mapaId), pedidosMapa.map((m) => m.podeEditar)]);
+    }
+  }
+  res.json({ ok: true, criado: !atual, id });
 });

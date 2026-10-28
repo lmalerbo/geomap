@@ -26,7 +26,8 @@ import { CORES_FERRAMENTAS } from "../lib/coresFerramentas.js";
 import { useMedicao } from "../hooks/useMedicao.js";
 import { useTrackLog } from "../hooks/useTrackLog.js";
 import { useImportacaoTemporaria } from "../hooks/useImportacaoTemporaria.js";
-import { useApontamentoVoo } from "../hooks/useApontamentoVoo.js";
+import { useApontamentoVoo, trazerVoosParaCima } from "../hooks/useApontamentoVoo.js";
+import { usePlanejamentos } from "../hooks/usePlanejamentos.js";
 import { usePins } from "../hooks/usePins.js";
 import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
 import { useApontamentosNaFila } from "../hooks/useApontamentosNaFila.js";
@@ -64,6 +65,7 @@ import { Campo, Concluido } from "../components/movimento/index.js";
 import { prefereMenosMovimento } from "../components/movimento/usePrefereMenosMovimento.js";
 import { entrarEmSequencia } from "../lib/entradaCamadas.js";
 import CartaoPonto from "../components/CartaoPonto.jsx";
+import CartaoPlanejamento from "../components/CartaoPlanejamento.jsx";
 import CartaoPin from "../components/pins/CartaoPin.jsx";
 import BarraAnotar from "../components/pins/BarraAnotar.jsx";
 import BarraAcaoMedicao from "../components/BarraAcaoMedicao.jsx";
@@ -80,6 +82,8 @@ import FormularioPin from "../components/pins/FormularioPin.jsx";
 import LinhaCoordenada from "../components/LinhaCoordenada.jsx";
 import { copiarTexto } from "../lib/coordenadas.js";
 import { useJobs } from "../context/JobsContext.jsx";
+import { diasCorridos } from "../lib/diasCorridos.js";
+import { usePodeVerIndicadores } from "../hooks/usePodeVerIndicadores.js";
 
 // Marca do app no cartão de identidade da barra superior (pino de mapa).
 function IconeMarca() {
@@ -119,7 +123,12 @@ function iniciaisDoNome(nome) {
 function textoResultadoApontamento(r) {
   const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
   if (r.naFila) {
-    return `Guardado no aparelho: ${plural(r.naFila, "apontamento", "apontamentos")} · envia sozinho quando o sinal voltar.`;
+    // Se parte do lote foi enviada antes da ponte cair, o aviso mostra as duas coisas.
+    const partes = [];
+    if (r.motivo) partes.push(r.motivo);
+    if (r.sucesso?.length > 0) partes.push(`${plural(r.sucesso.length, "apontamento enviado", "apontamentos enviados")} com sucesso.`);
+    partes.push(`Guardado no aparelho: ${plural(r.naFila, "apontamento", "apontamentos")} · envia sozinho quando o sinal voltar.`);
+    return partes.join(" ");
   }
   const partes = [];
   if (r.daFila) {
@@ -838,6 +847,7 @@ async function adicionarCamada(map, protocol, mapa) {
     // docs/INTEGRACAO_DRONEMANAGEMENT.md) — decide se o clique nessa
     // camada abre o painel de atributos normal ou o fluxo de apontamento.
     tipoCamada: estilo.tipoCamada,
+    coresTiposVoo: estilo.coresTiposVoo,
     sourceId,
     fillLayerId,
     lineLayerId,
@@ -871,11 +881,21 @@ function removerCamada(map, info) {
   if (map.getLayer(info.circleLayerId)) map.removeLayer(info.circleLayerId);
   if (map.getLayer(info.fillLayerId)) map.removeLayer(info.fillLayerId);
   if (map.getLayer(info.lineLayerId)) map.removeLayer(info.lineLayerId);
+  // Outras camadas desenhadas sobre a mesma fonte (na camada de voos: anéis,
+  // pontilhado de urgente e legenda de dias, criados pelo useApontamentoVoo)
+  // impedem o removeSource — e aí a remontagem falhava com "Source already
+  // exists" e a camada sumia até recarregar (achado em 2026-10-15 ao trocar
+  // uma cor de tipo de voo com o mapa aberto). O hook recria as dele quando
+  // a assinatura da camada muda.
+  for (const layer of map.getStyle()?.layers || []) {
+    if (layer.source === info.sourceId && map.getLayer(layer.id)) map.removeLayer(layer.id);
+  }
   if (map.getSource(info.sourceId)) map.removeSource(info.sourceId);
 }
 
 export default function Mapa() {
   const { sessao, sair } = useAuth();
+  const podeVerIndicadores = usePodeVerIndicadores(sessao);
   const navigate = useNavigate();
   const { mapaId: mapaIdParam } = useParams();
   const mapaId = Number(mapaIdParam);
@@ -1025,6 +1045,10 @@ export default function Mapa() {
   // cada rodada desse efeito.
   const voosInfo = [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
+  const planejamentos = usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
+  const ehAdmin = sessao?.usuario?.papel === "admin";
+  // Planejar: só admin, e só no mapa de voos (ver usePlanejamentos).
+  const podePlanejar = ehAdmin && Boolean(voosInfo);
   const { adicionarToast } = useJobs();
   const pins = usePins(mapRef, mapaPronto, mapaId, {
     podeEditar,
@@ -1233,6 +1257,13 @@ export default function Mapa() {
     setGavetaAberta(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apontamento.modoApontamento]);
+
+  // Cartão de informação aberto (atributos, ponto, anotação) fecha o do
+  // planejamento de voo — no máximo 1 cartão por vez.
+  useEffect(() => {
+    if (selecao || pontoSelecionado || pins.pinSelecionado) planejamentos.setSelecionado(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecao, pontoSelecionado, pins.pinSelecionado]);
 
   // 1b) mantém o botão de fundo satélite em sincronia com o estado (ícone
   // ativo/inativo, bloqueado quando offline) e persiste a preferência.
@@ -1443,6 +1474,10 @@ export default function Mapa() {
             if (layerId && map.getLayer(layerId)) map.moveLayer(layerId, primeiroRotulo);
           }
         }
+      } else {
+        // Mapa de voos: as camadas de voo vão pro topo (uma camada recém
+        // montada pode ter entrado no meio da pilha delas).
+        trazerVoosParaCima(map, [...carregadas.values()].find((info) => info.tipoCamada === "voos"));
       }
 
       const headers = [...carregadas.values()].map((c) => c.header);
@@ -1583,6 +1618,9 @@ export default function Mapa() {
       // abre outro card por baixo do formulário, nem troca/descarta o
       // rascunho meio preenchido ao tocar num pin existente.
       if (pins.rascunho) return;
+      // Planejamento novo em andamento (ver CartaoPlanejamento): o clique no
+      // mapa não abre outro cartão por baixo.
+      if (planejamentos.rascunho) return;
 
       // Modo de apontamento de voo (ver useApontamentoVoo.js): clique num
       // talhão pendente da camada "voos" marca/desmarca ele pro lote em
@@ -1619,6 +1657,27 @@ export default function Mapa() {
         }
       }
       pins.fecharPin();
+
+      // Planejamento de voos: o rótulo do dia sempre abre o resumo; dentro do
+      // polígono, só fora de talhão pendente (talhão pendente abre o talhão).
+      if (planejamentos.visivel && map.getLayer("planejamento-preenchimento")) {
+        const noRotulo = map.queryRenderedFeatures(e.point, { layers: ["planejamento-rotulo"] });
+        const noPoligono = noRotulo.length > 0 ? noRotulo : map.queryRenderedFeatures(e.point, { layers: ["planejamento-preenchimento"] });
+        let talhaoPendente = false;
+        if (noRotulo.length === 0 && noPoligono.length > 0 && voosInfo?.fillLayerId && map.getLayer(voosInfo.fillLayerId)) {
+          const t = map.queryRenderedFeatures(e.point, { layers: [voosInfo.fillLayerId] })[0];
+          talhaoPendente = !!t && apontamento.pendenciasDoTalhao(t.properties.SECAO, t.properties.TALHAO).length > 0;
+        }
+        if (noPoligono.length > 0 && !talhaoPendente) {
+          setSelecao(null);
+          setPontoSelecionado(null);
+          setPainelCamadasAberto(false);
+          setPainelVoosAberto(false);
+          planejamentos.selecionarPorId(noPoligono[0].properties.id);
+          return;
+        }
+      }
+      planejamentos.setSelecionado(null);
 
       const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
@@ -1686,6 +1745,9 @@ export default function Mapa() {
     pins.modoAdicionar,
     pins.movendoId,
     pins.rascunho,
+    planejamentos.rascunho,
+    planejamentos.visivel,
+    apontamento.pendenciasDoTalhao,
     podeEditar,
   ]);
 
@@ -2051,6 +2113,7 @@ export default function Mapa() {
   // antes (2026-08-21 / 2026-09-22), só que agora disparada pela barra de
   // ferramentas em vez dos botões circulares.
   function fecharCartoesDeInformacao() {
+    planejamentos.setSelecionado(null);
     setSelecao(null);
     setPontoSelecionado(null);
     pins.fecharPin();
@@ -2100,6 +2163,17 @@ export default function Mapa() {
         icone: <IconeDockMedir />,
         ativo: medicao.medindo,
         aoClicar: () => medicao.setMedindo((m) => !m),
+      },
+      {
+        id: "planejar",
+        rotulo: "Planejar",
+        rotuloCompleto: "Planejar voo: desenhar a área e salvar",
+        icone: <IconeDockArea />,
+        visivel: podePlanejar,
+        aoClicar: () => {
+          medicao.setMedindo(true);
+          medicao.trocarModoMedicao("area");
+        },
       },
       {
         id: "percurso",
@@ -2228,6 +2302,15 @@ export default function Mapa() {
                   );
                 })}
 
+                {voosInfo && (
+                  <div className="linha-camada-bloco">
+                    <label className="linha-camada">
+                      <input type="checkbox" checked={planejamentos.visivel} onChange={() => planejamentos.setVisivel((v) => !v)} />
+                      <span className="nome-camada">Planejamento</span>
+                    </label>
+                  </div>
+                )}
+
                 {(pins.pins.length > 0 || podeEditar) && (
                   <div className="linha-camada-bloco">
                     <label className="linha-camada">
@@ -2347,6 +2430,8 @@ export default function Mapa() {
     !selecao &&
     !pontoSelecionado &&
     !pins.pinSelecionado &&
+    !planejamentos.selecionado &&
+    !planejamentos.rascunho &&
     !pins.rascunho &&
     !pins.movendoId &&
     !medicao.medindo &&
@@ -2370,31 +2455,21 @@ export default function Mapa() {
       ];
   const abaGavetaAtual = abasGaveta.some((a) => a.id === abaGaveta) ? abaGaveta : abasGaveta[0].id;
   const qtdNaFila = apontamento.fila.qtdPendentes;
-  const resumoGaveta = {
-    camadas: {
-      titulo: `${qtdCamadasVisiveis} de ${mapasLocais.length} camadas visíveis`,
-      sub: "Toque pra ligar, desligar ou importar um arquivo",
-    },
-    voos: {
-      titulo: apontamento.carregandoPendentes
-        ? "Carregando pendências…"
-        : `${apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha pendentes · ${apontamento.qtdTalhoesPendentes} ${apontamento.qtdTalhoesPendentes === 1 ? "talhão" : "talhões"}`,
-      sub:
-        qtdNaFila > 0
-          ? `${qtdNaFila} ${qtdNaFila === 1 ? "apontamento aguardando" : "apontamentos aguardando"} sinal`
-          : apontamento.fila.recusados.length > 0
-            ? "Há apontamentos não aceitos — toque pra ver"
+  // Resumo da gaveta recolhida — só na aba Voos (nas outras ela fica
+  // compacta, só alça + abas).
+  const resumoVoosGaveta = {
+    titulo: apontamento.carregandoPendentes
+      ? "Carregando pendências…"
+      : `${apontamento.areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha pendentes · ${apontamento.qtdTalhoesPendentes} ${apontamento.qtdTalhoesPendentes === 1 ? "talhão" : "talhões"}`,
+    sub:
+      qtdNaFila > 0
+        ? `${qtdNaFila} ${qtdNaFila === 1 ? "apontamento aguardando" : "apontamentos aguardando"} sinal`
+        : apontamento.fila.recusados.length > 0
+          ? "Há apontamentos não aceitos — toque pra ver"
+          : apontamento.atualizandoPendentes && !apontamento.carregandoPendentes
+            ? "Atualizando com o DroneManagement…"
             : "Toque pra filtrar por tipo de voo",
-    },
-    legenda: {
-      titulo: "Cores e símbolos",
-      sub: "Só do que está visível no mapa agora",
-    },
-    ferramentas: {
-      titulo: podeEditar ? "Medir, gravar percurso, anotar" : "Medir e gravar percurso",
-      sub: "Funcionam sem internet",
-    },
-  }[abaGavetaAtual];
+  };
 
   function entrarNoApontamento() {
     apontamento.iniciarModo();
@@ -2475,6 +2550,21 @@ export default function Mapa() {
         <IconeDockArea />
         <span>Medir área</span>
       </button>
+      {podePlanejar && (
+        <button
+          type="button"
+          className="bloco-ferramenta"
+          onClick={() =>
+            ativarFerramenta(() => {
+              medicao.setMedindo(true);
+              medicao.trocarModoMedicao("area");
+            })
+          }
+        >
+          <IconeDockArea />
+          <span>Planejar voo</span>
+        </button>
+      )}
       <button
         type="button"
         className="bloco-ferramenta"
@@ -2505,6 +2595,7 @@ export default function Mapa() {
         aberto={menuAberto}
         aoFechar={() => setMenuAberto(false)}
         ehAdmin={sessao.usuario.papel === "admin"}
+        mostrarIndicadores={podeVerIndicadores}
         aoSair={handleSair}
       />
 
@@ -2728,7 +2819,10 @@ export default function Mapa() {
         </div>
 
         {mostrarGaveta && (
-          <section className={`gaveta-celular${gavetaAberta ? " aberta" : ""}`} aria-label="Painel do mapa">
+          <section
+            className={`gaveta-celular${gavetaAberta ? " aberta" : ""}${!gavetaAberta && abaGavetaAtual !== "voos" ? " gaveta-celular--compacta" : ""}`}
+            aria-label="Painel do mapa"
+          >
             <button
               type="button"
               className="alca-gaveta"
@@ -2769,8 +2863,8 @@ export default function Mapa() {
               // toque, sem precisar abrir a gaveta.
               <div className="resumo-gaveta resumo-gaveta--voos">
                 <button type="button" className="texto-resumo-gaveta" onClick={() => setGavetaAberta(true)}>
-                  <strong>{resumoGaveta.titulo}</strong>
-                  <span>{resumoGaveta.sub}</span>
+                  <strong>{resumoVoosGaveta.titulo}</strong>
+                  <span>{resumoVoosGaveta.sub}</span>
                 </button>
                 <button
                   type="button"
@@ -2781,17 +2875,10 @@ export default function Mapa() {
                   Apontar voo
                 </button>
               </div>
-            ) : (
-              <button type="button" className="resumo-gaveta" onClick={() => setGavetaAberta(true)}>
-                <span>
-                  <strong>{resumoGaveta.titulo}</strong>
-                  <span>{resumoGaveta.sub}</span>
-                </span>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="m6 15 6-6 6 6" />
-                </svg>
-              </button>
-            )}
+            ) : null}
+            {/* Recolhida fora da aba Voos: só a alça e as abas (pedido do
+                Leo, 2026-10-08 — o resumo "2 de 2 camadas visíveis" ocupava
+                o rodapé sem mostrar nada que precisasse estar ali). */}
           </section>
         )}
 
@@ -2816,7 +2903,19 @@ export default function Mapa() {
               }
             />
           )}
-          {medicao.medindo && <BarraAcaoMedicao medicao={medicao} />}
+          {medicao.medindo && (
+            <BarraAcaoMedicao
+              medicao={medicao}
+              aoSalvarPlanejamento={
+                podePlanejar
+                  ? () => {
+                      planejamentos.abrirRascunho(medicao.pontosMedicao);
+                      medicao.setMedindo(false);
+                    }
+                  : undefined
+              }
+            />
+          )}
           {voosInfo && apontamento.modoApontamento && <BarraApontamento apontamento={apontamento} />}
           <BarraAnotar
             aberta={barraAnotarAberta}
@@ -2946,7 +3045,12 @@ export default function Mapa() {
                             : `${pendenciasTalhaoSelecionado.length} voos pendentes`}
                         </strong>
                         {" · "}
-                        {pendenciasTalhaoSelecionado.map((r) => r.projeto).join(", ")}
+                        {pendenciasTalhaoSelecionado
+                          .map((r) => {
+                            const dias = diasCorridos(r.dataReferencia);
+                            return `${r.projeto}${dias != null ? ` (${dias} d)` : ""}${r.urgente ? " · urgente" : ""}`;
+                          })
+                          .join(", ")}
                       </p>
                       <button
                         type="button"
@@ -2997,6 +3101,18 @@ export default function Mapa() {
             pins.abrirNovo(lngLat);
           }}
           aoFechar={() => setPontoSelecionado(null)}
+        />
+
+        <CartaoPlanejamento
+          planejamento={planejamentos.selecionado}
+          pendentes={apontamento.pendentes}
+          aoFechar={() => planejamentos.setSelecionado(null)}
+          rascunho={planejamentos.rascunho}
+          ehAdmin={ehAdmin}
+          aoSalvarRascunho={planejamentos.salvarRascunho}
+          aoCancelarRascunho={planejamentos.cancelarRascunho}
+          aoAlterarData={planejamentos.alterarData}
+          aoApagar={planejamentos.apagar}
         />
 
         <CartaoPin

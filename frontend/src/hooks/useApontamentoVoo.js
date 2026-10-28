@@ -7,7 +7,10 @@ import {
   enviarApontamentosPendentes,
   EVENTO_FILA_APONTAMENTOS,
 } from "../lib/filaApontamentosApp.js";
+import { ehErroTransitorio } from "../lib/filaApontamentos.js";
 import { useApontamentosNaFila } from "./useApontamentosNaFila.js";
+import { textoLegendaDias } from "../lib/diasCorridos.js";
+import { CHAVE_FALHAS_PLANTIO_FORNECEDOR, corTipoVoo, ordemTipoVoo } from "../lib/coresTiposVoo.js";
 
 // Contorno dos talhões cujo apontamento está guardado no aparelho esperando
 // sinal (fila offline, redesenho fase 4) — âmbar, distinto de qualquer cor
@@ -30,6 +33,34 @@ const TEMPO_CONFIRMACAO_MS = 4000;
 // funciona com GeoJSON+lineMetrics) — anéis concêntricos são a
 // alternativa que funciona de forma confiável pra qualquer quantidade de
 // tipos.
+// Falhas com "Voar urgente": pontilhado vermelho por baixo do contorno
+// (que mantém a cor do tipo), e a legenda de dias corridos em cada talhão
+// pendente — pedidos do Leo (2026-10-01).
+const CAMADA_URGENTE = "camada-voos-urgente";
+const CAMADA_DIAS = "camada-voos-dias";
+const CAMADA_DIAS_TEXTO = "camada-voos-dias-texto";
+const IMAGEM_PONTILHADO = "voos-pontilhado-urgente";
+const COR_URGENTE = [220, 38, 38]; // #dc2626
+
+// Padrão de pontinhos vermelhos (desenhado em memória, sem arquivo).
+function imagemPontilhado() {
+  const lado = 10;
+  const dados = new Uint8Array(lado * lado * 4);
+  const centro = (lado - 1) / 2;
+  for (let y = 0; y < lado; y++) {
+    for (let x = 0; x < lado; x++) {
+      const d = Math.hypot(x - centro, y - centro);
+      const alfa = d <= 1.6 ? 235 : d <= 2.3 ? 110 : 0;
+      const i = (y * lado + x) * 4;
+      dados[i] = COR_URGENTE[0];
+      dados[i + 1] = COR_URGENTE[1];
+      dados[i + 2] = COR_URGENTE[2];
+      dados[i + 3] = alfa;
+    }
+  }
+  return { width: lado, height: lado, data: dados };
+}
+
 const CAMADA_ANEL_PREFIXO = "camada-voos-anel-";
 const MAX_ANEIS_MULTIPLO = 6;
 const LARGURA_ANEL = 2.5;
@@ -82,6 +113,32 @@ function chave(secao, talhao) {
 // nos efeitos abaixo já reduz a janela disso acontecer, mas essa função
 // é o cinto de segurança de verdade — nunca deixa esse erro específico
 // escapar pra fora do hook.
+// Camadas de voo sempre por cima das outras camadas do mapa (pedido do Leo,
+// 2026-10-01). Mapa.jsx chama isso depois de montar/remontar as camadas
+// (uma camada nova entra embaixo do primeiro rótulo, que pode ficar no meio
+// da pilha de voos); o hook chama quando cria as próprias camadas.
+// moveLayer sem beforeId leva pro topo, então a ordem da lista é a ordem
+// final de baixo pra cima.
+export function trazerVoosParaCima(map, voosInfo) {
+  if (!map || !voosInfo) return;
+  const ids = [
+    voosInfo.fillLayerId,
+    CAMADA_URGENTE,
+    voosInfo.lineLayerId,
+    ...Array.from({ length: MAX_ANEIS_MULTIPLO }, (_, i) => idCamadaAnel(i)),
+    voosInfo.highlightLayerId,
+    voosInfo.rotuloLayerId,
+    CAMADA_SELECAO,
+    CAMADA_DIAS,
+    CAMADA_DIAS_TEXTO,
+    // Rótulo do dia do planejamento (usePlanejamentos) — acima de tudo.
+    "planejamento-rotulo",
+  ];
+  for (const id of ids) {
+    if (id && getLayerSeguro(map, id)) map.moveLayer(id);
+  }
+}
+
 function getLayerSeguro(map, id) {
   try {
     return map.getLayer(id);
@@ -90,62 +147,25 @@ function getLayerSeguro(map, id) {
   }
 }
 
-// Cor e ordem fixas por tipo de voo — pedido explícito do Leo (2026-08-20)
-// depois de ver a primeira versão (cor por hash do nome, sem ordem
-// específica). Nomes vêm literais de flightProjectDetails.description no
-// DroneManagement (ver docs/INTEGRACAO_DRONEMANAGEMENT.md) — os 9 valores
-// reais confirmados nos dados de produção.
-const ORDEM_E_COR_TIPO_VOO = [
-  ["Falhas Plantio", "#16a34a"], // verde
-  ["Falhas Soca", "#eab308"], // amarelo
-  ["Sistematização", "#ffffff"], // branco (Sistematização/Expansão)
-  ["Ervas Daninhas", "#dc2626"], // vermelho
-  ["Drone Aplicação", "#ccff00"], // amarelo florescente
-  ["Ambiental", "#ec4899"], // rosa
-  ["Experimentação Agrícola", "#9333ea"], // roxo
-  ["Levantamento Topográfico", "#c19a6b"], // marrom claro
-  ["Projeto Plantio", "#2563eb"], // azul
-];
-const INDICE_ORDEM_TIPO_VOO = new Map(ORDEM_E_COR_TIPO_VOO.map(([nome], i) => [nome, i]));
-const COR_POR_TIPO_VOO = new Map(ORDEM_E_COR_TIPO_VOO);
-
-// Fallback só pra um tipo novo que apareça no DroneManagement e ainda não
-// tenha entrado na lista fixa acima — cor por hash do nome (nunca some/
-// undefined), até alguém adicionar a cor de verdade na lista.
-function corPorProjeto(nome) {
-  if (COR_POR_TIPO_VOO.has(nome)) return COR_POR_TIPO_VOO.get(nome);
-  let h = 0;
-  for (let i = 0; i < nome.length; i++) h = (h * 31 + nome.charCodeAt(i)) >>> 0;
-  const paletaFallback = ["#2a78d6", "#1baf7a", "#4a3aa7", "#e87ba4", "#eb6834"];
-  return paletaFallback[h % paletaFallback.length];
-}
-
-// Falhas Plantio em área de fornecedor precisa se destacar do Falhas
-// Plantio normal (pedido do Leo, 2026-09-29 — ele voa mesmo em fornecedor,
-// diferente de Falhas Soca, que é excluído dessa área lá no backend; ver
-// PROPRIEDADES_FORNECEDOR em voos.js). Um azul claro/saturado contrasta
-// tanto com o verde normal de Falhas Plantio (#16a34a) quanto com o azul
-// escuro já usado por "Projeto Plantio" (#2563eb) — não reaproveita esse
-// último de propósito, pra não os dois tipos parecerem a mesma coisa no
-// mapa.
+// Cor e ordem por tipo de voo ficam em lib/coresTiposVoo.js (o admin pode
+// trocar as cores no estilo da camada de voos).
 const NOME_FALHAS_PLANTIO = "Falhas Plantio";
-const COR_FALHAS_PLANTIO_FORNECEDOR = "#38bdf8";
 
-// Cor de um registro pendente específico — igual corPorProjeto pra
-// qualquer tipo, exceto Falhas Plantio em área de fornecedor (ver acima).
-function corPorRegistro(registro) {
+// Cor de um registro pendente específico. Falhas Plantio em área de
+// fornecedor tem chave própria (ver CHAVE_FALHAS_PLANTIO_FORNECEDOR).
+function corPorRegistro(registro, cores) {
   if (registro.projeto === NOME_FALHAS_PLANTIO && registro.fornecedor) {
-    return COR_FALHAS_PLANTIO_FORNECEDOR;
+    return corTipoVoo(CHAVE_FALHAS_PLANTIO_FORNECEDOR, cores);
   }
-  return corPorProjeto(registro.projeto);
+  return corTipoVoo(registro.projeto, cores);
 }
 
-// Ordem fixa (ORDEM_E_COR_TIPO_VOO acima); tipo desconhecido (fora da
-// lista) vai pro fim, em ordem alfabética entre si.
+// Ordem fixa (ordemTipoVoo); tipo desconhecido (fora da lista) vai pro fim,
+// em ordem alfabética entre si.
 function ordenarTiposVoo(nomes) {
   return [...nomes].sort((a, b) => {
-    const ia = INDICE_ORDEM_TIPO_VOO.get(a) ?? Infinity;
-    const ib = INDICE_ORDEM_TIPO_VOO.get(b) ?? Infinity;
+    const ia = ordemTipoVoo(a);
+    const ib = ordemTipoVoo(b);
     if (ia !== ib) return ia - ib;
     return a.localeCompare(b);
   });
@@ -207,6 +227,19 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // Incrementado pra forçar buscar as pendências de novo (ex: a fila acabou
   // de ser enviada e o servidor já não tem esses talhões como pendentes).
   const [recarregarPendencias, setRecarregarPendencias] = useState(0);
+  // Sobe a cada vez que o efeito 2b (re)cria anéis/urgente/legenda de dias:
+  // o efeito de coloração roda antes dele na mesma passada, então precisa
+  // rodar de novo pra preencher as camadas recém-criadas (camada de voos
+  // remontada quando o estilo/cores mudam com o mapa aberto).
+  const [versaoCamadasExtras, setVersaoCamadasExtras] = useState(0);
+  // Atualização com o servidor em segundo plano, com a cópia do aparelho já
+  // na tela (F5, aba reaberta no celular): a tela não trava esperando o
+  // DroneManagement — só mostra um aviso discreto. `carregandoPendentes`
+  // fica só pro caso de não ter nada guardado ainda (1º acesso).
+  const [atualizandoPendentes, setAtualizandoPendentes] = useState(false);
+  // Se as pendências deste mapa já estão na tela (do aparelho ou do
+  // servidor) — aí uma nova busca não precisa ler a cópia local de novo.
+  const pendenciasNaTelaRef = useRef(null); // mapaId cujas pendências estão na tela
 
   // chave (secao-talhao) -> lista de registros pendentes ali (quase
   // sempre 1, mas pode ser vários — mesmo talhão com pendência em mais de
@@ -220,7 +253,10 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // apontou; só falta o envio) — mesmo que o servidor ainda liste.
   const pendentesVisiveis = pendentes.filter((r) => !fila.idsNaFila.has(r.id));
   const projetosDisponiveis = ordenarTiposVoo([...new Set(pendentesVisiveis.map((r) => r.projeto).filter(Boolean))]);
-  // Nome + cor (estável, ver corPorProjeto) de cada tipo — pro painel
+  // Cores personalizadas da camada de voos (estilo_config.coresTiposVoo);
+  // `{}` quando o admin não trocou nada.
+  const coresPersonalizadas = voosInfo?.coresTiposVoo || {};
+  // Nome + cor (estável, ver corTipoVoo) de cada tipo — pro painel
   // desenhar o swatch ao lado de cada checkbox. Falhas Plantio em área de
   // fornecedor ganha uma 2ª linha só informativa (mesma cor que aparece de
   // verdade no mapa nesses talhões, ver corPorRegistro) — sem virar um
@@ -229,14 +265,14 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // tipo inteiro (não dá pra filtrar só a variante fornecedor, não foi
   // pedido — só precisa aparecer explicado na legenda).
   const legendaProjetos = projetosDisponiveis.flatMap((nome) => {
-    const base = { chave: nome, rotulo: nome, cor: corPorProjeto(nome), projeto: nome };
+    const base = { chave: nome, rotulo: nome, cor: corTipoVoo(nome, coresPersonalizadas), projeto: nome };
     if (nome === NOME_FALHAS_PLANTIO && pendentesVisiveis.some((r) => r.projeto === nome && r.fornecedor)) {
       return [
         base,
         {
           chave: `${nome}::fornecedor`,
           rotulo: `${nome} (fornecedor)`,
-          cor: COR_FALHAS_PLANTIO_FORNECEDOR,
+          cor: corTipoVoo(CHAVE_FALHAS_PLANTIO_FORNECEDOR, coresPersonalizadas),
           projeto: nome,
         },
       ];
@@ -264,31 +300,50 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   useEffect(() => {
     if (!voosInfo || !mapaId || !token) return;
     let cancelado = false;
-    setCarregandoPendentes(true);
     setErroPendentes(null);
-    buscarVoosPendentes(token, mapaId)
-      .then((dados) => {
-        if (cancelado) return;
-        setPendentes(dados);
-        setPendenciasDeCache(null);
-        // Cópia pro campo: se o sinal cair e o app for reaberto, a tela de
-        // voos continua mostrando (e deixando apontar) estas pendências.
-        salvarPendenciasVooLocal(mapaId, dados).catch((e) => console.warn("Falha ao guardar pendências", e));
-      })
-      .catch(async (err) => {
-        console.error("Erro ao buscar voos pendentes:", err);
-        const guardadas = await buscarPendenciasVooLocal(mapaId).catch(() => null);
+
+    async function carregar() {
+      // 1º a cópia do aparelho (instantânea), se as pendências deste mapa
+      // ainda não estão na tela — o servidor só confirma/atualiza depois.
+      let guardadas = null;
+      if (pendenciasNaTelaRef.current !== mapaId) {
+        setCarregandoPendentes(true);
+        guardadas = await buscarPendenciasVooLocal(mapaId).catch(() => null);
         if (cancelado) return;
         if (guardadas) {
           setPendentes(guardadas.registros);
-          setPendenciasDeCache(guardadas.salvoEm);
+          setCarregandoPendentes(false);
+          pendenciasNaTelaRef.current = mapaId;
+        }
+      }
+      setAtualizandoPendentes(true);
+      try {
+        const dados = await buscarVoosPendentes(token, mapaId);
+        if (cancelado) return;
+        setPendentes(dados);
+        setPendenciasDeCache(null);
+        pendenciasNaTelaRef.current = mapaId;
+        // Cópia pro campo: se o sinal cair e o app for reaberto, a tela de
+        // voos continua mostrando (e deixando apontar) estas pendências.
+        salvarPendenciasVooLocal(mapaId, dados).catch((e) => console.warn("Falha ao guardar pendências", e));
+      } catch (err) {
+        console.error("Erro ao buscar voos pendentes:", err);
+        if (cancelado) return;
+        if (pendenciasNaTelaRef.current === mapaId) {
+          // Continua com o que já está na tela; avisa de quando é a cópia.
+          const salvoEm = guardadas?.salvoEm || (await buscarPendenciasVooLocal(mapaId).catch(() => null))?.salvoEm;
+          if (!cancelado) setPendenciasDeCache(salvoEm || new Date().toISOString());
         } else {
           setErroPendentes(mensagemErroPendentes(err));
         }
-      })
-      .finally(() => {
-        if (!cancelado) setCarregandoPendentes(false);
-      });
+      } finally {
+        if (!cancelado) {
+          setCarregandoPendentes(false);
+          setAtualizandoPendentes(false);
+        }
+      }
+    }
+    carregar();
     return () => {
       cancelado = true;
     };
@@ -330,6 +385,18 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     window.addEventListener(EVENTO_FILA_APONTAMENTOS, aoMudarFila);
     return () => window.removeEventListener(EVENTO_FILA_APONTAMENTOS, aoMudarFila);
   }, []);
+
+  // Fila com lotes guardados: enquanto houver algum e o aparelho estiver
+  // online, tenta enviar a cada 3 minutos (a ponte pode voltar sem o piloto
+  // mexer em nada).
+  useEffect(() => {
+    if (!(fila.qtdPendentes > 0)) return undefined;
+    const id = setInterval(() => {
+      if (!navigator.onLine) return;
+      enviarApontamentosPendentes(token).catch((e) => console.warn("Falha ao reenviar apontamentos guardados", e));
+    }, 3 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [fila.qtdPendentes, token]);
 
   // Mantém o índice secao-talhao -> registros[] sempre alinhado com o que
   // está sendo mostrado/colorido no momento (pendentesFiltrados, não a
@@ -405,7 +472,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
         continue;
       }
       const [registro] = registrosPorTipo.values();
-      const cor = corPorRegistro(registro);
+      const cor = corPorRegistro(registro, coresPersonalizadas);
       if (!chavesPorCor.has(cor)) chavesPorCor.set(cor, []);
       chavesPorCor.get(cor).push(k);
     }
@@ -443,7 +510,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       if (!getLayerSeguro(map, idAnel)) continue;
       const ramosAnel = [];
       for (const [k, registros] of multiploPorChave) {
-        if (i < registros.length) ramosAnel.push(k, corPorRegistro(registros[i]));
+        if (i < registros.length) ramosAnel.push(k, corPorRegistro(registros[i], coresPersonalizadas));
       }
       const expressaoAnel =
         ramosAnel.length > 0
@@ -451,7 +518,53 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
           : semContorno;
       map.setPaintProperty(idAnel, "line-color", expressaoAnel);
     }
-  }, [pendentesFiltrados, recemApontados, carregandoPendentes, voosInfo, mapaPronto, mapRef, fila.pendentes]);
+
+    const chaveTalhao = ["concat", ["get", "SECAO"], "-", ["get", "TALHAO"]];
+
+    // Pontilhado vermelho: talhão com alguma Falha em "Voar urgente".
+    if (getLayerSeguro(map, CAMADA_URGENTE)) {
+      const urgentes = [
+        ...new Set(pendentesFiltrados.filter((r) => r.urgente).map((r) => chave(r.secao, r.talhao))),
+      ].filter((k) => !chavesVerdes.has(k));
+      map.setFilter(CAMADA_URGENTE, urgentes.length > 0 ? ["match", chaveTalhao, urgentes, true, false] : FILTRO_NENHUM);
+    }
+
+    // Número do talhão, só nos pendentes (CAMADA_DIAS, acima do texto dos
+    // dias). Número em todo talhão poluía o mapa de Voos — pedido do Leo
+    // (2026-10-15).
+    if (getLayerSeguro(map, CAMADA_DIAS)) {
+      const ramosNumero = [];
+      for (const [k, registrosPorTipo] of tiposPorTalhao) {
+        if (chavesVerdes.has(k)) continue;
+        const talhao = registrosPorTipo.values().next().value.talhao;
+        ramosNumero.push(k, String(talhao));
+      }
+      map.setLayoutProperty(CAMADA_DIAS, "text-field", ramosNumero.length > 0 ? ["match", chaveTalhao, ...ramosNumero, ""] : "");
+    }
+
+    // Legenda de dias corridos (um número por tipo pendente no talhão),
+    // na CAMADA_DIAS_TEXTO — abaixo do número, com contorno próprio.
+    if (getLayerSeguro(map, CAMADA_DIAS_TEXTO)) {
+      const ramosDias = [];
+      const hoje = new Date();
+      for (const [k, registrosPorTipo] of tiposPorTalhao) {
+        if (chavesVerdes.has(k)) continue;
+        const nomes = ordenarTiposVoo([...registrosPorTipo.keys()]);
+        const texto = textoLegendaDias(
+          nomes.map((n) => registrosPorTipo.get(n)),
+          hoje
+        );
+        if (texto) ramosDias.push(k, texto);
+      }
+      map.setLayoutProperty(CAMADA_DIAS_TEXTO, "text-field", ramosDias.length > 0 ? ["match", chaveTalhao, ...ramosDias, ""] : "");
+    }
+
+    // O rótulo próprio da camada de pendentes fica escondido: os pendentes
+    // já ganham o número e os dias nas camadas acima.
+    if (voosInfo.rotuloLayerId && getLayerSeguro(map, voosInfo.rotuloLayerId)) {
+      map.setFilter(voosInfo.rotuloLayerId, FILTRO_NENHUM);
+    }
+  }, [pendentesFiltrados, recemApontados, carregandoPendentes, voosInfo, mapaPronto, mapRef, fila.pendentes, versaoCamadasExtras]);
 
   // 2b) cria/destrói os MAX_ANEIS_MULTIPLO contornos concêntricos usados
   // pra desenhar talhão com 2+ tipos pendentes (ver offsetAnel acima) —
@@ -479,14 +592,79 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       });
     }
 
+    if (!map.hasImage(IMAGEM_PONTILHADO)) map.addImage(IMAGEM_PONTILHADO, imagemPontilhado());
+    if (!getLayerSeguro(map, CAMADA_URGENTE)) {
+      map.addLayer({
+        id: CAMADA_URGENTE,
+        type: "fill",
+        source: voosInfo.sourceId,
+        "source-layer": voosInfo.sourceLayerPrincipal,
+        paint: { "fill-pattern": IMAGEM_PONTILHADO, "fill-antialias": false },
+        filter: FILTRO_NENHUM,
+      });
+    }
+    if (!getLayerSeguro(map, CAMADA_DIAS)) {
+      map.addLayer({
+        id: CAMADA_DIAS,
+        type: "symbol",
+        source: voosInfo.sourceId,
+        "source-layer": voosInfo.sourceLayerPrincipal,
+        minzoom: 12,
+        layout: {
+          "text-field": "",
+          "text-font": ["Noto Sans Regular"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 13],
+          // Só o número do talhão, um pouco acima do centro; os dias ficam
+          // em CAMADA_DIAS_TEXTO, abaixo, com contorno escuro.
+          "text-offset": [0, -0.55],
+          "text-allow-overlap": false,
+          "text-padding": 1,
+        },
+        paint: {
+          "text-color": "#1f2933",
+          "text-halo-color": "#ffffff",
+          "text-halo-width": 1.6,
+        },
+      });
+    }
+    if (!getLayerSeguro(map, CAMADA_DIAS_TEXTO)) {
+      map.addLayer({
+        id: CAMADA_DIAS_TEXTO,
+        type: "symbol",
+        source: voosInfo.sourceId,
+        "source-layer": voosInfo.sourceLayerPrincipal,
+        minzoom: 12,
+        layout: {
+          "text-field": "",
+          "text-font": ["Noto Sans Regular"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 13],
+          "text-offset": [0, 0.65],
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#1f2933",
+          "text-halo-width": 1.6,
+        },
+      });
+    }
+    trazerVoosParaCima(map, voosInfo);
+    setVersaoCamadasExtras((n) => n + 1);
+
     return () => {
       for (let i = 0; i < MAX_ANEIS_MULTIPLO; i++) {
         const id = idCamadaAnel(i);
         if (getLayerSeguro(map, id)) map.removeLayer(id);
       }
+      for (const id of [CAMADA_URGENTE, CAMADA_DIAS, CAMADA_DIAS_TEXTO]) {
+        if (getLayerSeguro(map, id)) map.removeLayer(id);
+      }
     };
+    // `assinatura`: quando a camada de voos é remontada (estilo/cores
+    // mudaram), Mapa.jsx tira junto as camadas acima, então recria.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voosInfo?.id, voosInfo?.sourceId, voosInfo?.sourceLayerPrincipal, mapaPronto]);
+  }, [voosInfo?.id, voosInfo?.sourceId, voosInfo?.sourceLayerPrincipal, voosInfo?.assinatura, mapaPronto]);
 
   // 3) fonte/camada própria pra destacar os talhões selecionados no lote
   // em andamento — deliberadamente NÃO reaproveita o highlightLayerId
@@ -516,6 +694,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       paint: { "line-color": CORES_FERRAMENTAS.vooSelecionado, "line-width": 5 },
       filter: FILTRO_NENHUM, // nada selecionado ainda
     });
+    trazerVoosParaCima(map, voosInfo);
 
     return () => {
       if (getLayerSeguro(map, CAMADA_SELECAO)) map.removeLayer(CAMADA_SELECAO);
@@ -658,7 +837,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // Sem sinal (ou a rede caiu no meio do envio): o lote vai pra fila do
   // aparelho com a data do voo escolhida, sai das pendências na hora e é
   // enviado sozinho quando a conexão voltar (redesenho, fase 4).
-  async function guardarNaFila() {
+  async function guardarNaFila(motivo) {
     const registros = [...selecionados.values()].map(({ id, secao, talhao, projeto, areaHa }) => ({
       id,
       secao,
@@ -667,7 +846,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       areaHa,
     }));
     await filaApontamentos.enfileirar({ mapaId, dataVoo, registros });
-    setResultado({ sucesso: [], falha: [], naFila: registros.length });
+    setResultado({ sucesso: [], falha: [], naFila: registros.length, motivo });
     setSelecionados(new Map());
     setEscolhaPendente(null);
     setModoApontamento(false);
@@ -688,8 +867,35 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     try {
       const registros = [...selecionados.values()].map((r) => ({ id: r.id, secao: r.secao, talhao: r.talhao }));
       const resposta = await apontarVoos(token, { mapaId, dataVoo, registros });
-      setResultado(resposta);
+      // Ponte caiu no meio do lote: os itens que não foram tentados (`adiados`)
+      // vão pra fila do aparelho, com a mesma data e mapa. Não contam como
+      // sucesso nem falha e continuam fora das pendências só depois de enviados.
+      const adiados = resposta.adiados || [];
+      if (adiados.length > 0) {
+        const idsAdiados = new Set(adiados);
+        await filaApontamentos.enfileirar({
+          mapaId,
+          dataVoo,
+          registros: registros
+            .filter((r) => idsAdiados.has(r.id))
+            .map((r) => {
+              const s = selecionados.get(r.id);
+              return { id: r.id, secao: r.secao, talhao: r.talhao, projeto: s?.projeto, areaHa: s?.areaHa };
+            }),
+        });
+        setResultado({
+          ...resposta,
+          naFila: adiados.length,
+          motivo: "A ponte com o DroneManagement caiu no meio do envio.",
+        });
+      } else {
+        setResultado(resposta);
+      }
       const sucessoIds = new Set(resposta.sucesso);
+      // Sai da lista quem foi apontado agora e quem o servidor recusou por
+      // já não estar pendente (`resolvido`) — senão um talhão já voado ficava
+      // aparecendo como pendente até a próxima atualização do servidor.
+      const sairDaLista = new Set([...sucessoIds, ...(resposta.falha || []).filter((f) => f.resolvido).map((f) => f.id)]);
       const chavesSucesso = registros.filter((r) => sucessoIds.has(r.id)).map((r) => chave(r.secao, r.talhao));
       if (chavesSucesso.length > 0) {
         setRecemApontados((atual) => {
@@ -705,15 +911,27 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
           });
         }, TEMPO_CONFIRMACAO_MS);
       }
-      setPendentes((atual) => atual.filter((r) => !sucessoIds.has(r.id)));
+      setPendentes((atual) => atual.filter((r) => !sairDaLista.has(r.id)));
+      // A cópia do aparelho também — senão um F5 logo depois mostraria de
+      // novo (até o servidor responder) os talhões que acabaram de ser
+      // apontados.
+      buscarPendenciasVooLocal(mapaId)
+        .then((guardadas) => {
+          if (!guardadas) return;
+          const restantes = guardadas.registros.filter((r) => !sairDaLista.has(r.id));
+          return salvarPendenciasVooLocal(mapaId, restantes);
+        })
+        .catch((e) => console.warn("Falha ao atualizar pendências guardadas", e));
       setSelecionados(new Map());
       setEscolhaPendente(null);
       setModoApontamento(false);
     } catch (err) {
       // Falha de rede (TypeError do fetch, sem status HTTP): mesmo caso de
       // "sem sinal" — guarda na fila em vez de perder o lote.
-      if (err instanceof TypeError) {
-        await guardarNaFila();
+      if (err instanceof TypeError || ehErroTransitorio(err)) {
+        // Ponte do DroneManagement desligada (503) também cai aqui: o servidor
+        // explica o motivo, que aparece no aviso junto do "guardado no aparelho".
+        await guardarNaFila(err instanceof TypeError ? undefined : err.message);
         return;
       }
       // A chamada inteira falhou antes do backend processar qualquer item
@@ -756,6 +974,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     filtroProjetos,
     alternarFiltroProjeto,
     carregandoPendentes,
+    atualizandoPendentes,
     erroPendentes,
     modoApontamento,
     selecionados,

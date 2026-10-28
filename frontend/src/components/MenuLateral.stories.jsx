@@ -36,11 +36,11 @@ export const FechadoUsuarioComum = {
 };
 
 export const AbertoUsuarioComum = {
-  args: { aberto: true, ehAdmin: false },
+  args: { aberto: true, ehAdmin: false, mostrarIndicadores: true },
 };
 
 export const AbertoAdmin = {
-  args: { aberto: true, ehAdmin: true },
+  args: { aberto: true, ehAdmin: true, mostrarIndicadores: true },
 };
 
 // Story interativa: um botão fora do componente liga/desliga `aberto`,

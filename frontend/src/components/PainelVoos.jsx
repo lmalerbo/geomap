@@ -6,6 +6,7 @@
 export default function PainelVoos({ apontamento, aoApontar, compacto = false }) {
   const {
     carregandoPendentes,
+    atualizandoPendentes,
     erroPendentes,
     pendenciasDeCache,
     areaPendenteHa,
@@ -18,7 +19,9 @@ export default function PainelVoos({ apontamento, aoApontar, compacto = false })
     retentarLote,
     descartarLote,
     enviarFilaAgora,
+    pendentes,
   } = apontamento;
+  const temUrgente = pendentes.some((r) => r.urgente);
 
   const ha = areaPendenteHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
   const horaCache = pendenciasDeCache
@@ -41,8 +44,15 @@ export default function PainelVoos({ apontamento, aoApontar, compacto = false })
           </span>
         </div>
       )}
-      {horaCache && (
-        <p className="status-voos status-voos--aviso">Sem conexão — mostrando as pendências de {horaCache}.</p>
+      {!carregandoPendentes && atualizandoPendentes && (
+        <p className="status-voos status-voos--atualizando">
+          <span className="spinner" aria-hidden="true" /> Atualizando com o DroneManagement…
+        </p>
+      )}
+      {horaCache && !atualizandoPendentes && (
+        <p className="status-voos status-voos--aviso">
+          {online ? "Não foi possível atualizar agora" : "Sem conexão"} — mostrando as pendências de {horaCache}.
+        </p>
       )}
 
       {fila.qtdPendentes > 0 && (
@@ -86,6 +96,13 @@ export default function PainelVoos({ apontamento, aoApontar, compacto = false })
           </div>
         </div>
       ))}
+
+      {temUrgente && (
+        <p className="legenda-urgente">
+          <span className="swatch-urgente" aria-hidden="true" />
+          Pontilhado vermelho: Falhas com “Voar urgente” · número embaixo do talhão: dias corridos
+        </p>
+      )}
 
       {!compacto && legendaProjetos.length > 0 && (
         <div className="filtro-tipos-voo" role="group" aria-label="Filtrar por tipo de voo">

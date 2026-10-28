@@ -2689,6 +2689,557 @@ agora guarda `{regra, itens}` com `VERSAO_REGRA_PENDENTES`: mudar a regra
 exige mudar esse texto, senão o cache antigo continua valendo até a
 contagem do DroneManagement mudar por outro motivo.
 
+**Redesenho, fase 5 — administração (2026-10-01)**: ver
+`docs/REDESENHO_FRONTEND.md`. Branch `feat/redesenho-fase5`, em 5 commits:
+
+- **Estrutura**: `components/LayoutAdmin.jsx` envolve todas as telas de
+  admin (rotas aninhadas sob `/admin` em `App.jsx`, com `Suspense`
+  próprio em volta do `Outlet` pra o menu não piscar), menu lateral fixo
+  no desktop e gaveta no celular (≤900px). Busca o resumo da Visão geral
+  uma vez e compartilha via `useResumoAdmin()` (ponto de atenção e selo de
+  camadas atrasadas no menu). O menu da conta (`MenuLateral.jsx`) tem uma
+  entrada só, "Administração". Classes CSS com prefixo `adm-`.
+- **Visão geral** (`/admin`, `AdminVisaoGeral.jsx`): aviso quando a
+  automação diária para (com o passo a passo do portal da rede), números,
+  situação de cada camada, 7 dias da automação e atividade recente.
+  `GET /admin/visao-geral`; a saúde é DEDUZIDA no backend
+  (`lib/saudeAutomacao.js`, com testes) — o backend não enxerga o
+  `log.txt` do servidor geo. A automação só faz login quando tem arquivo
+  novo, então "nada enviado no dia" não separa "sem internet" de "sem
+  export novo"; o sinal confiável é a camada atrasada (sem atualização
+  desde ontem depois das 11h). Conta de serviço identificada por
+  `AUTOMACAO_EMAIL` (padrão `automacao@geoportal.local`). Jobs antigos
+  (sem `usuario_id`) são atribuídos pela janela de 3h depois de um login
+  da automação; job "processando" há mais de 40 min é órfão.
+- **Mapas**: cards + painel com abas Camadas (ordem por arrastar/setas),
+  Acesso (grupos e pode anotar) e Detalhes (duplicar, remover).
+- **Usuários e grupos**: tabela com filtros e último acesso (do log de
+  login); painel com papel, grupos (mostrando os mapas de cada um),
+  **vínculo de piloto do DroneManagement** (`PUT
+  /admin/usuarios/:id/piloto`, antes só no banco), senha, desativar,
+  excluir. Aba Grupos em cartões.
+- **Camadas**: 3 colunas — lista; prévia real no mapa
+  (`components/PreviaCamada.jsx`, carregado sob demanda, protocolo
+  próprio `pmtiles-previa://` porque o `Protocol` da lib só aceita
+  `pmtiles://` e esse nome já é registrado pela tela do mapa) +
+  **versões anteriores restauráveis**; editor em abas. A lógica de
+  estilo/atributos/arquivo não mudou. `?camada=ID` abre direto.
+- **Versões de camada** (migration 016): tabela `versoes_camada`; cada
+  troca de arquivo guarda a anterior (até 3 por camada; as mais velhas são
+  apagadas do R2). Os backups `.bak-` antigos não tinham vínculo com a
+  camada (o nome era a chave antiga, que muda a cada envio) — em
+  2026-10-01 eram 182 arquivos, ~2 GB dos 10 GB grátis do R2, sem uso.
+  Restaurar guarda o arquivo atual como versão e muda a `versao` pra os
+  aparelhos baixarem de novo. A migration 016 também põe `usuario_id` em
+  `jobs_conversao`.
+
+Pegadinhas achadas testando: (1) o CSS do MapLibre carrega depois do
+nosso e põe `position: relative` no contêiner do mapa — a prévia ficou
+com altura 0 até ganhar seletor mais específico; (2) regra de 2 colunas
+de uma tela, definida depois da regra de celular, ganhava dela (mesma
+armadilha de ordem do CSS das fases anteriores); (3) `flex: 1` num
+input dentro de coluna flex achata a altura; (4) num teste, ler pixels de
+canvas WebGL sem `preserveDrawingBuffer` dá falso positivo — conferir
+pela API do mapa (`queryRenderedFeatures`), exposto só em dev.
+
+Verificado com Playwright no dev local (Visão geral 18, Mapas 15,
+Usuários 16, Camadas 15 checagens; zero erro de console fora o 400
+esperado de id de piloto inválido), banco local preparado e desfeito.
+**Antes de publicar**: aplicar a migration 016 no banco de produção
+(`npm run migrate` com o `.env` de produção) — o código novo grava
+`usuario_id` em todo job e sem a coluna o envio de camada (inclusive o
+da automação) quebraria.
+
+**Mapa de voos: urgente, dias corridos e voos por cima (2026-10-01)**:
+- **Voos por cima** das outras camadas: `trazerVoosParaCima`
+  (`hooks/useApontamentoVoo.js`) move contorno, anéis, rótulo, seleção e
+  as camadas novas abaixo pro topo; `Mapa.jsx` chama depois de montar as
+  camadas (uma camada recém montada entra embaixo do primeiro rótulo, que
+  pode estar no meio da pilha de voos), o hook chama quando cria as dele.
+- **Voar urgente** (`verifyFlightSize = 6`) só nas Falhas (Plantio e
+  Soca): camada `camada-voos-urgente` com padrão de pontinhos vermelhos
+  desenhado em memória (`map.addImage`, sem arquivo), por baixo do
+  contorno, que mantém a cor do tipo. O backend manda `urgente` em cada
+  registro (`ehFalhasUrgente` em `lib/regrasApontamento.js`).
+- **Legenda de dias corridos** em cada talhão pendente (`camada-voos-dias`,
+  a partir do zoom 12, abaixo do número do talhão): Falhas Plantio contam
+  do plantio (`layerDetails.datePlanting`), Falhas Soca do corte
+  (`cutDate`), as demais do agendamento (`scheduledDate`) — o backend
+  manda `dataReferencia` (`dataReferenciaVoo`), o app calcula os dias
+  (`lib/diasCorridos.js`, com testes), então segue certo sem internet.
+  Talhão com 2+ tipos mostra um número por tipo ("30 d · 5 d"). Pegadinha:
+  plantio/corte chegam como meia-noite UTC — convertidos pro horário de
+  Brasília viravam o dia anterior; são tratados como só-dia.
+- `VERSAO_REGRA_PENDENTES` mudou pra o cache de pendências trazer os
+  campos novos.
+
+**Indicadores de voo (2026-10-01)**: página `/indicadores` (link no menu
+lateral só pra admin e pilotos) e rota só-leitura
+`GET /integracao/voos/indicadores` pro agente que monta a apresentação do
+gerente (slide "Voos com Drone"). Spec e plano em
+`docs/superpowers/{specs,plans}/2026-10-01-indicadores-voo*`; contrato da
+API em `docs/INTEGRACAO_DRONEMANAGEMENT.md`. Decisões (com o Leo):
+- "Voado" = Verificar porte 9 (conferido: mesmo conjunto que
+  `controlStatus` 4–10). Data do voo em fuso de Brasília.
+- "A voar" = **a mesma regra de pendentes do mapa de Voos** (fila
+  liberada de hoje, não muda com o período) — extraída de
+  `routes/voos.js` pra `lib/pendentesVoo.js` (+ paginação em
+  `lib/consultaDroneMgmt.js`), comportamento do mapa inalterado.
+- Período livre, padrão safra (01/04–31/03). Fornecedor = propriedade com
+  "FORNEC" → "Falhas Plantio Forn.". Tipos pequenos em "Outros"
+  (`TIPOS_PRINCIPAIS` em `lib/indicadoresVoo.js`). Metas manuais (Ervas
+  Daninhas, 250 ha/dia) ficam com o agente, fora do GeoMap.
+- Piloto (linha em `pilotos_dronemgmt`) vê "meu rendimento" + equipe,
+  nunca os colegas; admin vê tudo e filtra por piloto. Nome do piloto
+  vem do cadastro de pilotos — sem cadastro aparece "Piloto não
+  cadastrado (xxxxxxxx)".
+- Chave própria `INDICADORES_TOKEN` (cabeçalho `x-indicadores-token`); o
+  middleware do Hub ficou restrito a `/integracao/dronemgmt` — uma chave
+  não abre as rotas da outra.
+- Cálculo numa função pura (`calcularIndicadores`) usada pela página e
+  pela API; dados com cache em `indicadores_voo_cache` (migration 017 —
+  016 já era da fase 5 do redesenho): reusa se a contagem não mudou e tem
+  menos de 1h; DroneManagement fora do ar → cache com `desatualizado`.
+  As duas buscas (realizados, pendentes) rodam em sequência, nunca em
+  paralelo — duas sessões novas abririam dois Chromium no Render.
+
+Verificado: 69 testes de backend e 55 unitários de frontend; API local
+contra o DroneManagement real bateu com a sonda (safra até 01/10: 1.733
+talhões, 24.722,57 ha; Falhas Plantio próprio + fornecedor = 6.469,88)
+e a 2ª chamada levou 0,9s (cache); Playwright em 1440/768/390 como admin,
+piloto, usuário comum e piloto sem rede (25 checagens, zero erro de
+console). Revisão final (revisor novo) achou 4 problemas corrigidos com teste: cache
+offline da página separado por usuário, período limitado (ano ≥ 2000, até
+5 anos — digitar o ano no campo de data travava servidor e página),
+resposta antiga descartada ao trocar período, voo sem data válida
+descartado. **Antes de publicar**: aplicar a migration 017 em produção,
+criar `INDICADORES_TOKEN` no Render e entregar a chave ao agente por fora
+do repositório. Implementado na worktree `../geomap-indicadores`, branch
+`feat/indicadores-voo-impl` (outra sessão estava commitando o redesenho
+no checkout principal ao mesmo tempo).
+
+**Piloto vinculado pelo login do DroneManagement (2026-10-08)**: em
+Usuários e grupos, o vínculo de piloto deixou de pedir o identificador
+(GUID) e passou a pedir o **login** da pessoa na plataforma (o mesmo da
+tela de entrada, não o e-mail). O backend busca o id em `GET
+/portal/api/v1/gateway/identity/appuser/by-username/{login}`
+(`buscarUsuarioPorLogin` em `lib/dronemgmt.js`; achado lendo o JS do
+portal) — devolve `{id, userName, userType}`, e esse `id` é o mesmo
+`pilotUserADId` dos voos (conferido contra um vínculo existente). Login
+inexistente: a plataforma responde 500 (tratado como "não encontrado");
+maiúsculas não importam; e-mail não funciona (recusado com mensagem).
+Migration 018 guarda o login (`pilotos_dronemgmt.login_dronemgmt`) pra
+tela mostrar "Vinculado como …"; vínculos antigos ficam sem login até
+alguém digitar de novo. `pilotUserADId` direto continua aceito pela rota.
+
+De carona: o merge do PR #3 (indicadores de voo) tinha perdido o `}` que
+fechava `.swatch-urgente` no `index.css` — o CSS da página de
+Indicadores inteiro ficava aninhado dentro dessa regra. Restaurado.
+
+**Incidente: ninguém conseguia apontar voo (2026-10-08)**: o backend em
+produção devolvia "DroneManagement não respondeu a tempo" e o mapa de voos
+ficava nas pendências guardadas do dia anterior. Causa: a sessão do
+DroneManagement era guardada, mas sem controle de logins simultâneos —
+quando ela some (todo deploy, ou expiração), cada consulta que chega abre
+o PRÓPRIO Chromium pra logar. Com o PR #3 (indicadores e rotas do agente)
+passaram a existir mais consultas ao mesmo tempo, e no Render free (0,1
+CPU, 512 MB) vários Chromiums juntos estouravam o tempo de login (30 s,
+quando o login sozinho já leva ~30 s lá). Corrigido com
+`lib/sessaoCompartilhada.js` (com testes): um login por vez para o
+processo inteiro, quem chega durante um login espera o mesmo resultado;
+um 401 só descarta a sessão se ela ainda for a que falhou (sem cascata de
+relogins); tempo de login subiu pra 60 s. Conferido contra o
+DroneManagement real: 6 consultas simultâneas sem sessão → 1 login, 6
+respostas 200.
+
+**Ponte do DroneManagement pelo servidor geo (2026-10-08)**: desde
+07/10 ~08:30 o DroneManagement não responde pela internet pública. O
+DNS público aponta `prd-dronemgmt.pedraagroindustrial.com.br` para
+`200.232.118.19`, que dá timeout; dentro da rede ele resolve para
+`10.120.243.29` e funciona. Com isso, o backend no Render parou de logar
+na plataforma (`page.goto: Timeout 60000ms exceeded`) e ninguém
+conseguia ver pendências nem apontar voo. Como não há orçamento para
+VPN e a infra pública da plataforma não é nossa, a solução foi uma
+**ponte**: o backend não chama mais o DroneManagement direto. Ele põe
+cada pedido numa fila em memória (`backend/src/lib/ponteDroneMgmt.js`).
+O servidor geo (`automacao/ponte-dronemgmt/ponte.mjs`) busca essa fila
+por long-poll (`GET /ponte-dm/tarefas`, até 25 s), executa cada pedido
+com o mesmo `chamarApi()` de `lib/dronemgmt.js` (mesmo login via
+Playwright) e devolve o resultado (`POST /ponte-dm/tarefas/:id`). Só
+conexões de saída, então não precisa abrir porta no firewall da empresa.
+
+- **Ativação**: `DM_VIA_PONTE=1` no Render. Sem essa variável tudo volta
+  ao acesso direto, e é assim que se desfaz quando o IP público voltar.
+  `PONTE_DM_TOKEN` (cabeçalho `x-ponte-token`, comparado com
+  `timingSafeEqual`) autentica as rotas `/ponte-dm/*`. Elas montam o
+  próprio `express.json` com limite de 50 MB, antes do parser global, por
+  causa da resposta grande das pendências.
+- **Falha rápida e clara**: se a ponte não consultou nos últimos 45 s,
+  `chamar()` rejeita na hora com `ErroPonte` ("A ponte com o
+  DroneManagement (servidor geo) está desligada..."), em vez de cada
+  pedido esperar 2 min. As rotas de vínculo de piloto e de indicadores
+  mostram essa mensagem tal como está. `buscarUsuarioPorLogin` passou a
+  lançar erro no 502, em vez de dizer "login não encontrado".
+- **Visão geral** do admin: `ponteDm` em `/admin/visao-geral` mostra
+  "conectada" ou um alerta "ponte desligada" com o passo a passo, e a
+  ponte caída acende o ponto de atenção no menu.
+- **Servidor geo**: a configuração está em
+  `automacao/ponte-dronemgmt/README.md`. `iniciar.cmd` reinicia sozinho
+  em laço e usa o `fortinet-ca.pem` da automação diária; a tarefa agendada
+  dispara no logon. O programa importa `backend/src/lib/dronemgmt.js`,
+  então o servidor geo precisa de `npm ci --omit=dev` em `backend/` e de
+  `npx playwright install chromium`.
+- **Limites conhecidos**:
+  - o portal cativo do FortiGate derruba a ponte quando expira (o mesmo
+    problema da automação diária);
+  - a fila é em memória, então um deploy no Render no meio de um pedido
+    perde esse pedido;
+  - o long-poll mantém o `geomap-docker` acordado 24 h, gastando cerca de
+    744 h por mês da cota de 750 h do free tier. Por isso o serviço antigo
+    (`geomap-vr68`) precisa ser desligado.
+
+Testado localmente: 8 testes novos (85 no total). Ponta a ponta contra o
+backend local em modo ponte, com o DroneManagement real (pela rede
+interna desta máquina):
+- vínculo de piloto em 7 s;
+- pendências completas (346 registros) em menos de 1 s;
+- sem a ponte, falha em 150 ms com a mensagem certa.
+
+A Visão geral foi conferida no navegador nos dois estados.
+
+**Pendências de voo aparecem na hora (2026-10-08)**: pedido do Leo. A
+cada F5 no PC, ou ao reabrir a aba no celular, a tela de voos ficava em
+"Carregando pendências…" esperando o servidor, que por sua vez confere a
+contagem no DroneManagement antes de responder (login e ponte, de segundos
+a quase um minuto). A cópia guardada no aparelho (`pendencias_voo`) só era
+usada quando a rede falhava.
+
+O que mudou em `useApontamentoVoo.js`:
+- **Cópia do aparelho primeiro**: ao abrir, lê a cópia local e mostra na
+  hora. O servidor atualiza em segundo plano (`atualizandoPendentes`), com
+  um aviso discreto "Atualizando com o DroneManagement…" no painel e no
+  resumo da gaveta no celular.
+- **Spinner bloqueante só no 1º acesso**: `carregandoPendentes` agora só
+  vale quando não há nada guardado ainda. O botão "Apontar voo" fica
+  liberado durante a atualização. O servidor já recusa, com o motivo, um
+  talhão que outra pessoa tenha apontado nesse meio-tempo
+  (`motivoParaNaoApontar`).
+- **Falha mantém a cópia na tela**: se a atualização falhar (sem sinal,
+  ponte desligada), a cópia continua. O aviso diferencia "Sem conexão" de
+  "Não foi possível atualizar agora".
+- **Cópia atualizada depois de apontar**: um apontamento bem-sucedido
+  também tira os talhões da cópia do aparelho. Senão, um F5 logo depois os
+  mostraria de novo até o servidor responder.
+- `pendenciasNaTelaRef` evita reler a cópia local quando a busca roda de
+  novo, por exemplo depois de enviar a fila.
+
+Verificado com Playwright no dev local, com `/voos/pendentes` simulado
+(15 s de atraso, depois falha 502), em 11 checagens:
+- F5 no desktop mostra a cópia em ~1,5 s e troca sozinho pelo dado novo
+  quando o servidor responde;
+- aba do celular reaberta mostra a cópia em 0,8 s.
+
+O banco local foi preparado (camada 3 como "voos" apontando pro arquivo
+atual do R2) e restaurado ao final.
+
+**Ajustes do celular e recarga após nova versão (2026-10-08)**: três
+pontos reportados pelo Leo.
+
+- **"Failed to fetch dynamically imported module" ao trocar de mapa.**
+  Depois de publicar uma versão nova, uma aba aberta antes ainda pede os
+  arquivos antigos (o nome leva o hash do conteúdo). O service worker
+  (`autoUpdate`) já trocou o cache, e o GitHub Pages também não tem mais
+  esses arquivos. Correções:
+  - `lib/versaoNova.js` (novo): `importarComRecarga` envolve todos os
+    `lazy(() => import(...))` (`App.jsx` e a prévia em `AdminCamadas.jsx`)
+    e recarrega a página pra pegar a versão nova;
+  - o `ErrorBoundary` reconhece a mesma mensagem (Chrome, Safari e Firefox)
+    e também recarrega;
+  - a recarga acontece no máximo 1 vez por minuto (`sessionStorage`). Se
+    falhar de novo logo em seguida, o erro aparece normalmente e não entra
+    em laço.
+- **Barra superior encavalada com nome de mapa longo** (ex: "Áreas -
+  Antônio Tittoto"). No celular, `.cartao-identidade` tinha
+  `flex: 1 1 auto`: a base era o tamanho do texto, então o `flex-wrap`
+  jogava o botão da conta pra outra linha e a busca descia por cima dos
+  controles de zoom. Correções:
+  - virou `flex: 1 1 0`: o cartão ocupa o que sobra e o texto encolhe com
+    "…";
+  - o status de sincronização encolhe antes do nome;
+  - de carona, o balão `.ajuda-busca` ("A busca não está disponível…")
+    ficou escondido no celular. Ele cobria o "+" do zoom o tempo todo em
+    mapas sem busca, e o próprio campo já diz isso.
+- **Gaveta inferior mais recolhida.** Fora da aba Voos, recolhida mostra
+  só a alça e as abas (`.gaveta-celular--compacta`, ~80px, antes ~150px).
+  O resumo ("2 de 2 camadas visíveis") saiu. Na aba Voos o resumo
+  continua: hectares pendentes, avisos da fila e "Apontar voo". A barra de
+  escala e a atribuição acompanham a altura.
+
+Verificado com Playwright no dev local, em 25 checagens (390 e 360px):
+- falha simulada do arquivo da tela inicial recarrega sozinha, sem a tela
+  "Algo deu errado";
+- a barra fica em uma linha com o nome longo;
+- a busca termina antes dos controles de zoom;
+- a gaveta compacta tem 80px, e a aba Voos mantém o resumo.
+
+O banco local foi preparado (nome longo e camada de voos) e restaurado ao
+final.
+
+**Ponte: resposta 204 quebrava o apontamento (2026-10-09)**: no primeiro
+uso real da ponte, 11 apontamentos foram **gravados no DroneManagement**
+mas o app mostrou "11 falharam. Response constructor: Invalid response
+status code 204". O PUT do apontamento volta 204 sem conteúdo; o servidor
+geo repassa corpo "", e o `new Response("", {status: 204})` de
+`resultadoParaResponse` lança erro (status 101/204/205/304 não aceitam
+corpo nenhum, nem vazio). Corrigido passando `null` como corpo nesses
+status, com teste. Efeito colateral: esses 11 não entraram em
+`apontamentos_voo` (só auditoria, nenhuma tela lê). Lição: o teste ponta a
+ponta da ponte cobriu leituras (GET de pendências e de usuário), não uma
+escrita — testar ao menos uma chamada de cada método HTTP usado.
+
+**Talhão já voado some da lista ao ser recusado (2026-10-09)**: depois
+do bug do 204 (acima), 31 talhões gravados no DroneManagement continuaram
+como pendentes no app (ele achou que tinham falhado e os manteve na lista e
+na cópia do aparelho), e a cópia do servidor (`voos_pendentes_cache`) era
+das 7h47. Conferido direto no DroneManagement (só leitura, pela rede
+interna): todos em controlStatus 4 e a contagem de pendências caiu de 328
+pra 308, então a próxima consulta pela ponte já corrige o servidor. Pra a
+lista se corrigir também quando o piloto tenta apontar de novo um talhão
+já voado, o `POST /voos/apontamentos` marca essa recusa com
+`resolvido: true` e o app tira esses talhões da lista e da cópia do
+aparelho (o motivo continua aparecendo). A fila offline não muda: lá a
+recusa continua visível até o piloto descartar (regra combinada). Testado
+com Playwright (recusa resolvida + sucesso no mesmo lote).
+
+**Servidor geo: conversão local configurada (2026-10-09)**: a mudança de
+28/09 (conversão .shp -> .pmtiles no servidor geo em vez do Render) só
+chegou ao servidor geo em 08/10, junto com o `git pull` da ponte. Por isso
+a automação diária de 09/10 falhou com "ogr2ogr não encontrado": os
+binários nunca tinham sido instalados lá.
+
+- **Instalado no servidor geo**: Python 3.14 (Scoop +
+  `pipeline/requirements.txt`), o Cygwin completo e
+  `C:\ferramentas\tippecanoe`, mais as variáveis no `.env` da automação.
+  **Atenção ao caminho**: o Cygwin completo ficou em
+  `C:\ferramentas\cygwin-portable\cygwin-portable\root` (um nível a mais,
+  efeito de descompactar). `C:\ferramentas\cygwin-portable\root` é uma
+  cópia incompleta, de uma transferência cancelada, e pode ser apagada.
+  `OGR2OGR_PATH` e `CYGWIN_BIN_DIR` apontam pra cópia completa.
+- **Erro seguinte, "Cannot find proj.db"**: a causa foi o `.env` apontar
+  pra cópia incompleta, que não tinha `usr\share\proj`. Diagnóstico:
+  `projinfo --searchpaths` mostrou que o PROJ procura em `/usr/share/proj`
+  (relativo à raiz do Cygwin), e `Test-Path` mostrou o arquivo ausente. O
+  servidor geo **não** tem `PROJ_LIB`/`PROJ_DATA`/`GDAL_DATA` no ambiente.
+  Antes de achar isso, suspeitei dessas variáveis (comuns quando há outros
+  programas de GIS) e publiquei uma proteção em `envParaConversao`
+  (`backend/src/lib/conversaoShapefile.js`): com os binários Cygwin, ela
+  tira essas variáveis herdadas. Não era a causa, mas fica como proteção,
+  porque reproduzi com uma `PROJ_LIB` falsa que o código antigo falharia
+  do mesmo jeito.
+- **Resultado**: execução manual em 09/10 às 11h14 atualizou as 8 camadas
+  (Talhões 5/25/48/103 e Limites 1/21/43/99, todos os jobs concluídos).
+- **Pacote mínimo testado** (caso precise montar de novo noutra máquina):
+  `root\bin`, `root\etc`, `root\usr\share\gdal`, `root\usr\share\proj`,
+  `root\lib\gdalplugins`, mais `tippecanoe.exe` e `tile-join.exe`. São
+  334 MB (127 MB zipado), em vez de 1,6 GB.
+
+**Voo cancelado continuava no mapa (2026-10-15)**: o Leo cancelou no
+DroneManagement os 9 talhões de Falhas Plantio da 10324 (status 11,
+14/10 às 15h53), mas eles continuaram pendentes no mapa de voos.
+
+- **Causa**: a cópia de pendências no servidor (`voos_pendentes_cache`) só
+  era refeita quando a **contagem** do DroneManagement mudava. Nesse dia a
+  contagem empatou (296 = 296): saíram 9 cancelados e entraram 9
+  agendados. O risco estava anotado desde a criação do cache (só havia
+  `?forcar=1` como saída). Na época, a busca completa custava ~18 s com
+  ~3.700 registros; hoje são ~300.
+- **Correção**: `cachePendentesVale` (`backend/src/lib/pendentesVoo.js`,
+  com teste) exige a mesma contagem, a mesma regra e uma cópia com menos
+  de 2 minutos. Passado isso, o servidor busca a lista inteira. O app
+  continua mostrando na hora a cópia do aparelho (ver "Pendências de voo
+  aparecem na hora"), então ninguém espera por isso.
+- **Indicadores**: o cache deles já tinha validade
+  (`cacheAindaValido`/`VALIDADE_CACHE_MS`) e não foi mexido.
+
+**Mapa de Voos: número do talhão só nos pendentes (2026-10-15)**: pedido
+do Leo, porque o número em todos os talhões poluía o mapa. Ao investigar,
+apareceu um detalhe: nos talhões pendentes o número **nunca aparecia**. O
+rótulo da camada e a legenda de dias (`camada-voos-dias`) caíam no mesmo
+lugar, e o MapLibre escondia um dos dois (`text-allow-overlap: false`).
+
+- **Rótulo único nos pendentes**: a `camada-voos-dias` mostra o número do
+  talhão em cima e os dias embaixo, num rótulo só, centralizado
+  (`rotuloTalhaoPendente` em `frontend/src/lib/diasCorridos.js`, com
+  teste).
+- **Rótulo próprio escondido**: o rótulo da camada de voos
+  (`voosInfo.rotuloLayerId`) recebe `FILTRO_NENHUM`. Os demais talhões
+  ficam sem número.
+- Talhão em várias partes repete o rótulo em cada parte, como a legenda de
+  dias já fazia.
+
+Verificado com Playwright no dev local, com pendências simuladas:
+- sem pendências, nenhum número aparece;
+- com 2 pendentes, só eles têm rótulo, com o texto "11\n14 d".
+
+Detalhe de ambiente: outro projeto do Leo (Next.js) ocupa a porta 3000
+nesta máquina. Pro teste, o backend rodou na 3099 com
+`VITE_API_URL=http://localhost:3099`, e o frontend continuou na 5173
+(porta que o CORS do R2 aceita).
+
+**Cores dos tipos de voo editáveis + dias com contorno próprio
+(2026-10-15)**: dois pedidos do Leo. O marrom de Levantamento Topográfico
+fica ruim de ver no satélite, e ele sugeriu poder editar as cores. Além
+disso, o número do talhão e os dias saíam com a mesma formatação.
+
+- **Cores**: `frontend/src/lib/coresTiposVoo.js` (novo, com testes) passa a
+  ser a fonte única da cor e da ordem por tipo, com a variante "Falhas
+  Plantio (fornecedor)" e o fallback por hash. Cores personalizadas ficam
+  em `estilo_config.coresTiposVoo` da camada de voos
+  (`{nome: "#rrggbb"}`, sem migration), normalizadas em
+  `normalizarEstiloConfig`.
+- **Editor**: Admin → Camadas → camada de voos → aba Estilo, seção "Cores
+  dos tipos de voo" (seletor de cor por tipo e botão "Padrão"). Como todo
+  estilo, salvar não muda a `versao`. Mapa e chips do painel Voos usam as
+  mesmas cores (`voosInfo.coresTiposVoo`).
+- **Legenda em duas camadas**: `camada-voos-dias` mostra só o número
+  (texto escuro, contorno branco, um pouco acima do centro).
+  `camada-voos-dias-texto` (nova) mostra os dias (texto branco, contorno
+  escuro, abaixo), com `text-allow-overlap` e `text-ignore-placement`. Isso
+  substitui o rótulo único "número\ndias" da entrada anterior
+  (`rotuloTalhaoPendente` foi removido).
+- **Defeito real achado testando, que já existia**: quando o estilo da
+  camada de voos mudava com o mapa aberto, `removerCamada` (`Mapa.jsx`)
+  falhava com "Source cannot be removed while layer camada-voos-anel-0 is
+  using it". Em seguida, "Source already exists" fazia a camada de voos
+  sumir até recarregar. Correções:
+  - `removerCamada` agora tira antes qualquer camada que use a mesma fonte;
+  - o efeito que cria anéis/urgente/dias depende também de
+    `voosInfo.assinatura` e, ao recriar, sobe `versaoCamadasExtras`, pra a
+    coloração rodar de novo (ela roda antes na mesma passada).
+
+Execução delegada:
+- tarefa 1 (módulo puro): camada 1, gemini-3.8-flash, aprovada (saiu por
+  cota no fim, mas o código e os testes estavam completos);
+- tarefa 2 (ligação no hook, mapa e admin): camada 2, Haiku, aprovada;
+- correção do defeito de remontagem: eu.
+
+Verificado com Playwright no dev local (backend na 3099, porque a 3000
+está ocupada por outro projeto), 13 checagens, 3 rodadas seguidas sem
+falha: legendas separadas, cor nova no contorno e no chip depois de
+salvar, legendas preenchidas depois da remontagem, e "Padrão" volta à cor
+original.
+
+**Planejamento de voos no mapa (2026-10-21)**: o Leo planejava a semana
+fora do app, com prints do mapa de voos, retângulos coloridos por dia e
+envio pelo WhatsApp. Agora o plano vive no mapa de voos. Documentos:
+- desenho: `docs/superpowers/specs/2026-10-16-planejamento-voos-design.md`;
+- plano: `docs/superpowers/plans/2026-10-21-planejamento-voos.md`.
+
+- **Dados**: tabela `planejamentos_voo` (migration 019, já aplicada em
+  produção), com `data`, `poligono` (GeoJSON) e `talhoes`
+  (`[{secao, talhao, fazenda}]`, calculado no aparelho ao salvar).
+- **Rotas**: `GET /mapas/:id/planejamentos` devolve só de hoje em diante
+  (fuso `America/Sao_Paulo`) pra quem vê o mapa. Criar, mudar a data e
+  apagar ficam em `/admin/...`, só pra admin, com auditoria em `logs`. O
+  router é montado **antes** do `adminRouter` (que intercepta tudo sem
+  prefixo).
+- **Frontend**:
+  - `lib/planejamentoVoo.js`: ponto no polígono, resumo por tipo e fazenda,
+    siglas FP/FS/SIS/ED/DA/AMB/EA/LT/PP, rótulos e cores por dia da semana;
+  - `lib/talhoesNoPoligono.js`: lê os pontos da camada `rotulos` do
+    `.pmtiles` de voos no zoom 13;
+  - `hooks/usePlanejamentos.js`: cópia no IndexedDB (store
+    `planejamentos_voo`, banco na versão 6), camadas
+    `planejamento-preenchimento`, `-contorno` e `-rotulo`, e o rascunho;
+  - `components/CartaoPlanejamento.jsx`.
+- **Desenho**: decisão do Leo, a ferramenta reaproveita a **medição de
+  área**. "Planejar" (só admin, só no mapa de voos) abre o Medir em modo
+  área; com 3 ou mais pontos aparece "Salvar como planejamento", que abre
+  o cartão com a data (padrão: amanhã) e a prévia.
+- **Clique no mapa**:
+  - o rótulo do dia sempre abre o resumo;
+  - dentro do polígono, o resumo abre fora de talhão pendente;
+  - talhão pendente abre o próprio talhão. Isso é necessário porque a
+    camada de voos cobre todos os talhões e sempre seria clicável.
+- **Ordem das camadas**: o rótulo do dia fica no fim da lista de
+  `trazerVoosParaCima` (`useApontamentoVoo.js`), senão as camadas de voo
+  remontadas o cobriam.
+
+Execução delegada:
+- tarefas 1, 3 e 5 (código no plano): executor gratuito (Nemotron),
+  aprovadas de primeira;
+- tarefas 2, 4 e 6: Haiku, aprovadas. A 6 já veio com o desenho via
+  medição. Um commit saiu assinado como Haiku e foi corrigido;
+- ajustes da regra de clique e da ordem do rótulo, revisão e testes: eu.
+
+Verificado com Playwright no dev local (backend na 3099), banco preparado
+e restaurado, em duas rodadas:
+- Parte 2, 12 checagens: rótulos, dia passado oculto, resumo, prioridade
+  do talhão, liga/desliga, cópia sem servidor;
+- Parte 3, 12 checagens: desenhar pela medição, prévia com "4 talhões na
+  área" e o nome real da fazenda, salvar sem internet com mensagem,
+  salvar, mudar a data, usuário comum sem "Planejar" mas vendo o polígono,
+  e apagar.
+
+Limitação do teste: no dev, a recarga com a rede desligada não carrega o
+app (não há service worker). Por isso o caso offline foi testado
+bloqueando só o backend; o offline completo não foi testado com o build
+de produção.
+
+**Ponte mais robusta: vigia, atalhos e fila quando cai (2026-10-22)**: a
+ponte caía com frequência. Causa principal, achada nesta data: a tarefa
+agendada "ao fazer login" nunca tinha sido criada (`schtasks /sc onlogon`
+exige administrador e respondia "Acesso negado"). A ponte só rodava
+enquanto alguém deixasse a janela aberta.
+
+- **No login, sem admin**: atalho na pasta Inicializar do usuário
+  (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\GeoMap
+  Ponte.cmd`), já criado no servidor geo.
+- **Vigia** (`automacao/ponte-dronemgmt/vigia.mjs` + `vigia.cmd`), agendado
+  a cada 5 min (`schtasks /sc minute /mo 5`, que não exige admin):
+  - a ponte grava `estado.json` (pid e última consulta OK) a cada consulta;
+  - o vigia lista os processos de verdade (`Get-CimInstance
+    Win32_Process`), o Node da ponte e o laço do `iniciar.cmd`;
+  - Node sem sinal de vida há mais de 3 min: encerra o Node e o laço
+    religa;
+  - nada rodando: abre o `iniciar.cmd`;
+  - nunca abre uma segunda ponte;
+  - `--reiniciar`: encerra tudo e abre uma ponte nova.
+- **Defeito achado testando com uma ponte falsa**: `spawn("cmd", ["/c",
+  "start", '"Título"', ...])` sem `windowsVerbatimArguments` escapa as
+  aspas e o `start` fica pendurado sem abrir nada. Pior, o processo
+  pendurado parecia "o laço", e o vigia nunca religava. Corrigido com a
+  linha de comando literal.
+- **Diagnóstico do portal**: resposta que não é do GeoMap (portal da rede,
+  erro do Render) é gravada em `portal-ultima-resposta.html`. Login
+  automático no portal ficou de fora: o TI não fornece conta de serviço e
+  usar a senha pessoal do Leo em texto puro não vale o risco.
+- **Atalhos** em `automacao/atalhos/` (só ASCII): Reiniciar ponte, Renovar
+  portal da rede, Rodar automacao agora, Ver log da ponte e Atualizar
+  GeoMap (`git pull` + `npm ci` se o `package-lock` mudar).
+- **App, com a ponte caída**:
+  - `POST /voos/apontamentos` responde 503 `{ponteDesligada: true}` antes
+    de tentar;
+  - se a ponte cai no meio, os itens restantes voltam em `adiados`;
+  - o app guarda na fila do aparelho (`ehErroTransitorio` em
+    `filaApontamentos.js`: sem status, 503, ou 502 com "ponte");
+  - reenvia a cada 3 min enquanto houver fila.
+
+Pendente: um atalho para "forçar atualização de usuário" do login pelo
+Hub Geotech, que espera 1h. Fica com a sessão do `feat/login-hub`.
+
+Execução:
+- sinal de vida, vigia e atalhos: executor gratuito, com 3 defeitos
+  corrigidos por mim na revisão (pontes duplicadas, `start` com aspas
+  escapadas, caracteres fora do ASCII);
+- fila com a ponte caída: Haiku, aprovado.
+
+Testes:
+- vigia com ponte falsa: sempre 1 ponte e 1 laço;
+- Playwright: 503 → "Guardado no aparelho" → ponte volta → fila enviada
+  e vazia;
+- 94 do backend e 81 do frontend passando.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

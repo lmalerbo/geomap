@@ -9,6 +9,7 @@ import MenuLateral from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
 import { Campo, Concluido, Esboco } from "../components/movimento/index.js";
+import { usePodeVerIndicadores } from "../hooks/usePodeVerIndicadores.js";
 
 function IconeMenu() {
   return (
@@ -22,6 +23,7 @@ function IconeMenu() {
 
 export default function Inicio() {
   const { sessao, sair } = useAuth();
+  const podeVerIndicadores = usePodeVerIndicadores(sessao);
   const navigate = useNavigate();
   const pinsPendentes = usePinsPendentes();
   const filaApontamentos = useApontamentosNaFila();
@@ -133,6 +135,7 @@ export default function Inicio() {
         aberto={menuAberto}
         aoFechar={() => setMenuAberto(false)}
         ehAdmin={sessao.usuario.papel === "admin"}
+        mostrarIndicadores={podeVerIndicadores}
         aoSair={handleSair}
       />
 

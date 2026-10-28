@@ -2,13 +2,14 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { exigirAutenticacao } from "../middleware/auth.js";
 import { chamarApi } from "../lib/dronemgmt.js";
+import { ponte } from "../lib/ponteDroneMgmt.js";
 import { usuarioTemPermissaoMapa } from "../lib/permissoes.js";
-import {
-  CONTROL_STATUS_A_VOAR,
-  motivoParaNaoApontar,
-  estagioValidoParaFalhasSoca,
-  VERSAO_REGRA_PENDENTES,
-} from "../lib/regrasApontamento.js";
+import { motivoParaNaoApontar, VERSAO_REGRA_PENDENTES } from "../lib/regrasApontamento.js";
+import { contarRegistros, buscarTodosRegistros } from "../lib/consultaDroneMgmt.js";
+import { filtroPendentesDroneMgmt, filtrarEMapearPendentes, cachePendentesVale } from "../lib/pendentesVoo.js";
+import { calcularIndicadores, lerPeriodo, hojeLocal } from "../lib/indicadoresVoo.js";
+import { obterDadosIndicadores } from "../lib/fonteIndicadoresVoo.js";
+import { lerNomesPilotos, pilotoDoUsuario } from "../lib/nomesPilotos.js";
 
 // Proxy pra integração DroneManagement (apontamento de voo pelo mapa) —
 // ver docs/INTEGRACAO_DRONEMANAGEMENT.md pro contrato completo da API de
@@ -21,58 +22,6 @@ export const voosRouter = Router();
 voosRouter.use(exigirAutenticacao);
 
 const UNIT_ID = process.env.DRONEMGMT_UNIT_ID || "";
-
-// Critério de "pendente pra voar de verdade" — pedido explícito do Leo
-// (2026-09-22), depois de reparar que talhões com Verificar Porte
-// "Aguardar porte"/"Verificar porte" (valores 2/3) apareciam no mapa como
-// se estivessem prontos, mesmo Status já mostrando "A voar": esses dois
-// valores só significam "na fila, esperando o porte da cana", não "pode
-// voar agora" — só 4 (Voar), 5 (Voo liberado) e 6 (Voar urgente) são de
-// verdade acionáveis. Restrito ainda mais aqui (só 5/6, sem o 4) porque
-// foi exatamente o que o Leo pediu ao descrever a regra.
-const VERIFY_FLIGHT_SIZE_PRONTOS = [5, 6]; // "Verificar Porte" = Voo liberado, Voar urgente
-
-// Falhas Soca tem uma trava extra: só considerar pendente quem está nos
-// estágios permitidos pra safra do talhão (layerDetails.harvest +
-// layerDetails.internship) — ver estagioValidoParaFalhasSoca em
-// lib/regrasApontamento.js. Antes era só 02º/03º Corte em qualquer safra.
-const FINALIDADE_FALHAS_SOCA = "Falhas Soca";
-
-// Falhas Soca também não voa em área de fornecedor (Propriedade =
-// layerDetails.transferProperty) — pedido do Leo (2026-09-24), mesmo
-// critério do script de limpeza _cancelar_fornecedores_soca.mjs. Precisa
-// estar aqui também porque o DroneManagement reagenda sozinho o que foi
-// cancelado. Só vale pra Falhas Soca: Falhas Plantio voa em fornecedor
-// de verdade.
-const PROPRIEDADES_FORNECEDOR = new Set(["FORNECEDOR", "FORNEC. SUBPARCERIA", "FORNECEDOR TROCA"]);
-
-const TAMANHO_PAGINA = 500;
-
-function mapearRegistro(r) {
-  return {
-    id: r.id,
-    // Nome do projeto/campanha de voo (ex: "Falhas Plantio", "Projeto
-    // Plantio") — vem de flightProjectDetails porque pedimos
-    // expand=flightProject na query acima; sem isso só teríamos o uuid
-    // de flightProject, inútil pra mostrar/filtrar na tela.
-    projeto: r.flightProjectDetails?.description || null,
-    secao: r.section,
-    talhao: r.landPlot,
-    controlStatus: r.controlStatus,
-    verifyFlightSize: r.verifyFlightSize,
-    // Área do talhão em hectares (layerDetails.totalArea, vem de
-    // expand=layer acima) — pedido do Leo (2026-08-20) pra mostrar
-    // hectares pendentes em vez de contagem de talhões no painel do
-    // mapa (ver useApontamentoVoo.js).
-    areaHa: r.layerDetails?.totalArea ?? null,
-    // Área de fornecedor (mesmo PROPRIEDADES_FORNECEDOR usado acima pra
-    // excluir Falhas Soca) — aqui em TODO registro, não só Falhas Soca,
-    // porque Falhas Plantio voa em fornecedor de verdade e só precisa
-    // dessa informação pra se destacar com outra cor no mapa (pedido do
-    // Leo, 2026-09-29), não pra ser filtrado.
-    fornecedor: PROPRIEDADES_FORNECEDOR.has(r.layerDetails?.transferProperty),
-  };
-}
 
 // Lista os talhões pendentes de voo pra unidade configurada
 // (DRONEMGMT_UNIT_ID) — devolve só os campos que o mapa precisa pra
@@ -98,74 +47,27 @@ voosRouter.get("/voos/pendentes/:mapaId", async (req, res) => {
     return res.status(404).json({ erro: "mapa não encontrado" });
   }
 
-  const filtro = JSON.stringify({
-    $and: [
-      { unitId: `UUID('${UNIT_ID}')` },
-      { controlStatus: CONTROL_STATUS_A_VOAR },
-      { $or: VERIFY_FLIGHT_SIZE_PRONTOS.map((v) => ({ verifyFlightSize: v })) },
-    ],
-  });
-
-  async function buscarPagina(pagina, tamanhoPagina = TAMANHO_PAGINA) {
-    const resp = await chamarApi("/portal/api/v1/gateway/formbuilder/formdata/query", {
-      params: { pageNumber: pagina, pageSize: tamanhoPagina, filter: filtro, expand: "layer,flightProject" },
-    });
-    if (!resp.ok) throw new Error(`DroneManagement respondeu ${resp.status}`);
-    return resp.json();
-  }
-
+  const filtro = filtroPendentesDroneMgmt(UNIT_ID);
   const forcar = req.query.forcar === "1";
 
   try {
-    const checagem = await buscarPagina(1, 1);
-    const countAtual = checagem.count || 0;
+    const countAtual = await contarRegistros(filtro);
 
     if (!forcar) {
       const { rows } = await pool.query(
-        "SELECT count_dronemgmt, registros FROM voos_pendentes_cache WHERE mapa_id = $1",
+        "SELECT count_dronemgmt, registros, atualizado_em FROM voos_pendentes_cache WHERE mapa_id = $1",
         [mapaId]
       );
-      // Cache novo guarda {regra, itens}; o formato antigo (array puro) ou
-      // uma regra diferente da atual contam como cache vencido.
-      const cache = rows[0]?.registros;
-      if (rows[0]?.count_dronemgmt === countAtual && cache?.regra === VERSAO_REGRA_PENDENTES) {
-        return res.json(cache.itens);
+      // Cache novo guarda {regra, itens}; o formato antigo (array puro), uma
+      // regra diferente da atual ou um cache com mais de 2 min contam como
+      // vencido (ver cachePendentesVale).
+      if (cachePendentesVale({ cache: rows[0], countAtual, regra: VERSAO_REGRA_PENDENTES })) {
+        return res.json(rows[0].registros.itens);
       }
     }
 
-    // Página 1 primeiro (sozinha) pra saber `count`... já sabemos (acima),
-    // mas precisamos dos registros de verdade agora, não só count.
-    // Concorrência 5 nas seguintes: troca N idas-e-voltas sequenciais por
-    // ⌈N/5⌉, mesma técnica já usada nos scripts de limpeza desta sessão
-    // (ver backend/_achar_voos_duplicados.mjs) — o DroneManagement
-    // aguentou concorrência 8 sem erro nesses scripts.
-    const primeira = await buscarPagina(1);
-    const registrosBrutos = primeira.value || [];
-    const count = primeira.count || 0;
-    const totalPaginas = Math.ceil(count / TAMANHO_PAGINA);
-    const CONCORRENCIA = 5;
-    for (let inicio = 2; inicio <= totalPaginas; inicio += CONCORRENCIA) {
-      const lote = [];
-      for (let p = inicio; p < inicio + CONCORRENCIA && p <= totalPaginas; p++) lote.push(buscarPagina(p));
-      const resultados = await Promise.all(lote);
-      for (const dados of resultados) registrosBrutos.push(...(dados.value || []));
-    }
-
-    // Falhas Soca fora dos estágios permitidos pra safra ou em área de
-    // fornecedor não conta como pendente de verdade (ver
-    // estagioValidoParaFalhasSoca e PROPRIEDADES_FORNECEDOR acima) — as
-    // outras finalidades não têm essas travas extras.
-    const registrosFiltrados = registrosBrutos.filter((r) => {
-      if (r.flightProjectDetails?.description === FINALIDADE_FALHAS_SOCA) {
-        return (
-          estagioValidoParaFalhasSoca(r.layerDetails) &&
-          !PROPRIEDADES_FORNECEDOR.has(r.layerDetails?.transferProperty)
-        );
-      }
-      return true;
-    });
-
-    const registros = registrosFiltrados.map(mapearRegistro);
+    const { count, registros: registrosBrutos } = await buscarTodosRegistros(filtro);
+    const registros = filtrarEMapearPendentes(registrosBrutos);
     await pool.query(
       `INSERT INTO voos_pendentes_cache (mapa_id, count_dronemgmt, registros, atualizado_em)
        VALUES ($1, $2, $3, now())
@@ -215,9 +117,19 @@ voosRouter.post("/voos/apontamentos", async (req, res) => {
     return res.status(400).json({ erro: "seu usuário não está associado a um piloto do DroneManagement" });
   }
 
+  // Ponte desligada: nada é enviado ao DroneManagement; o app guarda o
+  // lote na fila do aparelho e reenvia quando a ponte voltar.
+  if (process.env.DM_VIA_PONTE === "1" && !ponte.estado().conectada) {
+    return res.status(503).json({
+      erro: "A ponte com o DroneManagement está desligada; o apontamento fica guardado e é enviado quando ela voltar.",
+      ponteDesligada: true,
+    });
+  }
+
   const dataIso = new Date(dataVoo).toISOString();
   const sucesso = [];
   const falha = [];
+  const adiados = [];
 
   for (const registro of registros) {
     try {
@@ -239,7 +151,10 @@ voosRouter.post("/voos/apontamentos", async (req, res) => {
       const atual = await getResp.json();
       const motivo = motivoParaNaoApontar(atual);
       if (motivo) {
-        falha.push({ id: registro.id, erro: motivo });
+        // `resolvido`: o talhão já não está pendente (outra pessoa apontou,
+        // ou um apontamento anterior gravou mas o app não soube) — o app
+        // tira da lista em vez de continuar mostrando como pendente.
+        falha.push({ id: registro.id, erro: motivo, resolvido: true });
         continue;
       }
       const { id: _id, isEnabled, userId, createdUtc, modifiedUtc, ...camposEditaveis } = atual;
@@ -274,9 +189,71 @@ voosRouter.post("/voos/apontamentos", async (req, res) => {
       );
       sucesso.push(registro.id);
     } catch (err) {
+      if (err.name === "ErroPonte") {
+        // A ponte caiu no meio do lote: este item e os seguintes não foram
+        // tentados e voltam pra fila do aparelho (não são falha definitiva).
+        const i = registros.indexOf(registro);
+        adiados.push(...registros.slice(i).map((r) => r.id));
+        break;
+      }
       falha.push({ id: registro.id, erro: err.message });
     }
   }
 
-  res.json({ sucesso, falha });
+  res.json({ sucesso, falha, adiados });
+});
+
+// --- Indicadores de voo (página /indicadores) ---
+// Ver docs/superpowers/specs/2026-10-01-indicadores-voo-design.md. Admin
+// vê tudo e escolhe o piloto; piloto (linha em pilotos_dronemgmt) vê o
+// painel da equipe + o próprio rendimento, nunca os colegas um a um.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+voosRouter.get("/voos/indicadores/acesso", async (req, res) => {
+  const ehAdmin = req.usuarioPapel === "admin";
+  const ehPiloto = !!(await pilotoDoUsuario(req.usuarioId));
+  res.json({ podeVer: ehAdmin || ehPiloto, ehAdmin, ehPiloto });
+});
+
+voosRouter.get("/voos/indicadores", async (req, res) => {
+  const hoje = hojeLocal();
+  const periodo = lerPeriodo(req.query, hoje);
+  if (periodo.erro) return res.status(400).json({ erro: periodo.erro });
+
+  const ehAdmin = req.usuarioPapel === "admin";
+  const meuPiloto = await pilotoDoUsuario(req.usuarioId);
+  if (!ehAdmin && !meuPiloto) {
+    return res.status(403).json({ erro: "indicadores disponíveis só para pilotos e administradores" });
+  }
+
+  let pilotoId = meuPiloto;
+  if (ehAdmin) {
+    const pedido = req.query.piloto;
+    if (pedido && !UUID_RE.test(pedido)) return res.status(400).json({ erro: "piloto inválido" });
+    pilotoId = pedido ? pedido.toLowerCase() : null;
+  }
+
+  let dados;
+  try {
+    dados = await obterDadosIndicadores({ forcar: req.query.forcar === "1" });
+  } catch (err) {
+    console.error("Indicadores de voo: falha ao consultar o DroneManagement:", err);
+    return res.status(502).json({ erro: err.name === "ErroPonte" ? err.message : "Não foi possível consultar o DroneManagement agora." });
+  }
+
+  const nomesPilotos = await lerNomesPilotos();
+  res.json({
+    ...calcularIndicadores({
+      realizados: dados.realizados,
+      pendentes: dados.pendentes,
+      ...periodo,
+      hoje,
+      pilotoId,
+      nomesPilotos,
+      incluirPorPiloto: ehAdmin,
+    }),
+    atualizadoEm: dados.atualizadoEm,
+    desatualizado: dados.desatualizado,
+  });
 });

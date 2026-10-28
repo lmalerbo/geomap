@@ -7,28 +7,18 @@ async function tratarResposta(resp) {
     // A fila offline de pins (lib/syncPins.js) decide entre "tentar de novo"
     // e "descartar" pelo status — erro de rede não tem status.
     erro.status = resp.status;
+    erro.precisaTrocarSenha = corpo.precisaTrocarSenha === true;
     throw erro;
   }
   return resp;
 }
 
-export async function login(email, senha) {
-  const resp = await fetch(`${API_URL}/login`, {
+// Login único: troca o token do Hub pelo token do GeoMap.
+export async function entrarComHub(accessToken) {
+  const resp = await fetch(`${API_URL}/auth/hub`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, senha }),
-  });
-  await tratarResposta(resp);
-  return resp.json();
-}
-
-// Auto-atendido — mesma rota serve tanto o 1º login (senha temporária de
-// criação) quanto depois de um reset feito pelo admin.
-export async function definirSenha(token, novaSenha) {
-  const resp = await fetch(`${API_URL}/senha`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ novaSenha }),
+    body: JSON.stringify({ accessToken }),
   });
   await tratarResposta(resp);
   return resp.json();
@@ -437,6 +427,68 @@ export async function apontarVoos(token, { mapaId, dataVoo, registros }) {
   return resp.json();
 }
 
+// Planejamento de voos no mapa (ver backend/src/routes/planejamentos.js).
+// Leitura pra quem vê o mapa; escrita só admin.
+export async function buscarPlanejamentos(token, mapaId) {
+  const resp = await fetch(`${API_URL}/mapas/${mapaId}/planejamentos`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return (await resp.json()).planejamentos;
+}
+
+export async function criarPlanejamento(token, mapaId, corpo) {
+  const resp = await fetch(`${API_URL}/admin/mapas/${mapaId}/planejamentos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(corpo),
+  });
+  await tratarResposta(resp);
+  return (await resp.json()).planejamento;
+}
+
+export async function alterarDataPlanejamento(token, id, data) {
+  const resp = await fetch(`${API_URL}/admin/planejamentos/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ data }),
+  });
+  await tratarResposta(resp);
+  return (await resp.json()).planejamento;
+}
+
+export async function apagarPlanejamento(token, id) {
+  const resp = await fetch(`${API_URL}/admin/planejamentos/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return true;
+}
+
+// Indicadores de voo (página /indicadores) — ver backend/src/routes/voos.js.
+export async function buscarAcessoIndicadores(token) {
+  const resp = await fetch(`${API_URL}/voos/indicadores/acesso`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function buscarIndicadoresVoo(token, { de, ate, piloto, forcar }) {
+  const qs = new URLSearchParams({ de, ate });
+  if (piloto) qs.set("piloto", piloto);
+  if (forcar) qs.set("forcar", "1");
+  const resp = await fetch(`${API_URL}/voos/indicadores?${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
 // --- Anotações (pins) do mapa — ver lib/syncPins.js ---
 
 export async function listarPinsRemoto(token, mapaId, desde) {
@@ -463,6 +515,46 @@ export async function removerPinRemoto(token, mapaId, id, removidoEm) {
   const resp = await fetch(`${API_URL}/mapas/${mapaId}/pins/${id}?removidoEm=${encodeURIComponent(removidoEm)}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+// --- Administração, redesenho fase 5 ---
+
+export async function buscarVisaoGeralAdmin(token) {
+  const resp = await fetch(`${API_URL}/admin/visao-geral`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function listarVersoesCamadaAdmin(token, camadaId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/versoes`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function restaurarVersaoCamadaAdmin(token, camadaId, versaoId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/versoes/${versaoId}/restaurar`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+// login = usuário do DroneManagement (ex.: lmalerbo); vazio desvincula.
+export async function vincularPilotoAdmin(token, usuarioId, login) {
+  const resp = await fetch(`${API_URL}/admin/usuarios/${usuarioId}/piloto`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ login }),
   });
   await tratarResposta(resp);
   return resp.json();

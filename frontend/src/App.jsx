@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { JobsProvider } from "./context/JobsContext.jsx";
 import AvisoPinsDescartados from "./components/AvisoPinsDescartados.jsx";
 import Campo from "./components/movimento/Campo.jsx";
+import { importarComRecarga } from "./lib/versaoNova.js";
 
 // Code-splitting por rota (Lighthouse apontou ~230 KiB de JS não usado no
 // primeiro load — em boa parte MapLibre GL + libs de importação de
@@ -11,16 +12,19 @@ import Campo from "./components/movimento/Campo.jsx";
 // telas de admin). Cada import() vira um chunk próprio no build do Vite —
 // só baixa quando a rota é acessada de verdade, em vez de tudo junto no
 // bundle principal.
-const Login = lazy(() => import("./pages/Login.jsx"));
-const PrimeiroAcesso = lazy(() => import("./pages/PrimeiroAcesso.jsx"));
-const Inicio = lazy(() => import("./pages/Inicio.jsx"));
-const Mapa = lazy(() => import("./pages/Mapa.jsx"));
-const AdminCamadas = lazy(() => import("./pages/AdminCamadas.jsx"));
-const AdminMapas = lazy(() => import("./pages/AdminMapas.jsx"));
-const AdminUsuarios = lazy(() => import("./pages/AdminUsuarios.jsx"));
-const AdminEstatisticas = lazy(() => import("./pages/AdminEstatisticas.jsx"));
-const Ajuda = lazy(() => import("./pages/Ajuda.jsx"));
-const DefinirSenha = lazy(() => import("./pages/DefinirSenha.jsx"));
+const Login = lazy(importarComRecarga(() => import("./pages/Login.jsx")));
+const PrimeiroAcesso = lazy(importarComRecarga(() => import("./pages/PrimeiroAcesso.jsx")));
+const Inicio = lazy(importarComRecarga(() => import("./pages/Inicio.jsx")));
+const Mapa = lazy(importarComRecarga(() => import("./pages/Mapa.jsx")));
+const AdminCamadas = lazy(importarComRecarga(() => import("./pages/AdminCamadas.jsx")));
+const AdminMapas = lazy(importarComRecarga(() => import("./pages/AdminMapas.jsx")));
+const AdminUsuarios = lazy(importarComRecarga(() => import("./pages/AdminUsuarios.jsx")));
+const AdminEstatisticas = lazy(importarComRecarga(() => import("./pages/AdminEstatisticas.jsx")));
+const AdminVisaoGeral = lazy(importarComRecarga(() => import("./pages/AdminVisaoGeral.jsx")));
+const LayoutAdmin = lazy(importarComRecarga(() => import("./components/LayoutAdmin.jsx")));
+const Ajuda = lazy(importarComRecarga(() => import("./pages/Ajuda.jsx")));
+const Indicadores = lazy(importarComRecarga(() => import("./pages/Indicadores.jsx")));
+const DefinirSenha = lazy(importarComRecarga(() => import("./pages/DefinirSenha.jsx")));
 
 function CarregandoRota() {
   return (
@@ -48,11 +52,10 @@ function RotaAdmin({ children }) {
   return sessao.usuario.papel === "admin" ? children : <Navigate to="/inicio" replace />;
 }
 
-// A própria tela de definir senha também exige sessão (o token da senha
-// temporária), mas não pode reentrar em si mesma pelo gate acima.
+// Login único: a própria tela de definir senha se resolve sozinha (sem sessão
+// do Hub ela manda para /login), então não passa pelo gate de precisaTrocarSenha.
 function RotaDefinirSenha({ children }) {
-  const { sessao } = useAuth();
-  return sessao ? children : <Navigate to="/login" replace />;
+  return children;
 }
 
 // key={mapaId}: força o componente a remontar do zero ao trocar de mapa
@@ -105,40 +108,28 @@ export default function App() {
                   </RotaProtegida>
                 }
               />
-              {/* Tela-grade /admin foi substituída pelo menu lateral (MenuLateral.jsx,
-                  acionado do cabeçalho de Inicio.jsx/Mapa.jsx) — link direto pra
-                  /admin cai na primeira seção. */}
-              <Route path="/admin" element={<Navigate to="/admin/mapas" replace />} />
+              {/* Administração (redesenho, fase 5): menu lateral fixo do
+                  LayoutAdmin em volta de todas as telas; /admin é a Visão geral. */}
               <Route
-                path="/admin/camadas"
+                path="/admin"
                 element={
                   <RotaAdmin>
-                    <AdminCamadas />
+                    <LayoutAdmin />
                   </RotaAdmin>
                 }
-              />
+              >
+                <Route index element={<AdminVisaoGeral />} />
+                <Route path="mapas" element={<AdminMapas />} />
+                <Route path="camadas" element={<AdminCamadas />} />
+                <Route path="usuarios" element={<AdminUsuarios />} />
+                <Route path="estatisticas" element={<AdminEstatisticas />} />
+              </Route>
               <Route
-                path="/admin/mapas"
+                path="/indicadores"
                 element={
-                  <RotaAdmin>
-                    <AdminMapas />
-                  </RotaAdmin>
-                }
-              />
-              <Route
-                path="/admin/usuarios"
-                element={
-                  <RotaAdmin>
-                    <AdminUsuarios />
-                  </RotaAdmin>
-                }
-              />
-              <Route
-                path="/admin/estatisticas"
-                element={
-                  <RotaAdmin>
-                    <AdminEstatisticas />
-                  </RotaAdmin>
+                  <RotaProtegida>
+                    <Indicadores />
+                  </RotaProtegida>
                 }
               />
               <Route

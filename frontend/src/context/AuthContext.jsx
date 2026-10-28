@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback } from "react";
+import { hub } from "../lib/hub.js";
 
 const AuthContext = createContext(null);
 
@@ -39,6 +40,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const sair = useCallback(() => {
+    // scope local: sair do GeoMap não derruba a sessão do Hub em outros aparelhos (sem teste automatizado).
+    hub.auth.signOut({ scope: "local" }).catch(() => {});
     localStorage.removeItem("geoportal_sessao");
     setSessao(null);
   }, []);

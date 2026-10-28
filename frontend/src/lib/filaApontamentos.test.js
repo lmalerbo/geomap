@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { criarFilaApontamentos } from "./filaApontamentos.js";
+import { criarFilaApontamentos, ehErroTransitorio } from "./filaApontamentos.js";
 
 function criarStore(iniciais = []) {
   const lotes = new Map(iniciais.map((l) => [l.id, { ...l }]));
@@ -80,6 +80,48 @@ describe("enviarPendentes", () => {
     const api = { apontar: vi.fn() };
     await criarFilaApontamentos({ api, store }).enviarPendentes("tk");
     expect(api.apontar).not.toHaveBeenCalled();
+  });
+});
+
+describe("ponte do DroneManagement desligada", () => {
+  it("503 mantém o lote pendente e para a fila, sem recusar", async () => {
+    const store = criarStore([lote("L1", [reg("a")]), lote("L2", [reg("b")])]);
+    const aoMudar = vi.fn();
+    const api = { apontar: vi.fn(async () => { throw erroHttp(503, "ponte desligada"); }) };
+    const r = await criarFilaApontamentos({ api, store, aoMudar }).enviarPendentes("tk");
+    expect(r).toEqual({ enviados: 0, restantes: true, recusados: 0 });
+    expect(api.apontar).toHaveBeenCalledTimes(1);
+    expect([...store.lotes.values()].every((l) => l.estado === "pendente")).toBe(true);
+    expect(aoMudar).not.toHaveBeenCalled();
+  });
+
+  it("400 continua virando recusado e não para a fila por si só", async () => {
+    const store = criarStore([lote("L1", [reg("a")])]);
+    const api = { apontar: vi.fn(async () => { throw erroHttp(400, "dados inválidos"); }) };
+    const r = await criarFilaApontamentos({ api, store }).enviarPendentes("tk");
+    expect(r.restantes).toBe(false);
+    expect(r.recusados).toBe(1);
+    expect(store.lotes.get("L1").estado).toBe("recusado");
+  });
+});
+
+describe("ehErroTransitorio", () => {
+  it("falha de rede (sem status HTTP) é transitória", () => {
+    expect(ehErroTransitorio(new TypeError("Failed to fetch"))).toBe(true);
+  });
+
+  it("503 é transitório", () => {
+    expect(ehErroTransitorio(erroHttp(503, "ponte desligada"))).toBe(true);
+  });
+
+  it("502 com 'ponte' na mensagem é transitório, sem diferenciar maiúsculas", () => {
+    expect(ehErroTransitorio(erroHttp(502, "A PONTE não respondeu"))).toBe(true);
+    expect(ehErroTransitorio(erroHttp(502, "ponte do DroneManagement"))).toBe(true);
+  });
+
+  it("502 sem 'ponte' e 400 não são transitórios", () => {
+    expect(ehErroTransitorio(erroHttp(502, "bad gateway"))).toBe(false);
+    expect(ehErroTransitorio(erroHttp(400, "ponte"))).toBe(false);
   });
 });
 

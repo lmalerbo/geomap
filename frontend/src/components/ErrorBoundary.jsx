@@ -1,4 +1,9 @@
 import { Component } from "react";
+import { recarregarPraVersaoNova } from "../lib/versaoNova.js";
+
+// Arquivo da versão anterior que não existe mais (o app foi atualizado com a
+// aba aberta). Mensagem do Chrome, do Safari e do Firefox.
+const ERRO_VERSAO_ANTIGA = /dynamically imported module|Importing a module script failed|error loading dynamically imported module/i;
 
 // Error boundary só existe como componente de classe em React — não tem
 // equivalente em hook. Sem isso, um erro de render não tratado (bug,
@@ -15,6 +20,7 @@ export class ErrorBoundary extends Component {
 
   componentDidCatch(erro, info) {
     console.error("Erro não tratado:", erro, info);
+    if (ERRO_VERSAO_ANTIGA.test(erro?.message || "")) recarregarPraVersaoNova();
   }
 
   render() {

@@ -8,10 +8,16 @@ const STORE_PINS = "pins";
 const STORE_PINS_CURSOR = "pins_cursor";
 const STORE_FILA_APONTAMENTOS = "apontamentos_fila";
 const STORE_PENDENCIAS_VOO = "pendencias_voo";
+const STORE_PLANEJAMENTOS = "planejamentos_voo";
 
 function abrirDb() {
-  return openDB(DB_NAME, 5, {
+  return openDB(DB_NAME, 6, {
     upgrade(db, versaoAnterior) {
+      if (versaoAnterior < 6) {
+        // Planejamento de voos (ver usePlanejamentos): cópia local por mapa
+        // (1 registro por mapaId), pra o mapa mostrar os polígonos sem sinal.
+        db.createObjectStore(STORE_PLANEJAMENTOS, { keyPath: "mapaId" });
+      }
       if (versaoAnterior < 1) {
         db.createObjectStore(STORE_CAMADAS, { keyPath: "id" });
       }
@@ -76,16 +82,29 @@ export async function buscarPendenciasVooLocal(mapaId) {
   return db.get(STORE_PENDENCIAS_VOO, mapaId);
 }
 
+// Cópia local dos planejamentos de voo de um mapa (ver usePlanejamentos) —
+// `itens` é a lista que veio do servidor (já sem os dias passados).
+export async function salvarPlanejamentosLocal(mapaId, itens) {
+  const db = await abrirDb();
+  await db.put(STORE_PLANEJAMENTOS, { mapaId, itens, salvoEm: new Date().toISOString() });
+}
+
+export async function buscarPlanejamentosLocal(mapaId) {
+  const db = await abrirDb();
+  return db.get(STORE_PLANEJAMENTOS, mapaId);
+}
+
 // Ao sair da conta: a fila guarda apontamentos em nome de quem saiu —
 // mandar com o token do próximo usuário seria registrar voo no nome errado
 // (mesmo motivo de limparPinsLocais). As pendências guardadas vão junto
 // (o próximo usuário pode nem ter acesso ao mapa de voos).
 export async function limparApontamentosLocais() {
   const db = await abrirDb();
-  const tx = db.transaction([STORE_FILA_APONTAMENTOS, STORE_PENDENCIAS_VOO], "readwrite");
+  const tx = db.transaction([STORE_FILA_APONTAMENTOS, STORE_PENDENCIAS_VOO, STORE_PLANEJAMENTOS], "readwrite");
   await Promise.all([
     tx.objectStore(STORE_FILA_APONTAMENTOS).clear(),
     tx.objectStore(STORE_PENDENCIAS_VOO).clear(),
+    tx.objectStore(STORE_PLANEJAMENTOS).clear(),
     tx.done,
   ]);
 }
