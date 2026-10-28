@@ -3240,6 +3240,30 @@ Testes:
   e vazia;
 - 94 do backend e 81 do frontend passando.
 
+**Movimento das esperas (2026-10-27/28)**: toda espera do app ganhou
+animação na linguagem do hub-geotech (campo de 4 barrinhas no lugar do
+spinner, botão ocupado com ✓/✕, progresso, esboço com cascata, selo de
+concluído e o voo do drone), nos verdes do GeoMap e sem Lordicon. Branch
+`feat/movimento-esperas`, em 5 sessões. Decisões, peças e o que mudou em
+cada tela: `docs/movimento-esperas.md`. Prévia aprovada pelo Leo:
+https://claude.ai/artifact/Py4PqwrK5LQj4zMhuvpeeS.
+
+- **Biblioteca** em `frontend/src/components/movimento/` (`Campo`,
+  `useOcupado`, `Progresso`, `Esboco`, `Concluido`, `Voo`), CSS em
+  `lib/movimento.css`, com stories no Storybook (`Movimento/*`).
+- **Regra para botão novo**: use `useOcupado` (`propsBotao` + `conteudo`) e
+  rode o que muda a tela (fechar barra, recarregar lista, trocar seleção)
+  só **depois** de `await fim(true)`. Senão o botão some antes e o ✓ nem
+  aparece. Carregamento de lista ou tela: `<Esboco carregando>`. Não use
+  `.spinner`: o CSS dele foi apagado.
+- **Menos movimento** (`prefers-reduced-motion`): estados parados, sem
+  cascata. Cor, texto, ✓ e ✕ continuam.
+- **Achado sem correção**: no teste local, o mapa de voos não pede
+  `/voos/pendentes` quando a camada de voos aparece. O efeito de
+  `useApontamentoVoo.js` que depende de `voosInfo?.id` não roda de novo,
+  embora o render já veja o id. Acontece igual sem as mudanças deste branch.
+  Investigar à parte, conferindo se acontece em produção.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { IconeFechar } from "./IconesAcao.jsx";
+import { useOcupado } from "./movimento/index.js";
 
 // Data local (não UTC) no formato do <input type="date"> — new Date()
 // .toISOString() daria o dia seguinte depois das 21h no horário de Brasília.
@@ -29,7 +30,6 @@ export default function BarraApontamento({ apontamento }) {
     fecharEscolha,
     dataVoo,
     setDataVoo,
-    enviando,
     confirmarLote,
     cancelarModo,
     online,
@@ -41,9 +41,7 @@ export default function BarraApontamento({ apontamento }) {
   const itens = [...selecionados.values()];
   const n = itens.length;
   const ha = itens.reduce((s, r) => s + (r.areaHa || 0), 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
-  const rotuloConfirmar = enviando
-    ? "Enviando…"
-    : n === 0
+  const rotuloConfirmar = n === 0
       ? "Toque nos talhões no mapa"
       : online
         ? n === 1
@@ -52,6 +50,14 @@ export default function BarraApontamento({ apontamento }) {
         : n === 1
           ? "Guardar 1 apontamento"
           : `Guardar ${n} apontamentos`;
+
+  const confirmar = useOcupado();
+  function confirmarComBotao() {
+    const fim = confirmar.iniciar({ texto: online ? "Enviando…" : "Guardando…" });
+    // fim() só vale uma vez: confirmarLote avisa o resultado antes de fechar
+    // a barra; se ele terminar ou falhar sem ter avisado, nada foi enviado (✕).
+    confirmarLote({ aoConcluir: fim }).then(() => fim(false), () => fim(false));
+  }
 
   return (
     <>
@@ -170,13 +176,14 @@ export default function BarraApontamento({ apontamento }) {
         </div>
 
         <button
-          type="button"
-          className="botao-confirmar-apontamento"
-          onClick={confirmarLote}
-          disabled={n === 0 || enviando}
+          {...confirmar.propsBotao({
+            type: "button",
+            className: "botao-confirmar-apontamento",
+            onClick: confirmarComBotao,
+            disabled: n === 0,
+          })}
         >
-          {enviando && <span className="spinner" aria-hidden="true" />}
-          {rotuloConfirmar}
+          {confirmar.conteudo(rotuloConfirmar)}
         </button>
       </div>
     </>

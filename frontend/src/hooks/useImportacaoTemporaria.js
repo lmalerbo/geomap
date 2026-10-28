@@ -33,7 +33,6 @@ function expressaoOuPadrao(propriedade, padrao) {
 export function useImportacaoTemporaria(mapRef, mapaPronto, mapaId) {
   const [arquivoTemporario, setArquivoTemporario] = useState(null); // {nome, geojson} | null
   const [temporariaVisivel, setTemporariaVisivel] = useState(true);
-  const [importandoArquivo, setImportandoArquivo] = useState(false);
   const [erroImportacao, setErroImportacao] = useState(null);
   const [carregandoPersistido, setCarregandoPersistido] = useState(true);
 
@@ -135,11 +134,12 @@ export function useImportacaoTemporaria(mapRef, mapaPronto, mapaId) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [temporariaVisivel]);
 
+  // Resolve true quando leu o arquivo e false quando falhou (o botão termina
+  // em ✓ ou ✕); undefined quando nenhum arquivo foi escolhido.
   async function aoImportarArquivo(e) {
     const file = e.target.files?.[0];
     e.target.value = ""; // permite reimportar o mesmo arquivo depois de remover
-    if (!file) return;
-    setImportandoArquivo(true);
+    if (!file) return undefined;
     setErroImportacao(null);
     try {
       const resultado = await importarArquivoTemporario(file);
@@ -148,10 +148,10 @@ export function useImportacaoTemporaria(mapRef, mapaPronto, mapaId) {
       if (Number.isFinite(mapaId)) {
         await salvarArquivoImportado(mapaId, resultado.nome, resultado.geojson, true);
       }
+      return true;
     } catch (err) {
       setErroImportacao(err.message);
-    } finally {
-      setImportandoArquivo(false);
+      return false;
     }
   }
 
@@ -177,7 +177,6 @@ export function useImportacaoTemporaria(mapRef, mapaPronto, mapaId) {
     arquivoTemporario,
     temporariaVisivel,
     setTemporariaVisivel,
-    importandoArquivo,
     erroImportacao,
     aoImportarArquivo,
     removerArquivoTemporario,

@@ -118,10 +118,11 @@ escolhas em `lib/jobsConversao.js` (sem React, com testes).
   antigo "Convertendo shapefile… isso pode levar alguns minutos" saiu: o
   envio responde logo (202) e a conversão é o voo.
 
-**Prévia da camada:** a prévia ao vivo (`PreviaCamada.jsx`, admin fase 5)
-não está neste branch, por isso o voo tem um palco próprio. Ao juntar com a
-fase 5, o `.palco-conversao` pode dar lugar à prévia (o `<Voo>` cobre
-qualquer pai).
+**Prévia da camada:** quando esta sessão foi feita, a prévia ao vivo
+(`PreviaCamada.jsx`, admin fase 5) ainda não estava no branch, por isso o voo
+ganhou um palco próprio. Com a fase 5 já junta, o palco fica no topo da coluna
+central (`.adm-camadas-centro`), sempre no mesmo lugar da árvore para o drone
+não remontar. Ele poderia dar lugar à prévia (o `<Voo>` cobre qualquer pai).
 
 Verificação (Playwright, backend e Postgres locais; envio, consulta do job
 e download do `.pmtiles` simulados com `page.route`, sem nada chegar ao
@@ -132,19 +133,65 @@ com balanço, reabrir sem repetir o pouso, camada nova sem o drone
 reiniciar ao ser selecionada, menos movimento (drone parado, texto com o
 tempo de um job reaberto do `localStorage`) e zero erro de console.
 
+## Ferramentas do mapa e administração (sessão 5)
+
+Feita em 2026-10-28, depois de juntar o `master` (fase 5 do admin e login
+pelo Hub) neste branch.
+
+- **Regra dos botões.** Toda ação que grava usa `useOcupado` e termina em ✓
+  ou ✕ no próprio botão. O que muda a tela depois (fechar a barra, recarregar
+  a lista, trocar de mapa ou de camada) só roda **depois** de `await fim(true)`;
+  senão o botão some antes e o ✓ nem aparece. Em `AdminMapas.jsx` e
+  `AdminUsuarios.jsx` isso é o `executar(botao, acao, mensagem, texto)`: a
+  `acao` faz a chamada e devolve o "depois". Só o botão clicado anima
+  (um `useOcupado` por botão; nos cartões de grupo, o componente `AcoesGrupo`
+  tem os seus; em versões, `BotaoRestaurar`).
+- **"✓ Salvo às…" saiu.** O `useAutoDismiss` e os estados `salvo*Em`,
+  `salvando*`, `removendo`, `duplicando`, `gerando*` de `AdminCamadas.jsx`
+  foram removidos: o ✓ do botão substitui.
+- **Textos de espera:** "Procurando sinal…" (GPS em Anotar), "Lendo
+  arquivo…" (importar KML/SHP, no painel de camadas e na gaveta do celular,
+  sem mudar o tamanho do bloco), "Enviando…" / "Guardando…" (confirmar
+  apontamento com e sem sinal), "Criando…", "Duplicando…", "Procurando no
+  DroneManagement…" (vincular piloto), "Lendo valores…" (gerar categorias,
+  faixas, formas e gradiente: um aviso de campo errado termina em ✕).
+- **Ganchos que passaram a devolver o resultado** pro botão saber o fim:
+  `adicionarNaMinhaLocalizacao` (`usePins.js`, sem o estado `obtendoGps`),
+  `aoImportarArquivo` (`useImportacaoTemporaria.js`, sem `importandoArquivo`)
+  e `confirmarLote({ aoConcluir })` (`useApontamentoVoo.js`: ✕ só quando
+  nenhum talhão foi apontado nem guardado).
+- **Esboço e cascata.** Visão geral, lista de mapas, tabela de usuários,
+  grupos, lista e editor de camadas, Estatísticas e o carregamento entre
+  telas (`LayoutAdmin`, fallback do `Suspense`) usam `<Esboco>`; a prévia da
+  camada mostra o campo grande com "Baixando a camada…". O painel de voos usa
+  `<Esboco discreto>`: os números antigos ficam à vista e a linha "Atualizando
+  com o DroneManagement…" saiu.
+- **Spinner aposentado.** Nenhum `.spinner` em uso (o de `Indicadores.jsx`,
+  fora da lista, virou `<Campo pequeno>`). O CSS antigo saiu: `@keyframes
+  girar`, `.spinner*`, `.status-voos--atualizando`, `.status-carregando-admin`,
+  `.confirmacao-salvo`, `.marca-check-salvo`, `@keyframes pop-check`.
+
+Verificação (Playwright, backend na 3099 e Postgres locais; tudo que grava,
+o download dos `.pmtiles`, `/voos/pendentes` e `/pins` simulados com
+`page.route`, sem tocar banco de produção, R2, Hub ou DroneManagement):
+43 checagens em desktop, celular (390 px) e menos movimento — esboço e
+cascata de cada tela, ✓ e ✕ com a mensagem, texto de espera de cada botão,
+só o botão clicado animando, bloco da gaveta sem mudar de tamanho, campo
+parado e sem cascata com menos movimento, e zero erro de console fora dos
+400/500 simulados de propósito.
+
+Não exercitado: o esboço discreto do painel de voos. Neste ambiente o mapa
+de voos não chega a pedir `/voos/pendentes` (o efeito que busca depende de
+`voosInfo?.id` e não roda de novo quando a camada de voos aparece), e isso
+acontece igual sem as mudanças desta sessão. Vale investigar à parte: se
+também acontecer em produção, o mapa de voos só busca as pendências quando
+outra coisa força a busca.
+
 ## Esperas encontradas
 
 Levantamento de 2026-10-27. Sessão = em qual sessão do plano o ponto é
 refeito (1 base, 2 login, 3 sincronização e mapa, 4 conversão de camada,
-5 ferramentas e admin).
-
-**Atenção:** a fase 5 do redesenho do admin (`LayoutAdmin.jsx`,
-`AdminVisaoGeral.jsx`, telas de admin reescritas) está nos branches
-`feat/redesenho-fase5` / `feat/indicadores-voo`, ainda fora do `master`. As
-linhas marcadas com *(fase 5)* só existem lá. Esses branches também ainda
-importam `IconeLordicon.jsx` (Remover/Excluir nas telas de admin): ao
-juntá-los com este, trocar esses usos pelo spinner, como foi feito aqui, ou o
-build quebra.
+5 ferramentas e admin). Todas feitas em 2026-10-28.
 
 | Onde | Espera | Peça | Sessão | Situação |
 |---|---|---|---|---|
@@ -159,19 +206,19 @@ build quebra.
 | `AdminCamadas.jsx` lista "Processando …" | conversão do shapefile (até 12 min) | `<Campo pequeno>` com o tempo; `<Voo desde>` sobre o palco do detalhe; pouso em `<Concluido>` ou erro | 4 | **feito** |
 | `AdminCamadas.jsx` Enviar / Atualizar arquivo | envio do arquivo | `useOcupado` ("Enviando…") | 4 | **feito** |
 | `JobsContext.jsx` aviso global | fim da conversão em outra tela | toast com ✓/✕ | 4 | **feito** |
-| `BarraAnotar.jsx` Na minha localização | GPS (até 15 s com sinal fraco) | `useOcupado` ("Buscando o GPS…") | 5 | pendente |
-| `FormularioPin.jsx` Salvar | gravar anotação | `useOcupado` | 5 | pendente |
-| `Mapa.jsx` Importar KML/SHP | ler arquivo grande | `useOcupado` ("Lendo o arquivo…") | 5 | pendente |
-| `PainelVoos.jsx` / `Mapa.jsx` "Carregando pendências…" | pendências do DroneManagement | `<Esboco discreto>` com os números antigos à vista | 5 | pendente |
-| `BarraApontamento.jsx` Confirmar | envio do apontamento | `useOcupado` | 5 | pendente |
-| `LayoutAdmin.jsx` "Carregando…" *(fase 5)* | resumo da administração | `<Esboco>` | 5 | pendente |
-| `AdminVisaoGeral.jsx` "Carregando…" *(fase 5)* | visão geral | `<Esboco>` + cascata | 5 | pendente |
-| `AdminMapas.jsx` lista e botões (criar, ordem, acesso, detalhes, duplicar, remover) | admin | `<Esboco>` + `useOcupado` | 5 | pendente |
-| `AdminUsuarios.jsx` lista e botões (criar, salvar, piloto, senha, excluir) | admin | `<Esboco>` + `useOcupado` | 5 | pendente |
-| `AdminCamadas.jsx` detalhe, prévia, versões, Salvar nome/estilo/atributos, Duplicar, Remover, Gerar categorias/faixas/formas | admin | `<Esboco>` + `useOcupado`; o "✓ Salvo às…" (`useAutoDismiss`) sai, o ✓ do botão substitui | 5 | pendente |
-| `AdminCamadas.jsx` Remover camada (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | ícone removido; botão pendente |
-| `AdminMapas.jsx` Remover, `AdminUsuarios.jsx` Excluir e Remover grupo (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | ícone removido; botão pendente |
-| `AdminEstatisticas.jsx` "Carregando…" | estatísticas | `<Esboco>` | 5 | pendente |
+| `BarraAnotar.jsx` Na minha localização | GPS (até 15 s com sinal fraco) | `useOcupado` ("Procurando sinal…") | 5 | **feito** |
+| `FormularioPin.jsx` Salvar | gravar anotação | `useOcupado` | 5 | **feito** |
+| `Mapa.jsx` Importar KML/SHP | ler arquivo grande | `useOcupado` ("Lendo arquivo…") | 5 | **feito** |
+| `PainelVoos.jsx` / `Mapa.jsx` "Carregando pendências…" | pendências do DroneManagement | `<Esboco discreto>` com os números antigos à vista | 5 | **feito** |
+| `BarraApontamento.jsx` Confirmar | envio do apontamento | `useOcupado` | 5 | **feito** |
+| `LayoutAdmin.jsx` "Carregando…" | resumo da administração | `<Esboco>` | 5 | **feito** |
+| `AdminVisaoGeral.jsx` "Carregando…" | visão geral | `<Esboco>` + cascata | 5 | **feito** |
+| `AdminMapas.jsx` lista e botões (criar, ordem, acesso, detalhes, duplicar, remover) | admin | `<Esboco>` + `useOcupado` | 5 | **feito** |
+| `AdminUsuarios.jsx` lista e botões (criar, salvar, piloto, senha, excluir) | admin | `<Esboco>` + `useOcupado` | 5 | **feito** |
+| `AdminCamadas.jsx` detalhe, prévia, versões, Salvar nome/estilo/atributos, Duplicar, Remover, Gerar categorias/faixas/formas | admin | `<Esboco>` + `useOcupado`; o "✓ Salvo às…" (`useAutoDismiss`) sai, o ✓ do botão substitui | 5 | **feito** |
+| `AdminCamadas.jsx` Remover camada (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | **feito** |
+| `AdminMapas.jsx` Remover, `AdminUsuarios.jsx` Excluir e Remover grupo (ícone Lordicon no hover) | — | ícone sai na sessão 1; botão vira `useOcupado` | 5 | **feito** |
+| `AdminEstatisticas.jsx` "Carregando…" | estatísticas | `<Esboco>` | 5 | **feito** |
 
 Erro com ✕ no botão: a mensagem (`AlertaErro semTremida`) aparece junto do
 ✕ e só entra com fade — o botão já treme, duas tremidas juntas confundem.

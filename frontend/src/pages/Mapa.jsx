@@ -61,7 +61,7 @@ import LegendaCamada, {
 } from "../components/LegendaCamada.jsx";
 import { resumoFeicoesTemporaria } from "../lib/importadorTemporario.js";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
-import { Campo, Concluido } from "../components/movimento/index.js";
+import { Campo, Concluido, useOcupado } from "../components/movimento/index.js";
 import { prefereMenosMovimento } from "../components/movimento/usePrefereMenosMovimento.js";
 import { entrarEmSequencia } from "../lib/entradaCamadas.js";
 import CartaoPonto from "../components/CartaoPonto.jsx";
@@ -1036,6 +1036,15 @@ export default function Mapa() {
   );
   const track = useTrackLog(mapRef, mapaPronto, mapaId);
   const temporaria = useImportacaoTemporaria(mapRef, mapaPronto, mapaId);
+  // Ler um KML/SHP grande leva alguns segundos: o botão (painel de camadas
+  // no desktop, bloco da gaveta no celular) fica vivo e termina em ✓/✕.
+  const importarPainel = useOcupado();
+  const importarGaveta = useOcupado();
+  async function importarComBotao(botao, e) {
+    if (!e.target.files?.[0]) return;
+    const fim = botao.iniciar({ texto: "Lendo arquivo…" });
+    fim(Boolean(await temporaria.aoImportarArquivo(e)));
+  }
   // A camada com tipoCamada:"voos" (réplica de Talhões pra apontamento,
   // ver docs/INTEGRACAO_DRONEMANAGEMENT.md) — null enquanto ela não
   // carregou ou esse mapa não tem uma. Lida direto de camadasCarregadasRef
@@ -2395,8 +2404,8 @@ export default function Mapa() {
                   </div>
                 )}
 
-                <label className="botao importar-arquivo-temporario">
-                  {temporaria.importandoArquivo ? "Importando…" : "+ Importar arquivo (KML/SHP)"}
+                <label {...importarPainel.propsBotao({ className: "botao importar-arquivo-temporario" })}>
+                  {importarPainel.conteudo("+ Importar arquivo (KML/SHP)")}
                   {/* Sem `accept` restrito a extensão (".kml,.zip") de propósito —
                       no Safari/iOS isso quebra a seleção: o picker "Procurar"
                       resolve `accept` pra um UTI do sistema, e ".kml" não tem um
@@ -2406,11 +2415,7 @@ export default function Mapa() {
                       extensão já acontece em importarArquivoTemporario() com
                       mensagem de erro clara — o accept aqui era só um filtro
                       cosmético do picker do SO, não uma barreira de segurança. */}
-                  <input
-                    type="file"
-                    onChange={temporaria.aoImportarArquivo}
-                    disabled={temporaria.importandoArquivo}
-                  />
+                  <input type="file" onChange={(e) => importarComBotao(importarPainel, e)} />
                 </label>
                 {temporaria.erroImportacao && <p className="erro">{temporaria.erroImportacao}</p>}
     </>
@@ -2579,12 +2584,16 @@ export default function Mapa() {
           <span>Anotar no mapa</span>
         </button>
       )}
-      <label className="bloco-ferramenta">
-        <IconeDockImportar />
-        <span>{temporaria.importandoArquivo ? "Importando…" : "Importar KML/SHP"}</span>
+      <label {...importarGaveta.propsBotao({ className: "bloco-ferramenta" })}>
+        {importarGaveta.conteudo(
+          <span className="conteudo-bloco-ferramenta">
+            <IconeDockImportar />
+            <span>Importar KML/SHP</span>
+          </span>
+        )}
         {/* Mesmo input do painel de camadas — sem `accept` pelo mesmo
             motivo documentado lá (Safari/iOS). */}
-        <input type="file" onChange={temporaria.aoImportarArquivo} disabled={temporaria.importandoArquivo} />
+        <input type="file" onChange={(e) => importarComBotao(importarGaveta, e)} />
       </label>
     </div>
   );
@@ -2920,7 +2929,6 @@ export default function Mapa() {
           <BarraAnotar
             aberta={barraAnotarAberta}
             modoAdicionar={pins.modoAdicionar}
-            obtendoGps={pins.obtendoGps}
             movendo={Boolean(pins.movendoId)}
             aoTocarNoMapa={() => pins.setModoAdicionar((m) => !m)}
             aoMinhaLocalizacao={pins.adicionarNaMinhaLocalizacao}

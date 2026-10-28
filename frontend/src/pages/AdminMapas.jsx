@@ -13,6 +13,7 @@ import {
 import { useAuth } from "../context/AuthContext.jsx";
 import { useResumoAdmin } from "../components/LayoutAdmin.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
+import { Esboco, useOcupado } from "../components/movimento/index.js";
 
 // Mapas (redesenho do admin, fase 5): lista em cards à esquerda e o mapa
 // escolhido à direita, em abas — Camadas (ordem de cima pra baixo), Acesso
@@ -96,7 +97,15 @@ export default function AdminMapas() {
   const [aviso, setAviso] = useState(null);
   const [filtro, setFiltro] = useState("");
   const [aba, setAba] = useState("camadas");
-  const [ocupado, setOcupado] = useState(null); // "ordem" | "acesso" | "detalhes" | "duplicar" | "remover" | "criar"
+  // Um botão vivo por ação (✓/✕ no fim). Sempre na mesma ordem: são hooks.
+  const botoes = {
+    ordem: useOcupado(),
+    acesso: useOcupado(),
+    detalhes: useOcupado(),
+    duplicar: useOcupado(),
+    remover: useOcupado(),
+    criar: useOcupado(),
+  };
 
   // Rascunhos do mapa selecionado (descartados ao trocar de mapa).
   const [ordem, setOrdem] = useState([]);
@@ -183,16 +192,20 @@ export default function AdminMapas() {
     });
   }
 
-  async function executar(tipo, acao, mensagem) {
-    setOcupado(tipo);
+  // `acao` faz a chamada e pode devolver o que mexe na tela depois (recarregar,
+  // trocar de mapa). Isso só roda depois do ✓: senão o botão some antes (a
+  // barra de pendência fecha, o painel troca) e o ✓ nem aparece.
+  async function executar(tipo, acao, mensagem, texto) {
+    const fim = botoes[tipo].iniciar({ texto });
     setErro(null);
     try {
-      await acao();
+      const depois = await acao();
+      await fim(true);
+      await depois?.();
       if (mensagem) setAviso(mensagem);
     } catch (e) {
       setErro(e.message);
-    } finally {
-      setOcupado(null);
+      fim(false);
     }
   }
 
@@ -201,7 +214,7 @@ export default function AdminMapas() {
       "ordem",
       async () => {
         await atualizarOrdemCamadasAdmin(sessao.token, mapa.id, ordem.map((c) => c.id));
-        await carregar();
+        return carregar;
       },
       "Ordem salva · vale para todos no próximo sincronismo"
     );
@@ -215,7 +228,7 @@ export default function AdminMapas() {
           descricao: tipo === "detalhes" ? detalhes.descricao : mapa.descricao || "",
           permissoes: tipo === "acesso" ? permissoes : mapa.permissoes || [],
         });
-        await carregar();
+        return carregar;
       },
       tipo === "acesso" ? "Acesso salvo" : "Detalhes salvos"
     );
@@ -225,20 +238,25 @@ export default function AdminMapas() {
       "duplicar",
       async () => {
         const copia = await duplicarMapaAdmin(sessao.token, mapa.id);
-        await carregar();
-        recarregarResumo();
-        if (copia?.id) selecionar(copia.id);
+        return async () => {
+          await carregar();
+          recarregarResumo();
+          if (copia?.id) selecionar(copia.id);
+        };
       },
-      "Mapa duplicado"
+      "Mapa duplicado",
+      "Duplicando…"
     );
 
   const remover = () => {
     if (!window.confirm(`Remover o mapa "${mapa.nome}"? Essa ação não pode ser desfeita.`)) return;
     executar("remover", async () => {
       await removerMapaAdmin(sessao.token, mapa.id);
-      await carregar();
-      recarregarResumo();
-      selecionar(null);
+      return async () => {
+        await carregar();
+        recarregarResumo();
+        selecionar(null);
+      };
     }, "Mapa removido");
   };
 
@@ -248,12 +266,15 @@ export default function AdminMapas() {
       "criar",
       async () => {
         const criado = await criarMapaAdmin(sessao.token, novo);
-        setNovo({ nome: "", descricao: "", permissoes: [] });
-        await carregar();
-        recarregarResumo();
-        selecionar(criado.id);
+        return async () => {
+          setNovo({ nome: "", descricao: "", permissoes: [] });
+          await carregar();
+          recarregarResumo();
+          selecionar(criado.id);
+        };
       },
-      "Mapa criado"
+      "Mapa criado",
+      "Criando…"
     );
   }
 
@@ -305,16 +326,12 @@ export default function AdminMapas() {
               + Novo mapa
             </button>
           </div>
-          {carregando ? (
-            <p className="status-carregando-admin">
-              <span className="spinner" aria-hidden="true" /> Carregando…
-            </p>
-          ) : mapasFiltrados.length === 0 ? (
+          {!carregando && mapasFiltrados.length === 0 ? (
             <p className="adm-vazio">
               <IconeEstadoVazio /> {mapas.length === 0 ? "Nenhum mapa criado ainda." : "Nenhum mapa com esse nome."}
             </p>
           ) : (
-            <ul className="adm-lista-cartoes">
+            <Esboco as="ul" carregando={carregando} className="adm-lista-cartoes">
               {mapasFiltrados.map((m) => {
                 const atrasadas = camadas.filter(
                   (c) => c.mapa_id === m.id && ["atrasada", "erro"].includes(situacaoPorCamada.get(c.id)?.situacao)
@@ -348,7 +365,7 @@ export default function AdminMapas() {
                   </li>
                 );
               })}
-            </ul>
+            </Esboco>
           )}
         </section>
 
@@ -372,9 +389,8 @@ export default function AdminMapas() {
                 <EditorAcesso grupos={grupos} permissoes={novo.permissoes} aoMudar={(p) => setNovo({ ...novo, permissoes: p })} />
               </div>
               <div className="adm-acoes-form">
-                <button type="submit" className="botao-acao-primario" disabled={ocupado === "criar"}>
-                  {ocupado === "criar" && <span className="spinner" aria-hidden="true" />}
-                  {ocupado === "criar" ? "Criando…" : "Criar mapa"}
+                <button {...botoes.criar.propsBotao({ type: "submit", className: "botao-acao-primario" })}>
+                  {botoes.criar.conteudo("Criar mapa")}
                 </button>
               </div>
             </form>
@@ -506,9 +522,8 @@ export default function AdminMapas() {
                       <button type="button" className="botao-acao-secundario" onClick={() => setOrdem(camadasDoMapa)}>
                         Desfazer
                       </button>
-                      <button type="button" className="botao-acao-primario" onClick={salvarOrdem} disabled={ocupado === "ordem"}>
-                        {ocupado === "ordem" && <span className="spinner" aria-hidden="true" />}
-                        Salvar ordem
+                      <button {...botoes.ordem.propsBotao({ type: "button", className: "botao-acao-primario", onClick: salvarOrdem })}>
+                        {botoes.ordem.conteudo("Salvar ordem")}
                       </button>
                     </div>
                   )}
@@ -527,9 +542,10 @@ export default function AdminMapas() {
                       <button type="button" className="botao-acao-secundario" onClick={() => setPermissoes(mapa.permissoes || [])}>
                         Desfazer
                       </button>
-                      <button type="button" className="botao-acao-primario" onClick={() => salvarMapa("acesso")} disabled={ocupado === "acesso"}>
-                        {ocupado === "acesso" && <span className="spinner" aria-hidden="true" />}
-                        Salvar acesso
+                      <button
+                        {...botoes.acesso.propsBotao({ type: "button", className: "botao-acao-primario", onClick: () => salvarMapa("acesso") })}
+                      >
+                        {botoes.acesso.conteudo("Salvar acesso")}
                       </button>
                     </div>
                   )}
@@ -548,13 +564,14 @@ export default function AdminMapas() {
                   </label>
                   <div className="adm-acoes-form">
                     <button
-                      type="button"
-                      className="botao-acao-primario"
-                      onClick={() => salvarMapa("detalhes")}
-                      disabled={!detalhesMudou || !detalhes.nome.trim() || ocupado === "detalhes"}
+                      {...botoes.detalhes.propsBotao({
+                        type: "button",
+                        className: "botao-acao-primario",
+                        onClick: () => salvarMapa("detalhes"),
+                        disabled: !detalhesMudou || !detalhes.nome.trim(),
+                      })}
                     >
-                      {ocupado === "detalhes" && <span className="spinner" aria-hidden="true" />}
-                      Salvar
+                      {botoes.detalhes.conteudo("Salvar")}
                     </button>
                   </div>
 
@@ -563,9 +580,8 @@ export default function AdminMapas() {
                       <strong>Duplicar mapa</strong>
                       <span className="adm-suave">Cria uma cópia com as mesmas camadas, estilos e grupos.</span>
                     </div>
-                    <button type="button" className="botao-acao-secundario" onClick={duplicar} disabled={ocupado === "duplicar"}>
-                      {ocupado === "duplicar" && <span className="spinner" aria-hidden="true" />}
-                      {ocupado === "duplicar" ? "Duplicando…" : "Duplicar"}
+                    <button {...botoes.duplicar.propsBotao({ type: "button", className: "botao-acao-secundario", onClick: duplicar })}>
+                      {botoes.duplicar.conteudo("Duplicar")}
                     </button>
                   </div>
 
@@ -579,13 +595,14 @@ export default function AdminMapas() {
                       </span>
                     </div>
                     <button
-                      type="button"
-                      className="botao-acao-perigo"
-                      onClick={remover}
-                      disabled={mapa.camadaCount > 0 || ocupado === "remover"}
+                      {...botoes.remover.propsBotao({
+                        type: "button",
+                        className: "botao-acao-perigo",
+                        onClick: remover,
+                        disabled: mapa.camadaCount > 0,
+                      })}
                     >
-                      {ocupado === "remover" && <span className="spinner" aria-hidden="true" />}
-                      Remover mapa
+                      {botoes.remover.conteudo("Remover mapa")}
                     </button>
                   </div>
                 </div>
