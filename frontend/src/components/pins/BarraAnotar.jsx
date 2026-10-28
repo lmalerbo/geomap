@@ -13,7 +13,7 @@ export default function BarraAnotar({
   aoCancelarMover,
   aoFechar,
 }) {
-  // O GPS leva até 15 s com sinal fraco: o botão fica vivo e termina em ✓/✕.
+  // O GPS leva até 20 s com sinal fraco: o botão fica vivo e termina em ✓/✕.
   const gps = useOcupado();
   async function usarMinhaLocalizacao() {
     const fim = gps.iniciar({ texto: "Procurando sinal…" });

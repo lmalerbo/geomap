@@ -459,11 +459,15 @@ export default function AdminCamadas() {
   async function salvarArquivo() {
     setErroDetalhe(null);
     try {
-      await botaoNome.executar(() => renomearCamadaAdmin(sessao.token, camadaSelecionadaId, arquivoForm.nome));
+      // `sujo` volta a false assim que o servidor responde, antes do ✓: uma
+      // edição feita durante o ✓ continua contando como não salva.
+      await botaoNome.executar(async () => {
+        await renomearCamadaAdmin(sessao.token, camadaSelecionadaId, arquivoForm.nome);
+        setSujo(false);
+      });
       setCamadas((atual) =>
         atual.map((c) => (c.id === camadaSelecionadaId ? { ...c, nome: arquivoForm.nome } : c))
       );
-      setSujo(false);
     } catch (e) {
       setErroDetalhe(e.message);
     }
@@ -729,9 +733,11 @@ export default function AdminCamadas() {
   async function salvarEstilo() {
     setErroDetalhe(null);
     try {
-      await botaoEstilo.executar(() => salvarConfigEstilo(sessao.token, camadaSelecionadaId, estiloForm));
-      setEstiloSalvoRef(null); // a prévia passa a comparar com o que acabou de ser salvo
-      setSujo(false);
+      await botaoEstilo.executar(async () => {
+        await salvarConfigEstilo(sessao.token, camadaSelecionadaId, estiloForm);
+        setEstiloSalvoRef(null); // a prévia passa a comparar com o que acabou de ser salvo
+        setSujo(false);
+      });
     } catch (e) {
       setErroDetalhe(e.message);
     }
@@ -778,8 +784,10 @@ export default function AdminCamadas() {
         rotulo: l.rotulo,
         ordem,
       }));
-      await botaoAtributos.executar(() => salvarConfigAtributos(sessao.token, camadaSelecionadaId, atributos));
-      setSujo(false);
+      await botaoAtributos.executar(async () => {
+        await salvarConfigAtributos(sessao.token, camadaSelecionadaId, atributos);
+        setSujo(false);
+      });
     } catch (e) {
       setErroDetalhe(e.message);
     }

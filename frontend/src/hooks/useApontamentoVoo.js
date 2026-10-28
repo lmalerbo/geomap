@@ -202,6 +202,10 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   const [escolhaPendente, setEscolhaPendente] = useState(null); // {secao, talhao, registros} | null
   const [dataVoo, setDataVoo] = useState(() => new Date().toISOString().slice(0, 10));
   const [enviando, setEnviando] = useState(false);
+  // Durante o envio e o ✓ a seleção fica parada: no fim ela é limpa, e um
+  // talhão tocado nesse meio-tempo sumiria sem aviso. Ref porque o clique do
+  // mapa chama alternarSelecao por uma closure antiga.
+  const enviandoRef = useRef(false);
   const [resultado, setResultado] = useState(null); // {sucesso, falha} do último envio, pro painel mostrar
   // Chaves (secao-talhao) que acabaram de ser apontadas com sucesso —
   // ficam verdes por TEMPO_CONFIRMACAO_MS como confirmação visual, depois
@@ -744,6 +748,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   }
 
   function alternarRegistro(registro) {
+    if (enviandoRef.current) return;
     setSelecionados((atual) => {
       const novo = new Map(atual);
       if (novo.has(registro.id)) novo.delete(registro.id);
@@ -758,6 +763,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // direto; com 2+ (o mesmo talhão pendente em mais de um tipo ao mesmo
   // tempo), abre a escolha rápida em vez de adivinhar qual o piloto quis.
   function alternarSelecao(propriedades) {
+    if (enviandoRef.current) return;
     const registros = pendentesPorChaveRef.current.get(chave(propriedades.SECAO, propriedades.TALHAO)) || [];
     if (registros.length === 0) return;
     if (registros.length === 1) {
@@ -859,6 +865,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   async function confirmarLote({ aoConcluir } = {}) {
     if (selecionados.size === 0 || !mapaId) return;
     setEnviando(true);
+    enviandoRef.current = true;
     setResultado(null);
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       try {
@@ -868,6 +875,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
         throw err;
       } finally {
         setEnviando(false);
+        enviandoRef.current = false;
       }
       return;
     }
@@ -956,6 +964,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       aoConcluir?.(false);
     } finally {
       setEnviando(false);
+      enviandoRef.current = false;
     }
   }
 

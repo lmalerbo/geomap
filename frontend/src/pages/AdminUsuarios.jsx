@@ -531,7 +531,15 @@ export default function AdminUsuarios() {
                         <button type="button" className="botao-acao-secundario" onClick={() => setRascunho({ departamento: usuario.departamento || "", papel: usuario.papel, status: usuario.status, grupoIds: usuario.grupoIds || [] })}>
                           Descartar
                         </button>
-                        <button {...botaoSalvar.propsBotao({ type: "button", className: "botao-acao-primario", onClick: () => salvar() })}>
+                        <button
+                          {...botaoSalvar.propsBotao({
+                            type: "button",
+                            className: "botao-acao-primario",
+                            onClick: () => salvar(),
+                            // Desativar/Reativar grava o mesmo usuário: um de cada vez.
+                            disabled: botaoStatus.estado !== "parado",
+                          })}
+                        >
                           {botaoSalvar.conteudo("Salvar")}
                         </button>
                       </div>

@@ -3566,7 +3566,9 @@ input[type="file"]::file-selector-button:hover {
   background: #f5f8f6;
 }
 
-.bloco-ferramenta span {
+/* Só o rótulo: os spans do botão vivo (texto de espera, ✓/✕) mantêm a cor deles. */
+.bloco-ferramenta > span:not(.mo-pilha),
+.bloco-ferramenta .conteudo-bloco-ferramenta > span {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);

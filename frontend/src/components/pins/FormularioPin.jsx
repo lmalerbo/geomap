@@ -14,9 +14,9 @@ export default function FormularioPin({ rascunho, aoSalvar, aoCancelar }) {
   const salvar = useOcupado();
   // aoSalvar grava no IndexedDB antes de tentar enviar — pode rejeitar (ex:
   // quota do navegador estourada, modo privado que bloqueia storage). Sem
-  // capturar isso, `salvando` ficava true pra sempre (Salvar/Cancelar
-  // travados) e o usuário não tinha como saber o que aconteceu nem sair do
-  // formulário.
+  // capturar isso, o botão ficaria ocupado pra sempre (Salvar/Cancelar
+  // travados) e o usuário não teria como saber o que aconteceu nem sair do
+  // formulário: `executar` termina em ✕ e a mensagem aparece.
   const [erro, setErro] = useState(null);
 
   function escolherIcone(chave) {
