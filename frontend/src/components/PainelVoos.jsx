@@ -3,6 +3,8 @@
 // cores do mapa), a fila de apontamentos guardados no aparelho e o botão de
 // apontar. Usado no painel lateral (desktop) e na aba Voos da gaveta
 // (celular).
+import { Esboco } from "./movimento/index.js";
+
 export default function PainelVoos({ apontamento, aoApontar, compacto = false }) {
   const {
     carregandoPendentes,
@@ -29,11 +31,17 @@ export default function PainelVoos({ apontamento, aoApontar, compacto = false })
     : null;
 
   return (
-    <div className="painel-voos">
+    // Esboço discreto: os números de antes continuam à vista enquanto o
+    // DroneManagement responde (linha de luz no topo e o campo no canto).
+    <Esboco
+      discreto
+      cascata={false}
+      carregando={carregandoPendentes || atualizandoPendentes}
+      className="painel-voos"
+      aria-label={atualizandoPendentes ? "Atualizando com o DroneManagement" : undefined}
+    >
       {carregandoPendentes ? (
-        <p className="status-voos">
-          <span className="spinner" aria-hidden="true" /> Carregando pendências…
-        </p>
+        <p className="status-voos">Carregando pendências…</p>
       ) : erroPendentes ? (
         <p className="status-voos status-voos--erro">Não foi possível carregar as pendências: {erroPendentes}</p>
       ) : (
@@ -43,11 +51,6 @@ export default function PainelVoos({ apontamento, aoApontar, compacto = false })
             pendentes · {qtdTalhoesPendentes} {qtdTalhoesPendentes === 1 ? "talhão" : "talhões"}
           </span>
         </div>
-      )}
-      {!carregandoPendentes && atualizandoPendentes && (
-        <p className="status-voos status-voos--atualizando">
-          <span className="spinner" aria-hidden="true" /> Atualizando com o DroneManagement…
-        </p>
       )}
       {horaCache && !atualizandoPendentes && (
         <p className="status-voos status-voos--aviso">
@@ -136,6 +139,6 @@ export default function PainelVoos({ apontamento, aoApontar, compacto = false })
         </svg>
         Apontar voo
       </button>
-    </div>
+    </Esboco>
   );
 }

@@ -8,6 +8,13 @@ import {
 } from "./db.js";
 import { syncPins, enviarPinsPendentes, avisarPinsAtualizados } from "./syncPinsApp.js";
 import { enviarApontamentosPendentes } from "./filaApontamentosApp.js";
+import { criarProgressoSync } from "./progressoSync.js";
+
+// local.blob só é ArrayBuffer se foi baixado depois da correção do bug de
+// Blob-via-IndexedDB no Safari/iOS (ver comentário no laço abaixo).
+function camadaEmDia(local, camada) {
+  return Boolean(local && local.versao === camada.versao && local.blob instanceof ArrayBuffer);
+}
 
 // Sincroniza TODOS os mapas (projetos) permitidos em segundo plano — não
 // só o que o usuário tem aberto no momento — baixando as camadas que ainda
@@ -16,7 +23,9 @@ import { enviarApontamentosPendentes } from "./filaApontamentosApp.js";
 // lixo órfão no IndexedDB. Silencioso — nenhum botão, nenhuma tela de
 // espera. Se estiver offline, simplesmente não faz nada e quem chamou
 // continua usando o que já tem localmente.
-export async function sincronizarMapas(token) {
+// `aoProgredir` (opcional) recebe o retrato de lib/progressoSync.js a cada
+// avanço — só quando há camada para baixar (a 1ª sincronização mostra isso).
+export async function sincronizarMapas(token, { aoProgredir } = {}) {
   const locais = await listarMapasBaixados();
   const porId = new Map(locais.map((c) => [c.id, c]));
 
@@ -40,6 +49,10 @@ export async function sincronizarMapas(token) {
   const idsNoCatalogo = new Set(camadas.map((c) => c.id));
   const removidas = locais.filter((c) => !idsNoCatalogo.has(c.id));
 
+  const paraBaixar = camadas.filter((camada) => !camadaEmDia(porId.get(camada.id), camada));
+  const progresso =
+    aoProgredir && paraBaixar.length > 0 ? criarProgressoSync(paraBaixar, aoProgredir) : null;
+
   // allSettled: uma camada falhando (ex: perdeu permissão nesse meio-tempo)
   // não pode derrubar a sincronização das outras.
   await Promise.allSettled([
@@ -52,7 +65,7 @@ export async function sincronizarMapas(token) {
       // dá pra "reler" certo). Ignora o match de versão nesse caso e força
       // rebaixar, mesmo que a versão continue a mesma — autocorrige no
       // próximo sync online, sem exigir nenhuma ação do usuário.
-      if (local && local.versao === camada.versao && local.blob instanceof ArrayBuffer) {
+      if (camadaEmDia(local, camada)) {
         // Geometria/tiles não mudaram, mas nome, atributos, estilo ou ordem
         // podem ter mudado (ex: admin reordenou campos, trocou a cor, ou
         // reordenou as camadas do mapa) — atualiza sem rebaixar.
@@ -66,17 +79,28 @@ export async function sincronizarMapas(token) {
         );
         return;
       }
-      const blob = await baixarCamada(token, camada.id);
-      await salvarMapaBaixado(
-        camada.id,
-        camada.mapaId,
-        camada.nome,
-        camada.versao,
-        blob,
-        camada.atributos_config,
-        camada.estilo_config,
-        camada.ordem
-      );
+      try {
+        const blob = await baixarCamada(
+          token,
+          camada.id,
+          progresso && ((recebidos, tamanho) => progresso.bytes(camada.id, recebidos, tamanho))
+        );
+        progresso?.guardando(camada.id);
+        await salvarMapaBaixado(
+          camada.id,
+          camada.mapaId,
+          camada.nome,
+          camada.versao,
+          blob,
+          camada.atributos_config,
+          camada.estilo_config,
+          camada.ordem
+        );
+        progresso?.concluida(camada.id);
+      } catch (erro) {
+        progresso?.falhou(camada.id);
+        throw erro;
+      }
     }),
     ...removidas.map((c) => removerMapaBaixado(c.id)),
   ]);

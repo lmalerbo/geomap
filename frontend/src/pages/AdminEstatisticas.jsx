@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { buscarEstatisticasAdmin } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
+import { Esboco } from "../components/movimento/index.js";
 
 export default function AdminEstatisticas() {
   const { sessao } = useAuth();
-  const navigate = useNavigate();
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState(null);
 
@@ -19,13 +18,9 @@ export default function AdminEstatisticas() {
   return (
     <div className="adm-pagina adm-pagina--legada">
 
-      <div className="painel-admin-conteudo painel-admin-conteudo--largo">
+      {/* Esboço enquanto as estatísticas chegam; depois os blocos entram em cascata. */}
+      <Esboco carregando={!dados && !erro} className="painel-admin-conteudo painel-admin-conteudo--largo">
         {erro && <p className="erro">{erro}</p>}
-        {!dados && !erro && (
-          <p className="status-carregando-admin">
-            <span className="spinner" aria-hidden="true" /> Carregando…
-          </p>
-        )}
 
         {dados && (
           <>
@@ -84,7 +79,7 @@ export default function AdminEstatisticas() {
             </div>
           </>
         )}
-      </div>
+      </Esboco>
     </div>
   );
 }

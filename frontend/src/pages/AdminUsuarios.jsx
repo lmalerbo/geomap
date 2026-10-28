@@ -16,6 +16,7 @@ import {
 import { useAuth } from "../context/AuthContext.jsx";
 import { iniciaisDoNome } from "../components/LayoutAdmin.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
+import { Esboco, useOcupado } from "../components/movimento/index.js";
 
 // Usuários e grupos (redesenho do admin, fase 5): tabela com filtros rápidos
 // e o painel da pessoa escolhida à direita; aba Grupos mostra membros e os
@@ -62,7 +63,16 @@ export default function AdminUsuarios() {
   const [aviso, setAviso] = useState(null);
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("todos");
-  const [ocupado, setOcupado] = useState(null);
+  // Botões vivos (✓/✕ no fim). Os de cada cartão de grupo ficam em AcoesGrupo.
+  const botaoSalvar = useOcupado();
+  const botaoStatus = useOcupado();
+  const botaoSenha = useOcupado();
+  const botaoExcluir = useOcupado();
+  const botaoCriar = useOcupado();
+  const botaoVincular = useOcupado();
+  const botaoDesvincular = useOcupado();
+  const botaoCriarGrupo = useOcupado();
+  const botaoRenomearGrupo = useOcupado();
   const [rascunho, setRascunho] = useState(null);
   const [piloto, setPiloto] = useState("");
   const [novo, setNovo] = useState(NOVO_VAZIO);
@@ -146,16 +156,20 @@ export default function AdminUsuarios() {
     setParams(p);
   }
 
-  async function executar(tipo, acao, mensagem) {
-    setOcupado(tipo);
+  // `acao` faz a chamada e pode devolver o que mexe na tela depois (recarregar,
+  // trocar de pessoa). Isso só roda depois do ✓: senão o botão some antes (a
+  // barra de pendência fecha, o painel troca) e o ✓ nem aparece.
+  async function executar(botao, acao, mensagem, texto) {
+    const fim = botao.iniciar({ texto });
     setErro(null);
     try {
-      await acao();
+      const depois = await acao();
+      await fim(true);
+      await depois?.();
       if (mensagem) setAviso(mensagem);
     } catch (e) {
       setErro(e.message);
-    } finally {
-      setOcupado(null);
+      fim(false);
     }
   }
 
@@ -167,12 +181,12 @@ export default function AdminUsuarios() {
       rascunho.status !== usuario.status ||
       [...rascunho.grupoIds].sort().join() !== [...(usuario.grupoIds || [])].sort().join());
 
-  const salvar = (extra = {}) =>
+  const salvar = (extra = {}, botao = botaoSalvar) =>
     executar(
-      "salvar",
+      botao,
       async () => {
         await atualizarUsuarioAdmin(sessao.token, usuario.id, { nome: usuario.nome, ...rascunho, ...extra });
-        await carregar();
+        return carregar;
       },
       "Alterações salvas"
     );
@@ -180,23 +194,25 @@ export default function AdminUsuarios() {
   const alternarStatus = () => {
     const novoStatus = usuario.status === "ativo" ? "inativo" : "ativo";
     if (novoStatus === "inativo" && !window.confirm(`Desativar "${usuario.nome}"? A pessoa não consegue mais entrar no GeoMap.`)) return;
-    salvar({ status: novoStatus });
+    salvar({ status: novoStatus }, botaoStatus);
   };
 
   const redefinir = () => {
     if (!window.confirm(`Redefinir a senha de "${usuario.nome}" para a temporária (${SENHA_TEMPORARIA_EXIBIDA})? A pessoa escolhe outra no próximo acesso.`)) return;
-    executar("senha", async () => {
+    executar(botaoSenha, async () => {
       await redefinirSenhaUsuarioAdmin(sessao.token, usuario.id);
-      await carregar();
+      return carregar;
     }, `Senha redefinida para ${SENHA_TEMPORARIA_EXIBIDA}`);
   };
 
   const excluir = () => {
     if (!window.confirm(`Excluir "${usuario.nome}" (${usuario.email})? Não dá para desfazer — para só bloquear o acesso, use Desativar.`)) return;
-    executar("excluir", async () => {
+    executar(botaoExcluir, async () => {
       await removerUsuarioAdmin(sessao.token, usuario.id);
-      await carregar();
-      mudarParams({ usuario: null });
+      return async () => {
+        await carregar();
+        mudarParams({ usuario: null });
+      };
     }, "Usuário excluído");
   };
 
@@ -211,10 +227,13 @@ export default function AdminUsuarios() {
   }, [usuario?.id]);
 
   async function salvarPiloto(login) {
-    setOcupado("piloto");
+    const botao = login ? botaoVincular : botaoDesvincular;
+    if (botaoVincular.estado !== "parado" || botaoDesvincular.estado !== "parado") return;
+    const fim = botao.iniciar({ texto: login ? "Procurando no DroneManagement…" : undefined });
     setResultadoPiloto(null);
     try {
       const r = await vincularPilotoAdmin(sessao.token, usuario.id, login);
+      await fim(true);
       await carregar();
       setResultadoPiloto({
         ok: true,
@@ -222,48 +241,53 @@ export default function AdminUsuarios() {
       });
     } catch (e) {
       setResultadoPiloto({ ok: false, texto: e.message || "Não foi possível vincular. Tente de novo." });
-    } finally {
-      setOcupado(null);
+      fim(false);
     }
   }
 
   async function criarUsuario(e) {
     e.preventDefault();
-    await executar("criar", async () => {
+    await executar(botaoCriar, async () => {
       const criado = await criarUsuarioAdmin(sessao.token, novo);
-      setNovo(NOVO_VAZIO);
-      await carregar();
-      mudarParams({ usuario: String(criado.id) });
+      return async () => {
+        setNovo(NOVO_VAZIO);
+        await carregar();
+        mudarParams({ usuario: String(criado.id) });
+      };
     }, `Usuário criado · senha temporária ${SENHA_TEMPORARIA_EXIBIDA}`);
   }
 
   async function criarGrupo(e) {
     e.preventDefault();
     if (!novoGrupo.trim()) return;
-    await executar("grupo", async () => {
+    await executar(botaoCriarGrupo, async () => {
       await criarGrupoAdmin(sessao.token, novoGrupo.trim());
-      setNovoGrupo("");
-      await carregar();
+      return async () => {
+        setNovoGrupo("");
+        await carregar();
+      };
     }, "Grupo criado");
   }
 
   async function renomearGrupo(e) {
     e.preventDefault();
-    await executar("grupo", async () => {
+    await executar(botaoRenomearGrupo, async () => {
       await renomearGrupoAdmin(sessao.token, renomeando.id, renomeando.nome);
-      setRenomeando(null);
-      await carregar();
+      return async () => {
+        setRenomeando(null);
+        await carregar();
+      };
     }, "Grupo renomeado");
   }
 
-  const removerGrupo = (g, membros) => {
+  const removerGrupo = (g, membros, botao) => {
     const msg = membros > 0
       ? `O grupo "${g.nome}" tem ${plural(membros, "membro", "membros")} — eles perdem o acesso aos mapas que dependem dele. Remover mesmo assim?`
       : `Remover o grupo "${g.nome}"?`;
     if (!window.confirm(msg)) return;
-    executar("grupo", async () => {
+    executar(botao, async () => {
       await removerGrupoAdmin(sessao.token, g.id);
-      await carregar();
+      return carregar;
     }, "Grupo removido");
   };
 
@@ -336,13 +360,7 @@ export default function AdminUsuarios() {
           {aviso}
         </p>
       )}
-      {carregando && (
-        <p className="status-carregando-admin">
-          <span className="spinner" aria-hidden="true" /> Carregando…
-        </p>
-      )}
-
-      {aba === "usuarios" && !carregando && (
+      {aba === "usuarios" && (
         <div className="adm-mestre-detalhe adm-mestre-detalhe--painel-direita">
           <section className="adm-mestre" aria-label="Lista de usuários">
             <input
@@ -360,14 +378,14 @@ export default function AdminUsuarios() {
                 </button>
               ))}
             </div>
-            <div className="adm-cartao adm-tabela-usuarios" role="table" aria-label="Usuários">
+            <Esboco carregando={carregando} className="adm-cartao adm-tabela-usuarios" role="table" aria-label="Usuários">
               <div className="adm-tabela-cabecalho" role="row">
                 <span role="columnheader">Pessoa</span>
                 <span role="columnheader">Grupos</span>
                 <span role="columnheader">Papel</span>
                 <span role="columnheader">Último acesso</span>
               </div>
-              {lista.length === 0 ? (
+              {carregando ? null : lista.length === 0 ? (
                 <p className="adm-vazio adm-vazio--tabela">
                   <IconeEstadoVazio /> Ninguém nesse filtro.
                 </p>
@@ -405,7 +423,7 @@ export default function AdminUsuarios() {
                   </button>
                 ))
               )}
-            </div>
+            </Esboco>
           </section>
 
           <section className="adm-detalhe" aria-label="Pessoa selecionada">
@@ -445,13 +463,12 @@ export default function AdminUsuarios() {
                   Senha do primeiro acesso: <strong>{SENHA_TEMPORARIA_EXIBIDA}</strong> — a pessoa escolhe a dela ao entrar.
                 </p>
                 <div className="adm-acoes-form">
-                  <button type="submit" className="botao-acao-primario" disabled={ocupado === "criar"}>
-                    {ocupado === "criar" && <span className="spinner" aria-hidden="true" />}
-                    Criar usuário
+                  <button {...botaoCriar.propsBotao({ type: "submit", className: "botao-acao-primario" })}>
+                    {botaoCriar.conteudo("Criar usuário")}
                   </button>
                 </div>
               </form>
-            ) : !usuario || !rascunho ? (
+            ) : carregando ? null : !usuario || !rascunho ? (
               <p className="adm-vazio adm-cartao">
                 <IconeEstadoVazio /> Escolha uma pessoa na lista.
               </p>
@@ -514,9 +531,16 @@ export default function AdminUsuarios() {
                         <button type="button" className="botao-acao-secundario" onClick={() => setRascunho({ departamento: usuario.departamento || "", papel: usuario.papel, status: usuario.status, grupoIds: usuario.grupoIds || [] })}>
                           Descartar
                         </button>
-                        <button type="button" className="botao-acao-primario" onClick={() => salvar()} disabled={ocupado === "salvar"}>
-                          {ocupado === "salvar" && <span className="spinner" aria-hidden="true" />}
-                          Salvar
+                        <button
+                          {...botaoSalvar.propsBotao({
+                            type: "button",
+                            className: "botao-acao-primario",
+                            onClick: () => salvar(),
+                            // Desativar/Reativar grava o mesmo usuário: um de cada vez.
+                            disabled: botaoStatus.estado !== "parado",
+                          })}
+                        >
+                          {botaoSalvar.conteudo("Salvar")}
                         </button>
                       </div>
                     )}
@@ -555,21 +579,28 @@ export default function AdminUsuarios() {
                   </div>
                   <span className="adm-acoes-piloto">
                     <button
-                      type="button"
-                      className="botao-acao-secundario"
-                      onClick={() => salvarPiloto(piloto.trim())}
-                      disabled={
-                        ocupado === "piloto" ||
-                        !piloto.trim() ||
-                        piloto.trim().toLowerCase() === (usuario.pilotoLogin || "").toLowerCase()
-                      }
+                      {...botaoVincular.propsBotao({
+                        type: "button",
+                        className: "botao-acao-secundario",
+                        onClick: () => salvarPiloto(piloto.trim()),
+                        disabled:
+                          botaoDesvincular.estado !== "parado" ||
+                          !piloto.trim() ||
+                          piloto.trim().toLowerCase() === (usuario.pilotoLogin || "").toLowerCase(),
+                      })}
                     >
-                      {ocupado === "piloto" && <span className="spinner" aria-hidden="true" />}
-                      {ocupado === "piloto" ? "Procurando no DroneManagement…" : "Vincular"}
+                      {botaoVincular.conteudo("Vincular")}
                     </button>
                     {usuario.pilotUserADId && (
-                      <button type="button" className="botao-acao-secundario adm-botao-perigo-leve" onClick={() => salvarPiloto("")} disabled={ocupado === "piloto"}>
-                        Desvincular
+                      <button
+                        {...botaoDesvincular.propsBotao({
+                          type: "button",
+                          className: "botao-acao-secundario adm-botao-perigo-leve",
+                          onClick: () => salvarPiloto(""),
+                          disabled: botaoVincular.estado !== "parado",
+                        })}
+                      >
+                        {botaoDesvincular.conteudo("Desvincular")}
                       </button>
                     )}
                   </span>
@@ -581,9 +612,8 @@ export default function AdminUsuarios() {
                       <strong>Senha</strong>
                       <span className="adm-suave">Volta para a temporária ({SENHA_TEMPORARIA_EXIBIDA}); a pessoa escolhe outra no próximo acesso.</span>
                     </div>
-                    <button type="button" className="botao-acao-secundario" onClick={redefinir} disabled={ocupado === "senha"}>
-                      {ocupado === "senha" && <span className="spinner" aria-hidden="true" />}
-                      Redefinir
+                    <button {...botaoSenha.propsBotao({ type: "button", className: "botao-acao-secundario", onClick: redefinir })}>
+                      {botaoSenha.conteudo("Redefinir")}
                     </button>
                   </div>
                 )}
@@ -598,12 +628,18 @@ export default function AdminUsuarios() {
                           : "Libera a entrada de novo, com os mesmos grupos."}
                       </span>
                     </div>
-                    <button type="button" className="botao-acao-secundario" onClick={alternarStatus} disabled={ocupado === "salvar"}>
-                      {usuario.status === "ativo" ? "Desativar" : "Reativar"}
+                    <button
+                      {...botaoStatus.propsBotao({
+                        type: "button",
+                        className: "botao-acao-secundario",
+                        onClick: alternarStatus,
+                        disabled: botaoSalvar.estado !== "parado",
+                      })}
+                    >
+                      {botaoStatus.conteudo(usuario.status === "ativo" ? "Desativar" : "Reativar")}
                     </button>
-                    <button type="button" className="botao-acao-perigo" onClick={excluir} disabled={ocupado === "excluir"}>
-                      {ocupado === "excluir" && <span className="spinner" aria-hidden="true" />}
-                      Excluir
+                    <button {...botaoExcluir.propsBotao({ type: "button", className: "botao-acao-perigo", onClick: excluir })}>
+                      {botaoExcluir.conteudo("Excluir")}
                     </button>
                   </div>
                 )}
@@ -613,20 +649,20 @@ export default function AdminUsuarios() {
         </div>
       )}
 
-      {aba === "grupos" && !carregando && (
+      {aba === "grupos" && (
         <div className="adm-grupos">
           <form className="adm-cartao adm-novo-grupo" onSubmit={criarGrupo}>
             <input type="text" className="adm-busca" placeholder="Nome do novo grupo" value={novoGrupo} onChange={(e) => setNovoGrupo(e.target.value)} aria-label="Nome do novo grupo" />
-            <button type="submit" className="botao-acao-primario" disabled={!novoGrupo.trim() || ocupado === "grupo"}>
-              + Criar grupo
+            <button {...botaoCriarGrupo.propsBotao({ type: "submit", className: "botao-acao-primario", disabled: !novoGrupo.trim() })}>
+              {botaoCriarGrupo.conteudo("+ Criar grupo")}
             </button>
           </form>
-          {grupos.length === 0 ? (
+          {!carregando && grupos.length === 0 ? (
             <p className="adm-vazio">
               <IconeEstadoVazio /> Nenhum grupo ainda.
             </p>
           ) : (
-            <ul className="adm-grade-grupos">
+            <Esboco as="ul" carregando={carregando} className="adm-grade-grupos">
               {grupos.map((g) => {
                 const membros = usuarios.filter((u) => (u.grupoIds || []).includes(g.id));
                 const veMapas = mapasPorGrupo.get(g.id) || [];
@@ -639,8 +675,8 @@ export default function AdminUsuarios() {
                       {renomeando?.id === g.id ? (
                         <form className="adm-renomear" onSubmit={renomearGrupo}>
                           <input type="text" className="adm-busca" value={renomeando.nome} onChange={(e) => setRenomeando({ ...renomeando, nome: e.target.value })} aria-label="Novo nome do grupo" autoFocus />
-                          <button type="submit" className="botao-acao-primario" disabled={!renomeando.nome.trim()}>
-                            Salvar
+                          <button {...botaoRenomearGrupo.propsBotao({ type: "submit", className: "botao-acao-primario", disabled: !renomeando.nome.trim() })}>
+                            {botaoRenomearGrupo.conteudo("Salvar")}
                           </button>
                           <button type="button" className="botao-acao-secundario" onClick={() => setRenomeando(null)}>
                             Cancelar
@@ -669,26 +705,44 @@ export default function AdminUsuarios() {
                       )}
                     </div>
                     {renomeando?.id !== g.id && (
-                      <div className="adm-acoes-grupo">
-                        <Link to="/admin/mapas" className="adm-link-forte">
-                          Mudar acesso nos mapas →
-                        </Link>
-                        <span className="adm-espaco" />
-                        <button type="button" className="botao-acao-secundario" onClick={() => setRenomeando({ id: g.id, nome: g.nome })}>
-                          Renomear
-                        </button>
-                        <button type="button" className="botao-acao-secundario adm-botao-perigo-leve" onClick={() => removerGrupo(g, membros.length)}>
-                          Remover
-                        </button>
-                      </div>
+                      <AcoesGrupo
+                        aoRenomear={() => setRenomeando({ id: g.id, nome: g.nome })}
+                        aoRemover={(botao) => removerGrupo(g, membros.length, botao)}
+                      />
                     )}
                   </li>
                 );
               })}
-            </ul>
+            </Esboco>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Ações do cartão de um grupo, com o próprio botão vivo de Remover (um por
+// cartão: com um só, todos os Remover animariam juntos).
+function AcoesGrupo({ aoRenomear, aoRemover }) {
+  const remover = useOcupado();
+  return (
+    <div className="adm-acoes-grupo">
+      <Link to="/admin/mapas" className="adm-link-forte">
+        Mudar acesso nos mapas →
+      </Link>
+      <span className="adm-espaco" />
+      <button type="button" className="botao-acao-secundario" onClick={aoRenomear}>
+        Renomear
+      </button>
+      <button
+        {...remover.propsBotao({
+          type: "button",
+          className: "botao-acao-secundario adm-botao-perigo-leve",
+          onClick: () => aoRemover(remover),
+        })}
+      >
+        {remover.conteudo("Remover")}
+      </button>
     </div>
   );
 }

@@ -10,6 +10,7 @@ import CartaoKpi from "../components/indicadores/CartaoKpi.jsx";
 import BarraProgresso from "../components/indicadores/BarraProgresso.jsx";
 import BarrasPorTipo from "../components/indicadores/BarrasPorTipo.jsx";
 import ColunasSemanais from "../components/indicadores/ColunasSemanais.jsx";
+import { Campo } from "../components/movimento/index.js";
 
 // Indicadores de voo — ver docs/superpowers/specs/2026-10-01-indicadores-voo-design.md.
 // O backend decide o que cada um vê: piloto recebe o painel da equipe + o
@@ -173,7 +174,7 @@ export default function Indicadores() {
 
         {carregando && !dados && (
           <div className="ind-carregando">
-            <span className="spinner" aria-hidden="true" /> Buscando voos no DroneManagement…
+            <Campo tamanho="pequeno" /> <span className="mo-respira">Buscando voos no DroneManagement…</span>
           </div>
         )}
 

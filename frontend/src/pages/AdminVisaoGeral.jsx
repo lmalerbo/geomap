@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useResumoAdmin } from "../components/LayoutAdmin.jsx";
+import { Esboco } from "../components/movimento/index.js";
 
 // Visão geral do admin (redesenho, fase 5): o que precisa de atenção
 // primeiro. A saúde da automação diária é deduzida no backend
@@ -89,17 +90,18 @@ function proximaExecucao() {
 
 export default function AdminVisaoGeral() {
   const { resumo, erroResumo } = useResumoAdmin();
-  const [passosAbertos, setPassosAbertos] = useState(false);
 
   if (erroResumo && !resumo) return <p className="erro adm-pagina">{erroResumo}</p>;
-  if (!resumo) {
-    return (
-      <p className="status-carregando-admin adm-pagina">
-        <span className="spinner" aria-hidden="true" /> Carregando…
-      </p>
-    );
-  }
+  // Esboço enquanto o resumo não chega; depois as seções entram em cascata.
+  return (
+    <Esboco carregando={!resumo} className="adm-pagina adm-visao">
+      {resumo && <ConteudoVisaoGeral resumo={resumo} />}
+    </Esboco>
+  );
+}
 
+function ConteudoVisaoGeral({ resumo }) {
+  const [passosAbertos, setPassosAbertos] = useState(false);
   const auto = resumo.automacao;
   const linhas = agruparCamadas(auto.camadas);
   const paradas = linhas.filter((l) => l.situacao === "atrasada" || l.situacao === "erro");
@@ -119,7 +121,7 @@ export default function AdminVisaoGeral() {
   else titulo = "A atualização automática de hoje ainda não chegou";
 
   return (
-    <div className="adm-pagina adm-visao">
+    <>
       <header className="adm-cabecalho">
         <div>
           <h1>Visão geral</h1>
@@ -324,6 +326,6 @@ export default function AdminVisaoGeral() {
           </section>
         </div>
       </div>
-    </div>
+    </>
   );
 }

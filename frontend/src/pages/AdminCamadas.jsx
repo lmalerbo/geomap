@@ -21,7 +21,8 @@ import { useResumoAdmin } from "../components/LayoutAdmin.jsx";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 import { corDaCamada } from "../lib/paleta.js";
 import { TIPOS_VOO_EDITAVEIS, corTipoVoo } from "../lib/coresTiposVoo.js";
-import IconeLordicon from "../components/IconeLordicon.jsx";
+import { Campo, Esboco, Voo, useOcupado } from "../components/movimento";
+import { textoConversao, pousoDoResultado, vooDoPalco } from "../lib/jobsConversao.js";
 import {
   normalizarEstiloConfig,
   gerarCategorias,
@@ -85,28 +86,6 @@ function mesclarConfigAtributos(campos, salvos) {
 
 const FORM_UPLOAD_VAZIO = { nome: "", versao: "1.0", categoria: "", mapaId: "" };
 
-// true quando a seleção atual vai passar pela conversão (shapefile: .zip
-// único, ou os arquivos soltos selecionados sem zipar) — usado só pro
-// texto do botão ("Convertendo…" vs "Enviando…"); um único .pmtiles não
-// precisa de conversão nenhuma.
-function ehConversaoShapefile(arquivos) {
-  if (!arquivos || arquivos.length === 0) return false;
-  return arquivos.length > 1 || !arquivos[0].name.toLowerCase().endsWith(".pmtiles");
-}
-
-// Some sozinha depois de um tempo — antes a confirmação "✓ Salvo às…"
-// ficava presa na tela até a próxima ação trocar o texto, mesmo bem
-// depois do usuário já ter visto. `setValor` de um useState é estável
-// entre renders, por isso é seguro como dependência do efeito (não
-// reinicia o timer à toa a cada render).
-function useAutoDismiss(valor, setValor, delayMs = 2500) {
-  useEffect(() => {
-    if (!valor) return;
-    const timer = setTimeout(() => setValor(null), delayMs);
-    return () => clearTimeout(timer);
-  }, [valor, setValor, delayMs]);
-}
-
 export default function AdminCamadas() {
   const { sessao } = useAuth();
   const navigate = useNavigate();
@@ -134,7 +113,6 @@ export default function AdminCamadas() {
     mapaId: searchParams.get("mapaId") || "",
   });
   const [arquivoUpload, setArquivoUpload] = useState([]);
-  const [enviando, setEnviando] = useState(false);
   const [erroUpload, setErroUpload] = useState(null);
 
   const [camadaSelecionadaId, setCamadaSelecionadaId] = useState(null);
@@ -154,11 +132,7 @@ export default function AdminCamadas() {
   const [arquivoForm, setArquivoForm] = useState(null); // { nome }
   const [novaVersao, setNovaVersao] = useState("");
   const [novoArquivo, setNovoArquivo] = useState([]);
-  const [removendo, setRemovendo] = useState(false);
-  const [duplicando, setDuplicando] = useState(false);
   const [mapaDestinoDuplicar, setMapaDestinoDuplicar] = useState(null);
-  const [salvandoArquivo, setSalvandoArquivo] = useState(false);
-  const [salvoArquivoEm, setSalvoArquivoEm] = useState(null);
 
   // estiloForm guarda o objeto normalizado inteiro (preenchimento/contorno/
   // rotulo/visibilidade) — ver lib/estiloCamada.js.
@@ -167,21 +141,13 @@ export default function AdminCamadas() {
   const [ehPontoAtual, setEhPontoAtual] = useState(false);
   const [camposDisponiveis, setCamposDisponiveis] = useState([]);
   const [numClassesGraduado, setNumClassesGraduado] = useState(5);
-  const [gerandoCategorias, setGerandoCategorias] = useState(false);
-  const [gerandoCategoriasContorno, setGerandoCategoriasContorno] = useState(false);
-  const [gerandoFormas, setGerandoFormas] = useState(false);
-  const [calculandoFaixas, setCalculandoFaixas] = useState(false);
   const [avisoEstilo, setAvisoEstilo] = useState(null);
-  const [salvandoEstilo, setSalvandoEstilo] = useState(false);
-  const [salvoEstiloEm, setSalvoEstiloEm] = useState(null);
   // pmtiles/source-layer da camada selecionada — só usados pelos botões
   // "Gerar categorias"/"Calcular faixas" (leem os tiles sob demanda), não
   // precisam disparar re-render, por isso ref em vez de state.
   const detalheAtualRef = useRef({ pmtiles: null, sourceLayerId: null });
 
   const [atributosLinhas, setAtributosLinhas] = useState(null);
-  const [salvandoAtributos, setSalvandoAtributos] = useState(false);
-  const [salvoAtributosEm, setSalvoAtributosEm] = useState(null);
   const [arrastandoIndice, setArrastandoIndice] = useState(null); // só o feedback visual (opacity)
   // Fonte de verdade pro onDrop — um ref, não o state acima. Eventos de
   // drag (dragstart/dragover/drop) são "continuous priority" no React 18,
@@ -192,19 +158,19 @@ export default function AdminCamadas() {
   // lê o valor atual, não depende de re-render ter acontecido.
   const arrastandoIndiceRef = useRef(null);
 
-  useAutoDismiss(salvoArquivoEm, setSalvoArquivoEm);
-  useAutoDismiss(salvoEstiloEm, setSalvoEstiloEm);
-  useAutoDismiss(salvoAtributosEm, setSalvoAtributosEm);
-
   function carregarCamadas() {
     return listarCamadasAdmin(sessao.token).then(setCamadas);
   }
 
+  // Esboço da lista até as camadas e os mapas chegarem.
+  const [listaCarregada, setListaCarregada] = useState(false);
   useEffect(() => {
-    carregarCamadas().catch((e) => setErroLista(e.message));
-    listarMapasAdmin(sessao.token)
-      .then(setMapas)
-      .catch((e) => setErroLista(e.message));
+    Promise.all([
+      carregarCamadas().catch((e) => setErroLista(e.message)),
+      listarMapasAdmin(sessao.token)
+        .then(setMapas)
+        .catch((e) => setErroLista(e.message)),
+    ]).finally(() => setListaCarregada(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao.token]);
 
@@ -234,16 +200,55 @@ export default function AdminCamadas() {
         continue;
       }
       carregarCamadas();
-      if (tipo === "criar") {
-        setCamadaSelecionadaId(resultado.camadaId);
-      } else {
-        setSalvoArquivoEm(new Date());
-      }
+      if (tipo === "criar") setCamadaSelecionadaId(resultado.camadaId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultadosRecentes]);
 
   const situacaoSelecionada = resumo?.automacao.camadas.find((c) => c.id === camadaSelecionadaId) || null;
+
+  // Relógio do "Convertendo Talhões · 3:12" (voo e lista).
+  const [agora, setAgora] = useState(() => Date.now());
+  const temJobRodando = jobsPendentes.length > 0;
+  useEffect(() => {
+    if (!temJobRodando) return undefined;
+    setAgora(Date.now());
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [temJobRodando]);
+
+  // Voo do drone sobre o palco enquanto o servidor converte (docs/
+  // movimento-esperas.md, sessão 4). Um job que terminou continua voando
+  // até o pouso acabar (`pousados`). Calculado no render, não num efeito:
+  // o job sai de `jobsPendentes` e entra em `resultadosRecentes` no mesmo
+  // render, então o <Voo> (mesma key) nunca desmonta no meio. Resultados
+  // que já existiam ao abrir a tela não pousam de novo.
+  const [resultadosNaAbertura] = useState(() => new Set(resultadosRecentes.map((r) => r.jobId)));
+  const [pousados, setPousados] = useState(() => new Set());
+  const emPouso = resultadosRecentes.filter((r) => !resultadosNaAbertura.has(r.jobId) && !pousados.has(r.jobId));
+  const vooAtual = vooDoPalco([...emPouso, ...jobsPendentes], camadaSelecionadaId);
+  const voo = vooAtual && (
+    <Voo
+      key={vooAtual.jobId}
+      texto={textoConversao(vooAtual, agora)}
+      desde={vooAtual.inicio}
+      pouso={vooAtual.status ? pousoDoResultado(vooAtual) : null}
+      onFim={() => setPousados((atual) => new Set(atual).add(vooAtual.jobId))}
+    />
+  );
+
+  const envioCamada = useOcupado();
+  const envioArquivo = useOcupado();
+  const botaoNome = useOcupado();
+  const botaoDuplicar = useOcupado();
+  const botaoRemover = useOcupado();
+  const botaoEstilo = useOcupado();
+  const botaoAtributos = useOcupado();
+  const botaoCategorias = useOcupado();
+  const botaoCategoriasContorno = useOcupado();
+  const botaoFormas = useOcupado();
+  const botaoFaixas = useOcupado();
+  const botaoGradiente = useOcupado();
 
   // Agrupa as camadas por mapa (ordenado pelo nome do mapa) — cada grupo vira
   // uma seção recolhível na lista, em vez da lista achatada de antes.
@@ -290,21 +295,22 @@ export default function AdminCamadas() {
       setErroUpload("Selecione a qual mapa essa camada pertence");
       return;
     }
-    setEnviando(true);
     setErroUpload(null);
     try {
-      const { jobId } = await enviarCamadaAdmin(sessao.token, { ...formUpload, arquivos: arquivoUpload });
+      const { jobId } = await envioCamada.executar(
+        () => enviarCamadaAdmin(sessao.token, { ...formUpload, arquivos: arquivoUpload }),
+        { texto: "Enviando…" }
+      );
       const nomeCamada = formUpload.nome;
+      const versao = formUpload.versao;
       setFormUpload(FORM_UPLOAD_VAZIO);
       setArquivoUpload([]);
       document.getElementById("campo-arquivo-pmtiles").value = "";
       setMostrarUpload(false);
       meusJobsRef.current.set(jobId, "criar");
-      adicionarJob(jobId, nomeCamada);
+      adicionarJob(jobId, nomeCamada, { tipo: "criar", versao });
     } catch (err) {
       setErroUpload(err.message);
-    } finally {
-      setEnviando(false);
     }
   }
 
@@ -338,9 +344,6 @@ export default function AdminCamadas() {
     setCarregandoDetalhe(true);
     setErroDetalhe(null);
     setAvisoEstilo(null);
-    setSalvoArquivoEm(null);
-    setSalvoEstiloEm(null);
-    setSalvoAtributosEm(null);
     setSujo(false);
 
     (async () => {
@@ -426,7 +429,7 @@ export default function AdminCamadas() {
     };
   }, [camadaSelecionadaId, sessao.token, recargaDetalhe]);
 
-  async function restaurarVersao(v) {
+  async function restaurarVersao(v, botao) {
     if (
       !window.confirm(
         `Voltar esta camada para a versão "${v.versao}"? O arquivo atual vira uma versão anterior (dá para desfazer) e os aparelhos baixam de novo no próximo sincronismo.`
@@ -437,7 +440,7 @@ export default function AdminCamadas() {
     setRestaurandoId(v.id);
     setErroDetalhe(null);
     try {
-      await restaurarVersaoCamadaAdmin(sessao.token, camadaSelecionadaId, v.id);
+      await botao.executar(() => restaurarVersaoCamadaAdmin(sessao.token, camadaSelecionadaId, v.id));
       await carregarCamadas();
       setRecargaDetalhe((n) => n + 1);
       recarregarResumo?.();
@@ -454,19 +457,19 @@ export default function AdminCamadas() {
   }
 
   async function salvarArquivo() {
-    setSalvandoArquivo(true);
     setErroDetalhe(null);
     try {
-      await renomearCamadaAdmin(sessao.token, camadaSelecionadaId, arquivoForm.nome);
+      // `sujo` volta a false assim que o servidor responde, antes do ✓: uma
+      // edição feita durante o ✓ continua contando como não salva.
+      await botaoNome.executar(async () => {
+        await renomearCamadaAdmin(sessao.token, camadaSelecionadaId, arquivoForm.nome);
+        setSujo(false);
+      });
       setCamadas((atual) =>
         atual.map((c) => (c.id === camadaSelecionadaId ? { ...c, nome: arquivoForm.nome } : c))
       );
-      setSalvoArquivoEm(new Date());
-      setSujo(false);
     } catch (e) {
       setErroDetalhe(e.message);
-    } finally {
-      setSalvandoArquivo(false);
     }
   }
 
@@ -476,22 +479,21 @@ export default function AdminCamadas() {
       setErroDetalhe("Selecione um .pmtiles ou os arquivos do shapefile (.shp/.dbf/.shx/.prj)");
       return;
     }
-    setSalvandoArquivo(true);
     setErroDetalhe(null);
-    const nomeCamada = camadas.find((c) => c.id === camadaSelecionadaId)?.nome || "camada";
+    const camadaId = camadaSelecionadaId;
+    const nomeCamada = camadas.find((c) => c.id === camadaId)?.nome || "camada";
+    const versao = novaVersao;
     try {
-      const { jobId } = await atualizarArquivoCamadaAdmin(sessao.token, camadaSelecionadaId, {
-        versao: novaVersao,
-        arquivos: novoArquivo,
-      });
+      const { jobId } = await envioArquivo.executar(
+        () => atualizarArquivoCamadaAdmin(sessao.token, camadaId, { versao, arquivos: novoArquivo }),
+        { texto: "Enviando…" }
+      );
       setNovoArquivo([]);
       setSujo(false);
       meusJobsRef.current.set(jobId, "atualizar");
-      adicionarJob(jobId, nomeCamada);
+      adicionarJob(jobId, nomeCamada, { tipo: "atualizar", camadaId, versao });
     } catch (e) {
       setErroDetalhe(e.message);
-    } finally {
-      setSalvandoArquivo(false);
     }
   }
 
@@ -504,31 +506,29 @@ export default function AdminCamadas() {
     ) {
       return;
     }
-    setRemovendo(true);
     setErroDetalhe(null);
     try {
-      await removerCamadaAdmin(sessao.token, camadaSelecionadaId);
+      // O ✓ aparece antes de a camada sair da tela (o painel some junto).
+      await botaoRemover.executar(() => removerCamadaAdmin(sessao.token, camadaSelecionadaId));
       setCamadaSelecionadaId(null);
       await carregarCamadas();
     } catch (e) {
       setErroDetalhe(e.message);
-    } finally {
-      setRemovendo(false);
     }
   }
 
   async function duplicarCamadaSelecionada() {
     const camada = camadas.find((c) => c.id === camadaSelecionadaId);
     const destino = mapaDestinoDuplicar ?? camada?.mapa_id;
-    setDuplicando(true);
     setErroDetalhe(null);
     try {
-      await duplicarCamadaAdmin(sessao.token, camadaSelecionadaId, destino != null ? Number(destino) : undefined);
+      await botaoDuplicar.executar(
+        () => duplicarCamadaAdmin(sessao.token, camadaSelecionadaId, destino != null ? Number(destino) : undefined),
+        { texto: "Duplicando…" }
+      );
       await carregarCamadas();
     } catch (e) {
       setErroDetalhe(e.message);
-    } finally {
-      setDuplicando(false);
     }
   }
 
@@ -620,88 +620,87 @@ export default function AdminCamadas() {
     setSujo(true);
   }
 
+  // Ler valores dos tiles leva alguns segundos numa camada grande: o botão
+  // fica vivo ("Lendo valores…") e termina em ✓, ou ✕ quando não deu para
+  // gerar (nenhum valor, valores demais); o aviso explica.
+  async function lerComBotao(botao, ler) {
+    const fim = botao.iniciar({ texto: "Lendo valores…" });
+    setAvisoEstilo(null);
+    let ok = true;
+    const avisar = (mensagem) => {
+      ok = false;
+      setAvisoEstilo(mensagem);
+    };
+    try {
+      await ler(avisar);
+    } catch (e) {
+      avisar(e.message);
+    }
+    fim(ok);
+  }
+
   async function gerarCategoriasParaCampo() {
     const { pmtiles, sourceLayerId } = detalheAtualRef.current;
     if (!pmtiles || !sourceLayerId || !estiloForm.preenchimento.campo) return;
-    setGerandoCategorias(true);
-    setAvisoEstilo(null);
-    try {
+    await lerComBotao(botaoCategorias, async (avisar) => {
       const campos = [estiloForm.preenchimento.campo, ...estiloForm.preenchimento.camposAdicionais];
       const valores =
         campos.length === 1
           ? await lerValoresUnicos(pmtiles, sourceLayerId, campos[0])
           : await lerValoresUnicosCombinados(pmtiles, sourceLayerId, campos);
       if (valores.length === 0) {
-        setAvisoEstilo("Nenhum valor encontrado pra esse campo.");
+        avisar("Nenhum valor encontrado pra esse campo.");
       } else if (valores.length > MAX_CATEGORIAS) {
-        setAvisoEstilo(
+        avisar(
           `${valores.length} valores únicos encontrados — provavelmente não é um campo de categoria (ex: um ID). Escolha outro campo.`
         );
       } else {
         atualizarPreenchimento("categorias", gerarCategorias(valores));
       }
-    } catch (e) {
-      setAvisoEstilo(e.message);
-    } finally {
-      setGerandoCategorias(false);
-    }
+    });
   }
 
   async function gerarCategoriasParaCampoContorno() {
     const { pmtiles, sourceLayerId } = detalheAtualRef.current;
     if (!pmtiles || !sourceLayerId || !estiloForm.contorno.campo) return;
-    setGerandoCategoriasContorno(true);
-    setAvisoEstilo(null);
-    try {
+    await lerComBotao(botaoCategoriasContorno, async (avisar) => {
       const valores = await lerValoresUnicos(pmtiles, sourceLayerId, estiloForm.contorno.campo);
       if (valores.length === 0) {
-        setAvisoEstilo("Nenhum valor encontrado pra esse campo.");
+        avisar("Nenhum valor encontrado pra esse campo.");
       } else if (valores.length > MAX_CATEGORIAS) {
-        setAvisoEstilo(
+        avisar(
           `${valores.length} valores únicos encontrados — provavelmente não é um campo de categoria (ex: um ID). Escolha outro campo.`
         );
       } else {
         atualizarContorno("categorias", gerarCategorias(valores));
       }
-    } catch (e) {
-      setAvisoEstilo(e.message);
-    } finally {
-      setGerandoCategoriasContorno(false);
-    }
+    });
   }
 
   async function gerarFormasParaCampo() {
     const { pmtiles, sourceLayerId } = detalheAtualRef.current;
     if (!pmtiles || !sourceLayerId || !estiloForm.simbolo.campo) return;
-    setGerandoFormas(true);
-    setAvisoEstilo(null);
-    try {
+    await lerComBotao(botaoFormas, async (avisar) => {
       const valores = await lerValoresUnicos(pmtiles, sourceLayerId, estiloForm.simbolo.campo);
       if (valores.length === 0) {
-        setAvisoEstilo("Nenhum valor encontrado pra esse campo.");
+        avisar("Nenhum valor encontrado pra esse campo.");
       } else if (valores.length > MAX_CATEGORIAS) {
-        setAvisoEstilo(
+        avisar(
           `${valores.length} valores únicos encontrados — provavelmente não é um campo de categoria (ex: um ID). Escolha outro campo.`
         );
       } else {
         atualizarSimbolo("categorias", gerarCategoriasForma(valores));
       }
-    } catch (e) {
-      setAvisoEstilo(e.message);
-    } finally {
-      setGerandoFormas(false);
-    }
+    });
   }
 
   async function calcularFaixasParaCampo() {
     const { pmtiles, sourceLayerId } = detalheAtualRef.current;
     if (!pmtiles || !sourceLayerId || !estiloForm.preenchimento.campoNumerico) return;
-    setCalculandoFaixas(true);
-    setAvisoEstilo(null);
-    try {
+    await lerComBotao(botaoFaixas, async (avisar) => {
       const minMax = await lerMinMax(pmtiles, sourceLayerId, estiloForm.preenchimento.campoNumerico);
       if (!minMax) {
-        setAvisoEstilo("Nenhum valor numérico encontrado pra esse campo.");
+        avisar("Nenhum valor numérico encontrado pra esse campo.");
       } else {
         const classes = gerarRampaClasses(
           minMax.min,
@@ -711,22 +710,16 @@ export default function AdminCamadas() {
         );
         atualizarPreenchimento("classes", classes);
       }
-    } catch (e) {
-      setAvisoEstilo(e.message);
-    } finally {
-      setCalculandoFaixas(false);
-    }
+    });
   }
 
   async function calcularFaixaGradiente() {
     const { pmtiles, sourceLayerId } = detalheAtualRef.current;
     if (!pmtiles || !sourceLayerId || !estiloForm.preenchimento.campoNumerico) return;
-    setCalculandoFaixas(true);
-    setAvisoEstilo(null);
-    try {
+    await lerComBotao(botaoGradiente, async (avisar) => {
       const minMax = await lerMinMax(pmtiles, sourceLayerId, estiloForm.preenchimento.campoNumerico);
       if (!minMax) {
-        setAvisoEstilo("Nenhum valor numérico encontrado pra esse campo.");
+        avisar("Nenhum valor numérico encontrado pra esse campo.");
       } else {
         setEstiloForm((atual) => ({
           ...atual,
@@ -734,25 +727,19 @@ export default function AdminCamadas() {
         }));
         setSujo(true);
       }
-    } catch (e) {
-      setAvisoEstilo(e.message);
-    } finally {
-      setCalculandoFaixas(false);
-    }
+    });
   }
 
   async function salvarEstilo() {
-    setSalvandoEstilo(true);
     setErroDetalhe(null);
     try {
-      await salvarConfigEstilo(sessao.token, camadaSelecionadaId, estiloForm);
-      setSalvoEstiloEm(new Date());
-      setEstiloSalvoRef(null); // a prévia passa a comparar com o que acabou de ser salvo
-      setSujo(false);
+      await botaoEstilo.executar(async () => {
+        await salvarConfigEstilo(sessao.token, camadaSelecionadaId, estiloForm);
+        setEstiloSalvoRef(null); // a prévia passa a comparar com o que acabou de ser salvo
+        setSujo(false);
+      });
     } catch (e) {
       setErroDetalhe(e.message);
-    } finally {
-      setSalvandoEstilo(false);
     }
   }
 
@@ -789,7 +776,6 @@ export default function AdminCamadas() {
   }
 
   async function salvarAtributos() {
-    setSalvandoAtributos(true);
     setErroDetalhe(null);
     try {
       const atributos = atributosLinhas.map((l, ordem) => ({
@@ -798,13 +784,12 @@ export default function AdminCamadas() {
         rotulo: l.rotulo,
         ordem,
       }));
-      await salvarConfigAtributos(sessao.token, camadaSelecionadaId, atributos);
-      setSalvoAtributosEm(new Date());
-      setSujo(false);
+      await botaoAtributos.executar(async () => {
+        await salvarConfigAtributos(sessao.token, camadaSelecionadaId, atributos);
+        setSujo(false);
+      });
     } catch (e) {
       setErroDetalhe(e.message);
-    } finally {
-      setSalvandoAtributos(false);
     }
   }
 
@@ -831,8 +816,8 @@ export default function AdminCamadas() {
             <ul className="lista-jobs-em-andamento">
               {jobsPendentes.map((job) => (
                 <li key={job.jobId}>
-                  <IconeLordicon nome="upload-file" trigger="loop" tamanho={20} />
-                  Processando "{job.rotulo}"…
+                  <Campo tamanho="pequeno" />
+                  <span>{textoConversao(job, agora)}</span>
                 </li>
               ))}
             </ul>
@@ -899,18 +884,13 @@ export default function AdminCamadas() {
                   DESC_SECAO).
                 </span>
               </label>
-              <button type="submit" disabled={enviando}>
-                {enviando && <span className="spinner" aria-hidden="true" />}
-                {enviando
-                  ? ehConversaoShapefile(arquivoUpload)
-                    ? "Convertendo shapefile… isso pode levar alguns minutos"
-                    : "Enviando…"
-                  : "Adicionar camada"}
+              <button {...envioCamada.propsBotao({ type: "submit" })}>
+                {envioCamada.conteudo("Adicionar camada")}
               </button>
             </form>
           )}
 
-          <div className="lista-camadas-agrupada">
+          <Esboco carregando={!listaCarregada} className="lista-camadas-agrupada">
             {gruposPorMapa.map((grupo) => (
               <div key={grupo.mapaId} className="grupo-camadas-mapa">
                 <button
@@ -959,15 +939,18 @@ export default function AdminCamadas() {
                 )}
               </div>
             ))}
-            {gruposPorMapa.length === 0 && (
+            {listaCarregada && gruposPorMapa.length === 0 && (
               <p className="sem-dados-estatistica">
                 <IconeEstadoVazio /> Nenhum mapa cadastrado ainda.
               </p>
             )}
-          </div>
+          </Esboco>
         </aside>
 
         <section className="adm-camadas-centro" aria-label="Prévia e versões">
+          {/* Sempre no mesmo lugar da árvore: a camada nova que acabou de ser
+              criada é selecionada e o mesmo drone continua o pouso. */}
+          {voo && <div className="palco-conversao">{voo}</div>}
           {camadaSelecionadaId == null ? (
             <p className="adm-vazio adm-cartao">
               <IconeEstadoVazio /> Escolha uma camada na lista para ver a prévia no mapa e editar.
@@ -979,7 +962,7 @@ export default function AdminCamadas() {
               </button>
               <div className="adm-cartao adm-cartao-previa">
                 {previa && estiloForm && !carregandoDetalhe ? (
-                  <Suspense fallback={<div className="adm-previa adm-previa--carregando"><span className="spinner" aria-hidden="true" /></div>}>
+                  <Suspense fallback={<div className="adm-previa adm-previa--carregando"><Campo tamanho="grande" /></div>}>
                     <PreviaCamada
                       chave={camadaSelecionadaId}
                       pmtiles={previa.pmtiles}
@@ -992,7 +975,8 @@ export default function AdminCamadas() {
                   </Suspense>
                 ) : (
                   <div className="adm-previa adm-previa--carregando">
-                    <span className="spinner" aria-hidden="true" /> {carregandoDetalhe ? "Baixando a camada…" : ""}
+                    <Campo tamanho="grande" />
+                    {carregandoDetalhe && <span className="mo-respira">Baixando a camada…</span>}
                   </div>
                 )}
               </div>
@@ -1017,15 +1001,10 @@ export default function AdminCamadas() {
                             {v.usuarioNome ? ` · por ${v.usuarioNome}` : ""}
                           </small>
                         </span>
-                        <button
-                          type="button"
-                          className="botao-acao-secundario"
-                          onClick={() => restaurarVersao(v)}
-                          disabled={restaurandoId != null}
-                        >
-                          {restaurandoId === v.id && <span className="spinner" aria-hidden="true" />}
-                          Restaurar
-                        </button>
+                        <BotaoRestaurar
+                          desabilitado={restaurandoId != null && restaurandoId !== v.id}
+                          aoRestaurar={(botao) => restaurarVersao(v, botao)}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -1040,13 +1019,14 @@ export default function AdminCamadas() {
           )}
         </section>
 
-        <section className="detalhe-camada-workspace adm-camadas-editor" aria-label="Editar camada">
+        {/* Esboço enquanto a camada baixa; depois título, abas e editor entram em cascata. */}
+        <Esboco
+          as="section"
+          carregando={carregandoDetalhe}
+          className="detalhe-camada-workspace adm-camadas-editor"
+          aria-label="Editar camada"
+        >
           {erroDetalhe && <p className="erro">{erroDetalhe}</p>}
-          {carregandoDetalhe && (
-            <p className="status-carregando-admin">
-              <span className="spinner" aria-hidden="true" /> Carregando…
-            </p>
-          )}
 
           {camadaSelecionadaId != null && !carregandoDetalhe && arquivoForm && (
             <>
@@ -1091,16 +1071,9 @@ export default function AdminCamadas() {
                   />
                 </label>
                 <div className="acoes-admin-atributos">
-                  <button type="button" onClick={salvarArquivo} disabled={salvandoArquivo}>
-                    {salvandoArquivo && <span className="spinner" aria-hidden="true" />}
-                    {salvandoArquivo ? "Salvando…" : "Salvar nome"}
+                  <button {...botaoNome.propsBotao({ type: "button", onClick: salvarArquivo })}>
+                    {botaoNome.conteudo("Salvar nome")}
                   </button>
-                  {salvoArquivoEm && (
-                    <span className="confirmacao-salvo">
-                      <span className="marca-check-salvo" aria-hidden="true">✓</span> Salvo às{" "}
-                      {salvoArquivoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  )}
                 </div>
 
                 <form className="form-atualizar-arquivo form-atualizar-arquivo--workspace" onSubmit={enviarNovoArquivo}>
@@ -1125,9 +1098,8 @@ export default function AdminCamadas() {
                     }}
                     aria-label="Novo arquivo (.pmtiles pronto ou os arquivos do shapefile)"
                   />
-                  <button type="submit" disabled={salvandoArquivo}>
-                    {salvandoArquivo && <span className="spinner" aria-hidden="true" />}
-                    {salvandoArquivo && ehConversaoShapefile(novoArquivo) ? "Convertendo…" : "Atualizar arquivo"}
+                  <button {...envioArquivo.propsBotao({ type: "submit", disabled: botaoNome.estado !== "parado" })}>
+                    {envioArquivo.conteudo("Atualizar arquivo")}
                   </button>
                 </form>
 
@@ -1144,29 +1116,25 @@ export default function AdminCamadas() {
                     ))}
                   </select>
                   <button
-                    type="button"
-                    className="botao-secundario"
-                    onClick={duplicarCamadaSelecionada}
-                    disabled={duplicando}
-                    title="Cria uma cópia desta camada (arquivo incluso) no mapa escolhido"
+                    {...botaoDuplicar.propsBotao({
+                      type: "button",
+                      className: "botao-secundario",
+                      onClick: duplicarCamadaSelecionada,
+                      title: "Cria uma cópia desta camada (arquivo incluso) no mapa escolhido",
+                    })}
                   >
-                    {duplicando && <span className="spinner" aria-hidden="true" />}
-                    {duplicando ? "Duplicando…" : "Duplicar camada"}
+                    {botaoDuplicar.conteudo("Duplicar camada")}
                   </button>
                 </div>
 
                 <button
-                  type="button"
-                  className="botao-remover-mapa botao-remover-camada-workspace"
-                  onClick={removerCamadaSelecionada}
-                  disabled={removendo}
+                  {...botaoRemover.propsBotao({
+                    type: "button",
+                    className: "botao-remover-mapa botao-remover-camada-workspace",
+                    onClick: removerCamadaSelecionada,
+                  })}
                 >
-                  {removendo ? (
-                    <span className="spinner" aria-hidden="true" />
-                  ) : (
-                    <IconeLordicon nome="minus-circle" trigger="hover" tamanho={18} cor="#ffffff" />
-                  )}
-                  {removendo ? "Removendo…" : "Remover camada"}
+                  {botaoRemover.conteudo("Remover camada")}
                 </button>
               </div>
               )}
@@ -1335,16 +1303,16 @@ export default function AdminCamadas() {
                     )}
 
                     <button
-                      type="button"
-                      className="botao-secundario"
-                      onClick={gerarCategoriasParaCampo}
-                      disabled={
-                        !estiloForm.preenchimento.campo ||
-                        estiloForm.preenchimento.camposAdicionais.some((c) => !c) ||
-                        gerandoCategorias
-                      }
+                      {...botaoCategorias.propsBotao({
+                        type: "button",
+                        className: "botao-secundario",
+                        onClick: gerarCategoriasParaCampo,
+                        disabled:
+                          !estiloForm.preenchimento.campo ||
+                          estiloForm.preenchimento.camposAdicionais.some((c) => !c),
+                      })}
                     >
-                      {gerandoCategorias ? "Lendo valores…" : "Gerar categorias a partir dos dados"}
+                      {botaoCategorias.conteudo("Gerar categorias a partir dos dados")}
                     </button>
                     {estiloForm.preenchimento.categorias.length > 0 && (
                       <ul className="lista-categorias-estilo">
@@ -1398,12 +1366,14 @@ export default function AdminCamadas() {
                       />
                     </label>
                     <button
-                      type="button"
-                      className="botao-secundario"
-                      onClick={calcularFaixasParaCampo}
-                      disabled={!estiloForm.preenchimento.campoNumerico || calculandoFaixas}
+                      {...botaoFaixas.propsBotao({
+                        type: "button",
+                        className: "botao-secundario",
+                        onClick: calcularFaixasParaCampo,
+                        disabled: !estiloForm.preenchimento.campoNumerico,
+                      })}
                     >
-                      {calculandoFaixas ? "Calculando…" : "Calcular faixas a partir dos dados"}
+                      {botaoFaixas.conteudo("Calcular faixas a partir dos dados")}
                     </button>
                     {estiloForm.preenchimento.classes.length > 0 && (
                       <ul className="lista-categorias-estilo">
@@ -1463,12 +1433,14 @@ export default function AdminCamadas() {
                       />
                     </label>
                     <button
-                      type="button"
-                      className="botao-secundario"
-                      onClick={calcularFaixaGradiente}
-                      disabled={!estiloForm.preenchimento.campoNumerico || calculandoFaixas}
+                      {...botaoGradiente.propsBotao({
+                        type: "button",
+                        className: "botao-secundario",
+                        onClick: calcularFaixaGradiente,
+                        disabled: !estiloForm.preenchimento.campoNumerico,
+                      })}
                     >
-                      {calculandoFaixas ? "Calculando…" : "Calcular faixa automaticamente"}
+                      {botaoGradiente.conteudo("Calcular faixa automaticamente")}
                     </button>
                     <label className="campo-form-admin">
                       Valor mínimo (cor inicial)
@@ -1545,12 +1517,14 @@ export default function AdminCamadas() {
                       </select>
                     </label>
                     <button
-                      type="button"
-                      className="botao-secundario"
-                      onClick={gerarCategoriasParaCampoContorno}
-                      disabled={!estiloForm.contorno.campo || gerandoCategoriasContorno}
+                      {...botaoCategoriasContorno.propsBotao({
+                        type: "button",
+                        className: "botao-secundario",
+                        onClick: gerarCategoriasParaCampoContorno,
+                        disabled: !estiloForm.contorno.campo,
+                      })}
                     >
-                      {gerandoCategoriasContorno ? "Lendo valores…" : "Gerar categorias a partir dos dados"}
+                      {botaoCategoriasContorno.conteudo("Gerar categorias a partir dos dados")}
                     </button>
                     {estiloForm.contorno.categorias.length > 0 && (
                       <ul className="lista-categorias-estilo">
@@ -1668,12 +1642,14 @@ export default function AdminCamadas() {
                           </select>
                         </label>
                         <button
-                          type="button"
-                          className="botao-secundario"
-                          onClick={gerarFormasParaCampo}
-                          disabled={!estiloForm.simbolo.campo || gerandoFormas}
+                          {...botaoFormas.propsBotao({
+                            type: "button",
+                            className: "botao-secundario",
+                            onClick: gerarFormasParaCampo,
+                            disabled: !estiloForm.simbolo.campo,
+                          })}
                         >
-                          {gerandoFormas ? "Gerando…" : "Gerar formas a partir dos dados"}
+                          {botaoFormas.conteudo("Gerar formas a partir dos dados")}
                         </button>
                         {estiloForm.simbolo.categorias.length > 0 && (
                           <ul className="lista-categorias-estilo">
@@ -1828,16 +1804,9 @@ export default function AdminCamadas() {
                 </label>
 
                 <div className="acoes-admin-atributos">
-                  <button type="button" onClick={salvarEstilo} disabled={salvandoEstilo}>
-                    {salvandoEstilo && <span className="spinner" aria-hidden="true" />}
-                    {salvandoEstilo ? "Salvando…" : "Salvar estilo"}
+                  <button {...botaoEstilo.propsBotao({ type: "button", onClick: salvarEstilo })}>
+                    {botaoEstilo.conteudo("Salvar estilo")}
                   </button>
-                  {salvoEstiloEm && (
-                    <span className="confirmacao-salvo">
-                      <span className="marca-check-salvo" aria-hidden="true">✓</span> Salvo às{" "}
-                      {salvoEstiloEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  )}
                 </div>
               </div>
               )}
@@ -1900,23 +1869,33 @@ export default function AdminCamadas() {
                 </ul>
 
                 <div className="acoes-admin-atributos">
-                  <button type="button" onClick={salvarAtributos} disabled={salvandoAtributos}>
-                    {salvandoAtributos && <span className="spinner" aria-hidden="true" />}
-                    {salvandoAtributos ? "Salvando…" : "Salvar atributos"}
+                  <button {...botaoAtributos.propsBotao({ type: "button", onClick: salvarAtributos })}>
+                    {botaoAtributos.conteudo("Salvar atributos")}
                   </button>
-                  {salvoAtributosEm && (
-                    <span className="confirmacao-salvo">
-                      <span className="marca-check-salvo" aria-hidden="true">✓</span> Salvo às{" "}
-                      {salvoAtributosEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  )}
                 </div>
               </div>
               )}
             </>
           )}
-        </section>
+        </Esboco>
       </div>
     </div>
+  );
+}
+
+// Um botão vivo por versão: com um só, todos os Restaurar animariam juntos.
+function BotaoRestaurar({ desabilitado, aoRestaurar }) {
+  const botao = useOcupado();
+  return (
+    <button
+      {...botao.propsBotao({
+        type: "button",
+        className: "botao-acao-secundario",
+        onClick: () => aoRestaurar(botao),
+        disabled: desabilitado,
+      })}
+    >
+      {botao.conteudo("Restaurar")}
+    </button>
   );
 }

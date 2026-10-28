@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ICONES_PREPARO, PALETA_PINS, urlSvgPin, nomeIcone } from "../../lib/iconesPreparo.js";
 import { formatarCoordenada } from "../../lib/coordenadas.js";
+import { useOcupado } from "../movimento/index.js";
 
 export default function FormularioPin({ rascunho, aoSalvar, aoCancelar }) {
   const [icone, setIcone] = useState(rascunho.inicial.icone);
@@ -10,12 +11,12 @@ export default function FormularioPin({ rascunho, aoSalvar, aoCancelar }) {
   // Enquanto o usuário não digitar um título próprio, o título acompanha o
   // nome do ícone escolhido.
   const [tituloEditado, setTituloEditado] = useState(Boolean(rascunho.id));
-  const [salvando, setSalvando] = useState(false);
+  const salvar = useOcupado();
   // aoSalvar grava no IndexedDB antes de tentar enviar — pode rejeitar (ex:
   // quota do navegador estourada, modo privado que bloqueia storage). Sem
-  // capturar isso, `salvando` ficava true pra sempre (Salvar/Cancelar
-  // travados) e o usuário não tinha como saber o que aconteceu nem sair do
-  // formulário.
+  // capturar isso, o botão ficaria ocupado pra sempre (Salvar/Cancelar
+  // travados) e o usuário não teria como saber o que aconteceu nem sair do
+  // formulário: `executar` termina em ✕ e a mensagem aparece.
   const [erro, setErro] = useState(null);
 
   function escolherIcone(chave) {
@@ -27,14 +28,13 @@ export default function FormularioPin({ rascunho, aoSalvar, aoCancelar }) {
     e.preventDefault();
     const t = titulo.trim();
     if (!t) return;
-    setSalvando(true);
     setErro(null);
     try {
-      await aoSalvar({ icone, cor, titulo: t.slice(0, 120), nota: nota.slice(0, 2000) });
+      // O formulário fecha quando aoSalvar resolve: o ✓ só aparece se ele
+      // continuar aberto. A falha fica com o ✕.
+      await salvar.executar(() => aoSalvar({ icone, cor, titulo: t.slice(0, 120), nota: nota.slice(0, 2000) }));
     } catch {
       setErro("Não foi possível salvar a anotação neste aparelho. Tente de novo.");
-    } finally {
-      setSalvando(false);
     }
   }
 
@@ -100,11 +100,11 @@ export default function FormularioPin({ rascunho, aoSalvar, aoCancelar }) {
         {erro && <p className="erro">{erro}</p>}
 
         <div className="acoes-pin">
-          <button type="button" onClick={aoCancelar} disabled={salvando}>
+          <button type="button" onClick={aoCancelar} disabled={salvar.estado !== "parado"}>
             Cancelar
           </button>
-          <button type="submit" disabled={salvando || !titulo.trim()}>
-            {salvando && <span className="spinner" aria-hidden="true" />} Salvar
+          <button {...salvar.propsBotao({ type: "submit", disabled: !titulo.trim() })}>
+            {salvar.conteudo("Salvar")}
           </button>
         </div>
       </form>

@@ -43,21 +43,37 @@ export async function buscarCatalogo(token) {
 // rápido com uso normal) — devolve só uma URL assinada do R2 (JSON,
 // pequeno), e o navegador busca o arquivo NUMA SEGUNDA requisição direto
 // pro R2 (fetch CORS de 1 salto só, banda de saída do R2 é grátis).
-async function baixarDeUrlAssinada(resp) {
+// `aoBytes(recebidos, tamanho)`: progresso do download, lido aos pedaços.
+// `tamanho` vem do Content-Length (null se o armazenamento não informar).
+async function baixarDeUrlAssinada(resp, aoBytes) {
   await tratarResposta(resp);
   const { url } = await resp.json();
   const respArquivo = await fetch(url);
   if (!respArquivo.ok) {
     throw new Error("Não foi possível baixar o arquivo do armazenamento.");
   }
-  return respArquivo.blob();
+  if (!aoBytes || !respArquivo.body) return respArquivo.blob();
+
+  const tamanho = Number(respArquivo.headers.get("Content-Length")) || null;
+  const leitor = respArquivo.body.getReader();
+  const pedacos = [];
+  let recebidos = 0;
+  aoBytes(0, tamanho);
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    pedacos.push(value);
+    recebidos += value.byteLength;
+    aoBytes(recebidos, tamanho);
+  }
+  return new Blob(pedacos);
 }
 
-export async function baixarCamada(token, camadaId) {
+export async function baixarCamada(token, camadaId, aoBytes) {
   const resp = await fetch(`${API_URL}/camadas/${camadaId}/download`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  return baixarDeUrlAssinada(resp);
+  return baixarDeUrlAssinada(resp, aoBytes);
 }
 
 // --- Painel de administração: mapas (projetos) ---

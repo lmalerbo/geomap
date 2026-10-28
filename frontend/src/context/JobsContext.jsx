@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { consultarJobAdmin } from "../lib/api.js";
+import { pousoDoResultado } from "../lib/jobsConversao.js";
 import { useAuth } from "./AuthContext.jsx";
 
 const JobsContext = createContext(null);
@@ -65,8 +66,11 @@ export function JobsProvider({ children }) {
     [removerToast]
   );
 
+  // `job`: { jobId, rotulo, inicio, tipo, camadaId, versao } — o início (Date.now())
+  // deixa o voo de AdminCamadas continuar de onde estava ao sair e voltar.
   const acompanharJob = useCallback(
-    (jobId, rotulo) => {
+    (job) => {
+      const { jobId, rotulo } = job;
       if (acompanhandoRef.current.has(jobId)) return;
       acompanhandoRef.current.add(jobId);
 
@@ -76,28 +80,31 @@ export function JobsProvider({ children }) {
           acompanhandoRef.current.delete(jobId);
           return;
         }
-        let job;
+        let estado;
         try {
-          job = await consultarJobAdmin(token, jobId);
+          estado = await consultarJobAdmin(token, jobId);
         } catch {
           setTimeout(consultar, 4000);
           return;
         }
-        if (job.status === "processando") {
+        if (estado.status === "processando") {
           setTimeout(consultar, 4000);
           return;
         }
         acompanhandoRef.current.delete(jobId);
         removerJobPendente(jobId);
-        setResultadosRecentes((atual) =>
-          [...atual, { jobId, rotulo, status: job.status, camadaId: job.camadaId, erro: job.erro, finalizadoEm: Date.now() }].slice(
-            -MAX_RESULTADOS_RECENTES
-          )
-        );
+        const resultado = {
+          ...job,
+          status: estado.status,
+          camadaId: estado.camadaId ?? job.camadaId ?? null,
+          erro: estado.erro,
+          finalizadoEm: Date.now(),
+        };
+        setResultadosRecentes((atual) => [...atual, resultado].slice(-MAX_RESULTADOS_RECENTES));
         adicionarToast(
-          job.status === "concluido"
-            ? { tipo: "sucesso", mensagem: `Camada "${rotulo}" processada com sucesso.` }
-            : { tipo: "erro", mensagem: `Falha ao processar "${rotulo}": ${job.erro}` }
+          estado.status === "concluido"
+            ? { tipo: "sucesso", mensagem: `${pousoDoResultado(resultado).texto}.` }
+            : { tipo: "erro", mensagem: `Falha ao processar "${rotulo}": ${estado.erro}` }
         );
       }
 
@@ -107,13 +114,14 @@ export function JobsProvider({ children }) {
   );
 
   const adicionarJob = useCallback(
-    (jobId, rotulo) => {
+    (jobId, rotulo, { tipo = null, camadaId = null, versao = null } = {}) => {
+      const job = { jobId, rotulo, inicio: Date.now(), tipo, camadaId, versao };
       setJobsPendentes((atual) => {
-        const novo = [...atual, { jobId, rotulo }];
+        const novo = [...atual, job];
         persistirJobs(novo);
         return novo;
       });
-      acompanharJob(jobId, rotulo);
+      acompanharJob(job);
     },
     [persistirJobs, acompanharJob]
   );
@@ -126,7 +134,7 @@ export function JobsProvider({ children }) {
   useEffect(() => {
     if (!sessao?.token) return;
     for (const job of lerJobsSalvos()) {
-      acompanharJob(job.jobId, job.rotulo);
+      acompanharJob(job);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessao?.token]);
@@ -138,7 +146,10 @@ export function JobsProvider({ children }) {
         <div className="pilha-toasts" role="status" aria-live="polite">
           {toasts.map((t) => (
             <div key={t.id} className={`toast toast--${t.tipo}`}>
-              <span>{t.mensagem}</span>
+              <span className="toast-ico" aria-hidden="true">
+                {t.tipo === "erro" ? "✕" : "✓"}
+              </span>
+              <span className="toast-texto">{t.mensagem}</span>
               <button type="button" className="fechar" onClick={() => removerToast(t.id)} aria-label="Fechar aviso">
                 ×
               </button>

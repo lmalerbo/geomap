@@ -8,6 +8,7 @@ import { useApontamentosNaFila } from "../hooks/useApontamentosNaFila.js";
 import MenuLateral from "../components/MenuLateral.jsx";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
 import AvisoPrimeiraSincronizacao from "../components/AvisoPrimeiraSincronizacao.jsx";
+import { Campo, Concluido, Esboco } from "../components/movimento/index.js";
 import { usePodeVerIndicadores } from "../hooks/usePodeVerIndicadores.js";
 
 function IconeMenu() {
@@ -44,6 +45,12 @@ export default function Inicio() {
   // que importa avisar é justamente "sincronizando do zero agora".
   const [semCamadasLocais, setSemCamadasLocais] = useState(false);
   const [avisoSincronizacaoFechado, setAvisoSincronizacaoFechado] = useState(false);
+  // Retrato do download (lib/progressoSync.js) para o aviso da 1ª
+  // sincronização; `comemorar` toca o selo de concluído quando ela termina.
+  const [progressoSync, setProgressoSync] = useState(null);
+  const [comemorar, setComemorar] = useState(false);
+  // A leitura local (efeito 1) ainda não voltou: os cards ficam em esboço.
+  const [lidoLocal, setLidoLocal] = useState(false);
 
   function contarCamadasPorMapa(camadas) {
     const contagem = new Map();
@@ -59,6 +66,7 @@ export default function Inicio() {
       setMapas(locais);
       setContagemCamadas(contarCamadasPorMapa(camadas));
       setSemCamadasLocais(camadas.length === 0);
+      setLidoLocal(true);
     });
   }, []);
 
@@ -66,9 +74,16 @@ export default function Inicio() {
   // em segundo plano, sem UI de bloqueio.
   useEffect(() => {
     let cancelado = false;
+    let ultimoProgresso = null;
 
-    sincronizarMapas(sessao.token).then((resultado) => {
+    sincronizarMapas(sessao.token, {
+      aoProgredir: (p) => {
+        ultimoProgresso = p;
+        if (!cancelado) setProgressoSync(p);
+      },
+    }).then((resultado) => {
       if (cancelado) return;
+      if (resultado.online && ultimoProgresso && ultimoProgresso.falhas === 0) setComemorar(true);
       listarMapasDisponiveis().then(setMapas);
       setContagemCamadas(contarCamadasPorMapa(resultado.mapas));
       setOffline(!resultado.online);
@@ -91,7 +106,7 @@ export default function Inicio() {
       <header className="barra-mapa">
         <strong>GeoMap</strong>
         <span className="status-sync">
-          {sincronizando && <span className="spinner" aria-hidden="true" />}
+          {sincronizando && <Campo tamanho="pequeno" />}
           {sincronizando
             ? "Sincronizando…"
             : offline
@@ -125,11 +140,16 @@ export default function Inicio() {
       />
 
       <AvisoPrimeiraSincronizacao
-        mostrar={sincronizando && semCamadasLocais && !avisoSincronizacaoFechado}
+        mostrar={(sincronizando || comemorar) && semCamadasLocais && !avisoSincronizacaoFechado}
+        progresso={progressoSync}
         aoFechar={() => setAvisoSincronizacaoFechado(true)}
       />
 
-      <div className="painel-admin">
+      {comemorar && semCamadasLocais && !avisoSincronizacaoFechado && (
+        <Concluido texto="Mapas prontos para usar sem internet" onFim={() => setComemorar(false)} />
+      )}
+
+      <Esboco className="painel-admin" carregando={!lidoLocal || (sincronizando && mapas.length === 0)}>
         {mapas.map((mapa) => (
           <Link key={mapa.id} to={`/mapa/${mapa.id}`} className="cartao-admin cartao-admin--link">
             <h2>{mapa.nome}</h2>
@@ -148,7 +168,7 @@ export default function Inicio() {
               : "Nenhum mapa disponível para sua conta. Peça ao administrador para conceder acesso se precisar ver algum mapa."}
           </p>
         )}
-      </div>
+      </Esboco>
     </main>
   );
 }

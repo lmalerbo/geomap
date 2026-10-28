@@ -32,7 +32,6 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
   const [pinSelecionadoId, setPinSelecionadoId] = useState(null);
   const [rascunho, setRascunho] = useState(null);
   const [modoAdicionar, setModoAdicionar] = useState(false);
-  const [obtendoGps, setObtendoGps] = useState(false);
   const [movendoId, setMovendoId] = useState(null);
   const marcadorMoverRef = useRef(null);
 
@@ -236,25 +235,26 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
     if (pinSelecionadoId === id) setPinSelecionadoId(null);
   }
 
+  // Resolve true quando o GPS respondeu e false quando falhou (o botão
+  // termina em ✓ ou ✕).
   function adicionarNaMinhaLocalizacao() {
     if (!navigator.geolocation) {
       aoAviso?.("Este aparelho não oferece localização por GPS.");
-      return;
+      return Promise.resolve(false);
     }
-    setObtendoGps(true);
-    navigator.geolocation.getCurrentPosition(
+    return new Promise((resolve) => navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setObtendoGps(false);
+        resolve(true);
         const precisao = Math.round(pos.coords.accuracy);
         if (precisao > PRECISAO_MAXIMA_GPS && !window.confirm(`A precisão do GPS agora é de ±${precisao} m. Usar mesmo assim?`)) return;
         abrirNovo({ lng: pos.coords.longitude, lat: pos.coords.latitude }, precisao);
       },
       (erro) => {
-        setObtendoGps(false);
+        resolve(false);
         aoAviso?.(erro.code === erro.PERMISSION_DENIED ? "Permissão de localização negada." : "Não foi possível obter a localização. Tente de novo.");
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-    );
+    ));
   }
 
   function iniciarMover(id) {
@@ -312,7 +312,6 @@ export function usePins(mapRef, mapaPronto, mapaId, { podeEditar, sessao, aoAvis
     salvarRascunho,
     modoAdicionar,
     setModoAdicionar,
-    obtendoGps,
     adicionarNaMinhaLocalizacao,
     movendoId,
     iniciarMover,

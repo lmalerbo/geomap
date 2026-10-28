@@ -1,11 +1,11 @@
 import { IconeFechar } from "../IconesAcao.jsx";
+import { useOcupado } from "../movimento/index.js";
 
 // Barra de ação de anotar — mesmo formato das barras de medição e percurso
 // no rodapé central (redesenho, fase 2 — ver docs/REDESENHO_FRONTEND.md).
 export default function BarraAnotar({
   aberta,
   modoAdicionar,
-  obtendoGps,
   movendo,
   aoTocarNoMapa,
   aoMinhaLocalizacao,
@@ -13,6 +13,13 @@ export default function BarraAnotar({
   aoCancelarMover,
   aoFechar,
 }) {
+  // O GPS leva até 20 s com sinal fraco: o botão fica vivo e termina em ✓/✕.
+  const gps = useOcupado();
+  async function usarMinhaLocalizacao() {
+    const fim = gps.iniciar({ texto: "Procurando sinal…" });
+    fim(await aoMinhaLocalizacao());
+  }
+
   if (movendo) {
     return (
       <div className="barra-acao barra-anotar" role="toolbar" aria-label="Mover anotação">
@@ -50,8 +57,8 @@ export default function BarraAnotar({
           >
             Tocar no mapa
           </button>
-          <button type="button" className="botao-acao-secundario" onClick={aoMinhaLocalizacao} disabled={obtendoGps}>
-            {obtendoGps && <span className="spinner" aria-hidden="true" />} Na minha localização
+          <button {...gps.propsBotao({ type: "button", className: "botao-acao-secundario", onClick: usarMinhaLocalizacao })}>
+            {gps.conteudo("Na minha localização")}
           </button>
           <button
             type="button"

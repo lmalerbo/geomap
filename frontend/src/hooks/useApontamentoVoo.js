@@ -202,6 +202,10 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   const [escolhaPendente, setEscolhaPendente] = useState(null); // {secao, talhao, registros} | null
   const [dataVoo, setDataVoo] = useState(() => new Date().toISOString().slice(0, 10));
   const [enviando, setEnviando] = useState(false);
+  // Durante o envio e o ✓ a seleção fica parada: no fim ela é limpa, e um
+  // talhão tocado nesse meio-tempo sumiria sem aviso. Ref porque o clique do
+  // mapa chama alternarSelecao por uma closure antiga.
+  const enviandoRef = useRef(false);
   const [resultado, setResultado] = useState(null); // {sucesso, falha} do último envio, pro painel mostrar
   // Chaves (secao-talhao) que acabaram de ser apontadas com sucesso —
   // ficam verdes por TEMPO_CONFIRMACAO_MS como confirmação visual, depois
@@ -744,6 +748,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   }
 
   function alternarRegistro(registro) {
+    if (enviandoRef.current) return;
     setSelecionados((atual) => {
       const novo = new Map(atual);
       if (novo.has(registro.id)) novo.delete(registro.id);
@@ -758,6 +763,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // direto; com 2+ (o mesmo talhão pendente em mais de um tipo ao mesmo
   // tempo), abre a escolha rápida em vez de adivinhar qual o piloto quis.
   function alternarSelecao(propriedades) {
+    if (enviandoRef.current) return;
     const registros = pendentesPorChaveRef.current.get(chave(propriedades.SECAO, propriedades.TALHAO)) || [];
     if (registros.length === 0) return;
     if (registros.length === 1) {
@@ -837,7 +843,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
   // Sem sinal (ou a rede caiu no meio do envio): o lote vai pra fila do
   // aparelho com a data do voo escolhida, sai das pendências na hora e é
   // enviado sozinho quando a conexão voltar (redesenho, fase 4).
-  async function guardarNaFila(motivo) {
+  async function guardarNaFila(motivo, aoConcluir) {
     const registros = [...selecionados.values()].map(({ id, secao, talhao, projeto, areaHa }) => ({
       id,
       secao,
@@ -847,20 +853,29 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
     }));
     await filaApontamentos.enfileirar({ mapaId, dataVoo, registros });
     setResultado({ sucesso: [], falha: [], naFila: registros.length, motivo });
+    await aoConcluir?.(true);
     setSelecionados(new Map());
     setEscolhaPendente(null);
     setModoApontamento(false);
   }
 
-  async function confirmarLote() {
+  // `aoConcluir(ok)`: o botão termina em ✓/✕ antes de a barra fechar
+  // (senão o ✓ nem aparece). ✕ quando nenhum talhão foi apontado nem
+  // guardado.
+  async function confirmarLote({ aoConcluir } = {}) {
     if (selecionados.size === 0 || !mapaId) return;
     setEnviando(true);
+    enviandoRef.current = true;
     setResultado(null);
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       try {
-        await guardarNaFila();
+        await guardarNaFila(undefined, aoConcluir);
+      } catch (err) {
+        aoConcluir?.(false);
+        throw err;
       } finally {
         setEnviando(false);
+        enviandoRef.current = false;
       }
       return;
     }
@@ -912,6 +927,8 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
         }, TEMPO_CONFIRMACAO_MS);
       }
       setPendentes((atual) => atual.filter((r) => !sairDaLista.has(r.id)));
+      const algumFoi = resposta.sucesso.length > 0 || adiados.length > 0 || (resposta.falha || []).length === 0;
+      await aoConcluir?.(algumFoi);
       // A cópia do aparelho também — senão um F5 logo depois mostraria de
       // novo (até o servidor responder) os talhões que acabaram de ser
       // apontados.
@@ -931,7 +948,7 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       if (err instanceof TypeError || ehErroTransitorio(err)) {
         // Ponte do DroneManagement desligada (503) também cai aqui: o servidor
         // explica o motivo, que aparece no aviso junto do "guardado no aparelho".
-        await guardarNaFila(err instanceof TypeError ? undefined : err.message);
+        await guardarNaFila(err instanceof TypeError ? undefined : err.message, aoConcluir);
         return;
       }
       // A chamada inteira falhou antes do backend processar qualquer item
@@ -944,8 +961,10 @@ export function useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, token) {
       // com o que o usuário via na tela antes de confirmar.
       const mensagem = mensagemErroPendentes(err);
       setResultado({ sucesso: [], falha: [...selecionados.keys()].map((id) => ({ id, erro: mensagem })) });
+      aoConcluir?.(false);
     } finally {
       setEnviando(false);
+      enviandoRef.current = false;
     }
   }
 

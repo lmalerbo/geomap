@@ -5,6 +5,7 @@ import { buscarVisaoGeralAdmin } from "../lib/api.js";
 import { usePinsPendentes, sairDescartandoPins } from "../hooks/usePinsPendentes.js";
 import { useApontamentosNaFila } from "../hooks/useApontamentosNaFila.js";
 import { IconeMapas, IconeCamadas } from "./MenuLateral.jsx";
+import { Esboco } from "./movimento/index.js";
 
 // Estrutura das telas de administração (redesenho, fase 5 — ver
 // docs/REDESENHO_FRONTEND.md): menu lateral fixo no desktop, gaveta no
@@ -184,11 +185,7 @@ export default function LayoutAdmin() {
           {/* Suspense próprio: trocar de tela carrega o chunk da página sem
               derrubar o menu (o Suspense da raiz trocaria a tela toda). */}
           <Suspense
-            fallback={
-              <p className="status-carregando-admin adm-pagina">
-                <span className="spinner" aria-hidden="true" /> Carregando…
-              </p>
-            }
+            fallback={<Esboco carregando className="adm-pagina" aria-label="Carregando" />}
           >
             <Outlet />
           </Suspense>

@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { entrarComHub } from "../lib/api.js";
 import { hub } from "../lib/hub.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import AlertaErro from "../components/AlertaErro.jsx";
+import { useOcupado } from "../components/movimento/index.js";
 
 // Tela obrigatória enquanto sessao.precisaTrocarSenha for true — serve os
 // dois casos que levam a uma senha temporária conhecida (sempre a mesma
@@ -15,19 +17,25 @@ export default function DefinirSenha() {
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmacao, setConfirmacao] = useState("");
   const [erro, setErro] = useState(null);
-  const [enviando, setEnviando] = useState(false);
+  // Erro que veio do servidor (junto do ✕ do botão) x conferência local das
+  // senhas, que não passa pelo botão e mantém a tremida da mensagem.
+  const [erroNoBotao, setErroNoBotao] = useState(false);
+  const botao = useOcupado();
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (botao.estado !== "parado") return;
     setErro(null);
     if (novaSenha !== confirmacao) {
+      setErroNoBotao(false);
       setErro("As senhas não coincidem.");
       return;
     }
-    setEnviando(true);
+    const fim = botao.iniciar({ texto: "Salvando…" });
     try {
       const { data } = await hub.auth.getSession();
       if (!data.session) {
+        fim(false);
         navigate("/login", { replace: true });
         return;
       }
@@ -37,12 +45,13 @@ export default function DefinirSenha() {
       if (r.error) throw new Error(r.error.message);
       const { data: nova } = await hub.auth.getSession();
       const { token, usuario } = await entrarComHub(nova.session.access_token);
+      await fim(true);
       entrar(token, usuario, false);
       navigate("/inicio", { replace: true });
     } catch (err) {
+      setErroNoBotao(true);
       setErro(err.message);
-    } finally {
-      setEnviando(false);
+      fim(false);
     }
   }
 
@@ -74,19 +83,9 @@ export default function DefinirSenha() {
             minLength={8}
           />
         </label>
-        {erro && (
-          <p className="alerta-erro" role="alert">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            {erro}
-          </p>
-        )}
-        <button type="submit" disabled={enviando}>
-          {enviando && <span className="spinner" aria-hidden="true" />}
-          {enviando ? "Salvando…" : "Salvar e continuar"}
+        {erro && <AlertaErro semTremida={erroNoBotao}>{erro}</AlertaErro>}
+        <button {...botao.propsBotao({ type: "submit" })}>
+          {botao.conteudo("Salvar e continuar")}
         </button>
       </form>
     </main>
