@@ -228,6 +228,9 @@ input[type="file"]::file-selector-button:hover {
 .lista-jobs-em-andamento li {
   display: flex;
   align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  animation: mo-entra 0.3s var(--mo-sai);
   padding: 8px 12px;
   border-radius: 6px;
   background: var(--bg);
@@ -2110,6 +2113,26 @@ input[type="file"]::file-selector-button:hover {
   border-left: 4px solid var(--accent);
 }
 
+.toast-ico {
+  flex-shrink: 0;
+  font-weight: 700;
+  line-height: 1.4;
+  animation: mo-pop 0.45s var(--mo-mola) both;
+}
+
+.toast--sucesso .toast-ico {
+  color: var(--mo-ok);
+}
+
+.toast--erro .toast-ico {
+  color: var(--mo-erro);
+}
+
+.toast-texto {
+  flex: 1;
+  min-width: 0;
+}
+
 .toast--erro {
   border-left: 4px solid var(--erro);
 }
@@ -2636,6 +2659,26 @@ input[type="file"]::file-selector-button:hover {
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+
+/* Palco do voo de conversão (sessão 4 de docs/movimento-esperas.md): um
+   pedaço de lavoura em faixas, que o drone sobrevoa enquanto o servidor
+   converte. O <Voo> e o <Concluido> cobrem o palco inteiro. */
+.palco-conversao {
+  position: relative;
+  flex-shrink: 0;
+  height: 240px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(
+      -8deg,
+      rgb(44 107 71 / 0.1) 0 14px,
+      rgb(44 107 71 / 0.03) 14px 26px
+    ),
+    #eef0e8;
+  animation: mo-entra 0.3s var(--mo-sai);
 }
 
 .detalhe-camada-workspace .cartao-form-admin {

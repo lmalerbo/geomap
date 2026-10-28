@@ -17,7 +17,8 @@ import {
 } from "../lib/api.js";
 import { BlobSource } from "../lib/pmtilesBlobSource.js";
 import { corDaCamada } from "../lib/paleta.js";
-import { Campo } from "../components/movimento";
+import { Campo, Voo, useOcupado } from "../components/movimento";
+import { textoConversao, pousoDoResultado, vooDoPalco } from "../lib/jobsConversao.js";
 import {
   normalizarEstiloConfig,
   gerarCategorias,
@@ -55,15 +56,6 @@ function mesclarConfigAtributos(campos, salvos) {
 }
 
 const FORM_UPLOAD_VAZIO = { nome: "", versao: "1.0", categoria: "", mapaId: "" };
-
-// true quando a seleção atual vai passar pela conversão (shapefile: .zip
-// único, ou os arquivos soltos selecionados sem zipar) — usado só pro
-// texto do botão ("Convertendo…" vs "Enviando…"); um único .pmtiles não
-// precisa de conversão nenhuma.
-function ehConversaoShapefile(arquivos) {
-  if (!arquivos || arquivos.length === 0) return false;
-  return arquivos.length > 1 || !arquivos[0].name.toLowerCase().endsWith(".pmtiles");
-}
 
 // Some sozinha depois de um tempo — antes a confirmação "✓ Salvo às…"
 // ficava presa na tela até a próxima ação trocar o texto, mesmo bem
@@ -104,7 +96,6 @@ export default function AdminCamadas() {
     mapaId: searchParams.get("mapaId") || "",
   });
   const [arquivoUpload, setArquivoUpload] = useState([]);
-  const [enviando, setEnviando] = useState(false);
   const [erroUpload, setErroUpload] = useState(null);
 
   const [camadaSelecionadaId, setCamadaSelecionadaId] = useState(null);
@@ -195,14 +186,34 @@ export default function AdminCamadas() {
         continue;
       }
       carregarCamadas();
-      if (tipo === "criar") {
-        setCamadaSelecionadaId(resultado.camadaId);
-      } else {
-        setSalvoArquivoEm(new Date());
-      }
+      if (tipo === "criar") setCamadaSelecionadaId(resultado.camadaId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultadosRecentes]);
+
+  // Voo do drone sobre o palco enquanto o servidor converte (docs/
+  // movimento-esperas.md, sessão 4). Um job que terminou continua no palco
+  // até o pouso acabar (`pousados`). Calculado no render, não num efeito:
+  // o job sai de `jobsPendentes` e entra em `resultadosRecentes` no mesmo
+  // render, então o <Voo> (mesma key) nunca desmonta no meio. Resultados
+  // que já existiam ao abrir a tela não pousam de novo.
+  const [resultadosNaAbertura] = useState(() => new Set(resultadosRecentes.map((r) => r.jobId)));
+  const [pousados, setPousados] = useState(() => new Set());
+  const emPouso = resultadosRecentes.filter((r) => !resultadosNaAbertura.has(r.jobId) && !pousados.has(r.jobId));
+  const vooAtual = vooDoPalco([...emPouso, ...jobsPendentes], camadaSelecionadaId);
+
+  // Relógio do "Convertendo Talhões · 3:12" (palco e lista).
+  const [agora, setAgora] = useState(() => Date.now());
+  const temJobRodando = jobsPendentes.length > 0;
+  useEffect(() => {
+    if (!temJobRodando) return undefined;
+    setAgora(Date.now());
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [temJobRodando]);
+
+  const envioCamada = useOcupado();
+  const envioArquivo = useOcupado();
 
   // Agrupa as camadas por mapa (ordenado pelo nome do mapa) — cada grupo vira
   // uma seção recolhível na lista, em vez da lista achatada de antes.
@@ -249,21 +260,22 @@ export default function AdminCamadas() {
       setErroUpload("Selecione a qual mapa essa camada pertence");
       return;
     }
-    setEnviando(true);
     setErroUpload(null);
     try {
-      const { jobId } = await enviarCamadaAdmin(sessao.token, { ...formUpload, arquivos: arquivoUpload });
+      const { jobId } = await envioCamada.executar(
+        () => enviarCamadaAdmin(sessao.token, { ...formUpload, arquivos: arquivoUpload }),
+        { texto: "Enviando…" }
+      );
       const nomeCamada = formUpload.nome;
+      const versao = formUpload.versao;
       setFormUpload(FORM_UPLOAD_VAZIO);
       setArquivoUpload([]);
       document.getElementById("campo-arquivo-pmtiles").value = "";
       setMostrarUpload(false);
       meusJobsRef.current.set(jobId, "criar");
-      adicionarJob(jobId, nomeCamada);
+      adicionarJob(jobId, nomeCamada, { tipo: "criar", versao });
     } catch (err) {
       setErroUpload(err.message);
-    } finally {
-      setEnviando(false);
     }
   }
 
@@ -378,22 +390,21 @@ export default function AdminCamadas() {
       setErroDetalhe("Selecione um .pmtiles ou os arquivos do shapefile (.shp/.dbf/.shx/.prj)");
       return;
     }
-    setSalvandoArquivo(true);
     setErroDetalhe(null);
-    const nomeCamada = camadas.find((c) => c.id === camadaSelecionadaId)?.nome || "camada";
+    const camadaId = camadaSelecionadaId;
+    const nomeCamada = camadas.find((c) => c.id === camadaId)?.nome || "camada";
+    const versao = novaVersao;
     try {
-      const { jobId } = await atualizarArquivoCamadaAdmin(sessao.token, camadaSelecionadaId, {
-        versao: novaVersao,
-        arquivos: novoArquivo,
-      });
+      const { jobId } = await envioArquivo.executar(
+        () => atualizarArquivoCamadaAdmin(sessao.token, camadaId, { versao, arquivos: novoArquivo }),
+        { texto: "Enviando…" }
+      );
       setNovoArquivo([]);
       setSujo(false);
       meusJobsRef.current.set(jobId, "atualizar");
-      adicionarJob(jobId, nomeCamada);
+      adicionarJob(jobId, nomeCamada, { tipo: "atualizar", camadaId, versao });
     } catch (e) {
       setErroDetalhe(e.message);
-    } finally {
-      setSalvandoArquivo(false);
     }
   }
 
@@ -738,9 +749,8 @@ export default function AdminCamadas() {
             <ul className="lista-jobs-em-andamento">
               {jobsPendentes.map((job) => (
                 <li key={job.jobId}>
-                  {/* provisório: a sessão 4 do plano de movimento põe o voo do drone */}
                   <Campo tamanho="pequeno" />
-                  Processando "{job.rotulo}"…
+                  <span>{textoConversao(job, agora)}</span>
                 </li>
               ))}
             </ul>
@@ -807,13 +817,8 @@ export default function AdminCamadas() {
                   DESC_SECAO).
                 </span>
               </label>
-              <button type="submit" disabled={enviando}>
-                {enviando && <span className="spinner" aria-hidden="true" />}
-                {enviando
-                  ? ehConversaoShapefile(arquivoUpload)
-                    ? "Convertendo shapefile… isso pode levar alguns minutos"
-                    : "Enviando…"
-                  : "Adicionar camada"}
+              <button {...envioCamada.propsBotao({ type: "submit" })}>
+                {envioCamada.conteudo("Adicionar camada")}
               </button>
             </form>
           )}
@@ -876,6 +881,18 @@ export default function AdminCamadas() {
         </aside>
 
         <section className="detalhe-camada-workspace">
+          {vooAtual && (
+            <div className="palco-conversao">
+              <Voo
+                key={vooAtual.jobId}
+                texto={textoConversao(vooAtual, agora)}
+                desde={vooAtual.inicio}
+                pouso={vooAtual.status ? pousoDoResultado(vooAtual) : null}
+                onFim={() => setPousados((atual) => new Set(atual).add(vooAtual.jobId))}
+              />
+            </div>
+          )}
+
           {camadaSelecionadaId == null && (
             <p className="sem-dados-estatistica">
               Selecione uma camada na lista à esquerda pra editar arquivo, estilo e atributos.
@@ -932,9 +949,8 @@ export default function AdminCamadas() {
                     }}
                     aria-label="Novo arquivo (.pmtiles pronto ou os arquivos do shapefile)"
                   />
-                  <button type="submit" disabled={salvandoArquivo}>
-                    {salvandoArquivo && <span className="spinner" aria-hidden="true" />}
-                    {salvandoArquivo && ehConversaoShapefile(novoArquivo) ? "Convertendo…" : "Atualizar arquivo"}
+                  <button {...envioArquivo.propsBotao({ type: "submit", disabled: salvandoArquivo })}>
+                    {envioArquivo.conteudo("Atualizar arquivo")}
                   </button>
                 </form>
 

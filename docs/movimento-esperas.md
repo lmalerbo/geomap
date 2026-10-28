@@ -89,6 +89,49 @@ crescente, selo de concluído, esboço dos cartões, entrada das camadas com a
 opacidade final igual à de menos movimento, e offline no build de produção
 (tela inicial e mapa com o que estava salvo, sem aviso nem selo).
 
+## Conversão de camada (sessão 4)
+
+Feita em 2026-10-28, em `AdminCamadas.jsx` e `JobsContext.jsx`; textos e
+escolhas em `lib/jobsConversao.js` (sem React, com testes).
+
+- **Voo sobre o palco.** Enquanto o servidor converte, o `<Voo>` sobrevoa
+  um palco no topo do detalhe da camada (`.palco-conversao`, uma lavoura em
+  faixas), com o tempo decorrido na pílula ("Convertendo Talhões · 3:12").
+  O palco mostra o job da camada aberta; sem camada aberta, a camada nova
+  que está sendo criada. Quando ela termina, a tela abre a camada nova e o
+  mesmo drone continua o pouso (a `key` é o `jobId`).
+- **O voo continua de onde estava.** O `JobsContext` guarda em cada job
+  (`localStorage`, `geomap_jobs_pendentes`) o início (`inicio`, `Date.now()`),
+  o tipo (`criar`/`atualizar`), a camada e a versão. O `inicio` vira o
+  `desde` do `<Voo>`: sair, recarregar ou voltar à tela retoma a fase do
+  laço e o relógio. Job salvo antes disso (sem `inicio`) voa sem relógio.
+- **Pouso.** Concluído: `<Concluido>` "Talhões publicada · versão 2.6"
+  (no lugar do "✓ Salvo às…" que o Atualizar arquivo mostrava). Erro: o
+  drone balança e mostra "✕ <erro do servidor>". O palco é calculado no
+  render, não num efeito: o job sai dos pendentes e entra nos resultados no
+  mesmo render, então o drone não reinicia no meio. Resultados que já
+  existiam ao abrir a tela não pousam de novo.
+- **Lista de jobs** com `<Campo pequeno>` e o mesmo texto com relógio.
+- **Toast global** ganhou o ✓/✕ (com o pop do Hub); o de sucesso diz
+  "Talhões publicada · versão 2.6."
+- **Enviar / Atualizar arquivo** com `useOcupado` ("Enviando…"). O texto
+  antigo "Convertendo shapefile… isso pode levar alguns minutos" saiu: o
+  envio responde logo (202) e a conversão é o voo.
+
+**Prévia da camada:** a prévia ao vivo (`PreviaCamada.jsx`, admin fase 5)
+não está neste branch, por isso o voo tem um palco próprio. Ao juntar com a
+fase 5, o `.palco-conversao` pode dar lugar à prévia (o `<Voo>` cobre
+qualquer pai).
+
+Verificação (Playwright, backend e Postgres locais; envio, consulta do job
+e download do `.pmtiles` simulados com `page.route`, sem nada chegar ao
+backend nem ao R2): 24 checagens — botão ocupado e ✓, voo com relógio,
+job guardado com início/tipo/camada/versão, sair e voltar retomando a fase
+(atraso ≈ tempo decorrido), pouso em selo com a versão, toast ✓ e ✕, erro
+com balanço, reabrir sem repetir o pouso, camada nova sem o drone
+reiniciar ao ser selecionada, menos movimento (drone parado, texto com o
+tempo de um job reaberto do `localStorage`) e zero erro de console.
+
 ## Esperas encontradas
 
 Levantamento de 2026-10-27. Sessão = em qual sessão do plano o ponto é
@@ -113,9 +156,9 @@ build quebra.
 | `AvisoPrimeiraSincronizacao.jsx` (Início e Mapa) | download de todas as camadas no 1º acesso | `<Progresso>` ("Baixando Talhões", "2 de 6 camadas · 24,1 MB de 39,7 MB", "Guardando no aparelho…"); `<Concluido>` "Mapas prontos para usar sem internet" no fim | 3 | **feito** |
 | `Mapa.jsx` "Carregando mapa…" | ler as camadas do aparelho | `<Campo tamanho="grande">` + texto respirando, sai com fade; camadas entram uma por vez | 3 | **feito** |
 | `Mapa.jsx` status de sincronização no cartão do topo | sincronização em segundo plano | `<Campo pequeno>` | 3 | **feito** |
-| `AdminCamadas.jsx` lista "Processando …" | conversão do shapefile (até 12 min) | `<Campo pequeno>` (provisório desde a sessão 1); `<Voo desde>` sobre a prévia; pouso em `<Concluido>` ou erro | 4 | campo provisório (sessão 1); voo pendente |
-| `AdminCamadas.jsx` Enviar / Atualizar arquivo | envio do arquivo | `useOcupado` ("Enviando…", "Convertendo…") | 4 | pendente |
-| `JobsContext.jsx` aviso global | fim da conversão em outra tela | toast com ✓/✕ | 4 | pendente |
+| `AdminCamadas.jsx` lista "Processando …" | conversão do shapefile (até 12 min) | `<Campo pequeno>` com o tempo; `<Voo desde>` sobre o palco do detalhe; pouso em `<Concluido>` ou erro | 4 | **feito** |
+| `AdminCamadas.jsx` Enviar / Atualizar arquivo | envio do arquivo | `useOcupado` ("Enviando…") | 4 | **feito** |
+| `JobsContext.jsx` aviso global | fim da conversão em outra tela | toast com ✓/✕ | 4 | **feito** |
 | `BarraAnotar.jsx` Na minha localização | GPS (até 15 s com sinal fraco) | `useOcupado` ("Buscando o GPS…") | 5 | pendente |
 | `FormularioPin.jsx` Salvar | gravar anotação | `useOcupado` | 5 | pendente |
 | `Mapa.jsx` Importar KML/SHP | ler arquivo grande | `useOcupado` ("Lendo o arquivo…") | 5 | pendente |
