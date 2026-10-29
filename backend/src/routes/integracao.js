@@ -5,6 +5,8 @@ import { calcularIndicadores, lerPeriodo, hojeLocal } from "../lib/indicadoresVo
 import { obterDadosIndicadores } from "../lib/fonteIndicadoresVoo.js";
 import { lerNomesPilotos } from "../lib/nomesPilotos.js";
 import { pool } from "../db/pool.js";
+import { buscarTodosRegistros } from "../lib/consultaDroneMgmt.js";
+import { filtroVoosPreparo, mapearVoosPreparo, secaoValida } from "../lib/voosPreparo.js";
 
 // Integração servidor-a-servidor com o Hub Geotech (Regra B da Colheita:
 // revoo de linhas). Só o agente do Hub chama estas rotas — nunca um
@@ -199,6 +201,25 @@ integracaoRouter.post("/integracao/dronemgmt/situacao", async (req, res) => {
       });
     } catch (err) {
       resultados.push({ id, erro: err.message });
+    }
+  }
+  res.json({ resultados });
+});
+
+// Voos de Sistematização/Expansão por fazenda, pra fase de voo do Preparo no Hub.
+// Só leitura. body: { secoes: ["10724", ...] } (até 50).
+integracaoRouter.post("/integracao/dronemgmt/preparo/voos", async (req, res) => {
+  const { secoes } = req.body || {};
+  if (!Array.isArray(secoes) || !secoes.length || secoes.length > 50 || !secoes.every(secaoValida)) {
+    return res.status(400).json({ erro: "informe secoes (1 a 50, só dígitos)" });
+  }
+  const resultados = [];
+  for (const section of secoes) {
+    try {
+      const { registros } = await buscarTodosRegistros(filtroVoosPreparo(UNIT_ID, section));
+      resultados.push({ section, registros: mapearVoosPreparo(registros) });
+    } catch (err) {
+      resultados.push({ section, erro: err.message });
     }
   }
   res.json({ resultados });
