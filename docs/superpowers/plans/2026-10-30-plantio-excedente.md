@@ -1161,7 +1161,7 @@ git commit -m "Plantio Excedente: cópia local, API e fila do aparelho"
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { buscarCasosExcedente } from "../lib/api.js";
 import { lerCasosExcedente, salvarCasosExcedente, listarFilaExcedente } from "../lib/db.js";
-import { filaExcedente, assinarFilaExcedente } from "../lib/filaExcedenteApp.js";
+import { filaExcedente, assinarFilaExcedente, enviarExcedentePendentes } from "../lib/filaExcedenteApp.js";
 import {
   CORES_EXCEDENTE, COR_CONTORNO_AJUSTADO, casoVigentePorTalhao, aplicarPendentes, contarPorStatus, chaveTalhao,
 } from "../lib/excedente.js";
@@ -1233,7 +1233,7 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
 
   const enviarFila = useCallback(async () => {
     if (!navigator.onLine) return;
-    const r = await filaExcedente.enviarPendentes(token);
+    const r = await enviarExcedentePendentes(token);
     if (r.enviados > 0) setVersaoBusca((v) => v + 1);
   }, [token]);
 
