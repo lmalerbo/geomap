@@ -148,6 +148,9 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
       // migration (estilo_config é jsonb livre), lido direto do bruto.
       tipoCamada: bruto?.tipoCamada || "padrao",
       coresTiposVoo: normalizarCoresTiposVoo(bruto?.coresTiposVoo),
+      // Polígono/linha que abre o painel de atributos no clique (caixa da aba
+      // Atributos do admin). Talhões e pontos já abrem sempre, sem isso.
+      consultavel: bruto?.consultavel === true,
       preenchimento: preenchimentoFinal,
       contorno: contornoFinal,
       rotulo: {
@@ -175,6 +178,7 @@ export function normalizarEstiloConfig(bruto, { ehTalhao = false, ehPonto = fals
     tipoDesenho: tipoDesenhoOuPadrao(bruto, preenchimentoAntigo, contornoAntigo),
     tipoCamada: bruto?.tipoCamada || "padrao",
     coresTiposVoo: normalizarCoresTiposVoo(bruto?.coresTiposVoo),
+    consultavel: bruto?.consultavel === true,
     preenchimento: preenchimentoAntigo,
     contorno: contornoAntigo,
     rotulo: { ...ROTULO_VAZIO, mostrar, zoomMinimo },

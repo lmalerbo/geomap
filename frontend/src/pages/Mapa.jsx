@@ -567,12 +567,14 @@ async function adicionarCamada(map, protocol, mapa) {
   const ehTalhao = "TALHAO" in campos;
   const geometryType = await detectarTipoGeometria(pmtiles, camadaPrincipal.id, header);
   const ehPonto = geometryType === 1;
-  const consultavel = ehTalhao || ehPonto;
   const estilo = normalizarEstiloConfig(mapa.estiloConfig, {
     ehTalhao,
     ehPonto,
     corPadrao: corDaCamada(mapa.id),
   });
+  // Polígonos sem TALHAO (ex: Limites) são só visuais, a menos que o admin
+  // ligue "Mostrar atributos ao clicar" (ex: Ambiental).
+  const consultavel = ehTalhao || ehPonto || estilo.consultavel;
   const { preenchimento, contorno, rotulo, visibilidade, simbolo, tipoDesenho } = estilo;
   // tipoDesenho ("preenchimento" | "contorno" | "ambos") só se aplica a
   // camada não-ponto — zera a opacidade do lado suprimido na origem, antes
@@ -1047,12 +1049,19 @@ export default function Mapa() {
   }
   // A camada com tipoCamada:"voos" (réplica de Talhões pra apontamento,
   // ver docs/INTEGRACAO_DRONEMANAGEMENT.md) — null enquanto ela não
-  // carregou ou esse mapa não tem uma. Lida direto de camadasCarregadasRef
-  // (populado pelo efeito 4 abaixo); refletir sempre que ele muda não
-  // precisa de state próprio, já que indiceBusca/errosCamada (usados só
-  // como sinal de "algo carregou") já disparam um re-render depois de
-  // cada rodada desse efeito.
-  const voosInfo = [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null;
+  // carregou ou esse mapa não tem uma. Lida de camadasCarregadasRef
+  // (populado pelo efeito 4 abaixo), mas só recalculada quando
+  // `versaoCamadas` sobe — nunca direto do ref a cada render. Ler o ref
+  // direto fazia o mapa de voos às vezes nunca buscar as pendências (bug
+  // reportado pelo Leo, 2026-10-30): um setState que devolve o mesmo valor
+  // (ex: setErrosCamada) gera um render que o React descarta por "nada
+  // mudou", mas que guarda as dependências dos efeitos — com o id da camada
+  // de voos já lido do ref, os efeitos de useApontamentoVoo/usePlanejamentos
+  // ficavam marcados como "já vistos" sem nunca terem rodado.
+  const voosInfo = useMemo(
+    () => [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null,
+    [versaoCamadas]
+  );
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
   const planejamentos = usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
   const ehAdmin = sessao?.usuario?.papel === "admin";
@@ -1434,7 +1443,13 @@ export default function Mapa() {
           console.error(`Falha ao aplicar a camada "${mapa.nome}" (id ${mapa.id}):`, err);
           setErrosCamada((atual) => ({ ...atual, [mapa.id]: "Não foi possível carregar esta camada." }));
         }
-        if (cancelado) return;
+        if (cancelado) {
+          // Camadas já trocadas nesta rodada (antes do cancelamento) não
+          // podem ficar sem aviso: a rodada seguinte as acha iguais e não
+          // sobe `versaoCamadas`, e voosInfo ficaria apontando pra camada antiga.
+          if (mudou) setVersaoCamadas((v) => v + 1);
+          return;
+        }
         if (info) {
           carregadas.set(mapa.id, info);
           mudou = true;

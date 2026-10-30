@@ -3273,3 +3273,31 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+**Mapa de voos às vezes vazio + clique na camada "Ambiental" (2026-10-30)**:
+dois problemas reportados pelo Leo.
+
+- **Mapa de voos sem nenhum talhão, às vezes, mesmo com Ctrl+F5**: a
+  pendência aberta em 28/10 ("o efeito de `useApontamentoVoo.js` que
+  depende de `voosInfo?.id` não roda de novo"). Reproduzido localmente em
+  3 de 8 recargas. Causa: `voosInfo` era lido direto de
+  `camadasCarregadasRef` a cada render. Um `setState` que devolve o mesmo
+  valor (ex: `setErrosCamada(... return atual)`) gera um render que o React
+  descarta por "nada mudou", mas guarda as dependências dos efeitos com o
+  id da camada já lido do ref. Os efeitos ficavam marcados como "já
+  vistos" sem nunca rodar: sem pedido a `/voos/pendentes`, a camada
+  ficava toda transparente. Corrigido com `voosInfo` num `useMemo`
+  dependente de `versaoCamadas`. De carona, `aplicar()` cancelado no meio
+  agora sobe `versaoCamadas` se já tinha trocado alguma camada. Depois da
+  correção, 10 de 10 recargas buscaram e desenharam as pendências.
+  **Regra**: valor lido de `ref` não pode virar dependência de efeito; passe
+  por estado ou `useMemo` ligado a um estado.
+- **Clique na "Ambiental" (Áreas Compromissadas) não abria atributos**:
+  só Talhões (campo `TALHAO`) e pontos eram clicáveis; os demais
+  polígonos ficavam só visuais (regra feita para Limites). Decisão do Leo:
+  opção explícita, não automática. Nova caixa "Mostrar atributos ao clicar
+  na camada no mapa" na aba Atributos do admin (só aparece em camada que
+  não é talhão nem ponto). É guardada em `estilo_config.consultavel`, sem
+  migration. `PUT /admin/camadas/:id/atributos` aceita `consultavel` e grava
+  com `jsonb_set`, sem mexer no resto do estilo. Nenhuma camada muda
+  sozinha: a caixa precisa ser ligada na Ambiental pelo admin.
