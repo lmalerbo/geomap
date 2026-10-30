@@ -1735,6 +1735,9 @@ export default function Mapa() {
           return;
         }
       }
+      // Qualquer outro clique abre outro cartão (atributos/ponto): fecha o do excedente.
+      excedente.setSelecionado(null);
+      setTrechoExcedente(null);
       const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
