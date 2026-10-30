@@ -277,6 +277,8 @@ beforeEach(() => esquecerSincronizacoesParaTestes());
 after(async () => {
   definirFonteParaTestes(null);
   await srv.fechar();
+  // camadas.mapa_id não tem ON DELETE CASCADE: sem isso limparCenario falha por FK.
+  await pool.query("DELETE FROM camadas WHERE mapa_id = $1", [c.mapa.id]);
   await limparCenario(c);
   await pool.end();
 });
