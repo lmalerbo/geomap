@@ -1038,6 +1038,7 @@ export default function AdminCamadas() {
                 <span className="adm-chips">
                   {ehPontoAtual && <span className="adm-etiqueta">Pontos</span>}
                   {estiloForm?.tipoCamada === "voos" && <span className="adm-etiqueta">Apontamento de voo</span>}
+                  {estiloForm?.tipoCamada === "excedente" && <span className="adm-etiqueta">Plantio excedente</span>}
                   {situacaoSelecionada && SITUACAO_CAMADA[situacaoSelecionada.situacao] && (
                     <span className={`adm-chip adm-chip--${SITUACAO_CAMADA[situacaoSelecionada.situacao].classe}`}>
                       {SITUACAO_CAMADA[situacaoSelecionada.situacao].rotulo}
@@ -1151,6 +1152,15 @@ export default function AdminCamadas() {
                     onChange={(e) => atualizarEstiloFormCampo("tipoCamada", e.target.checked ? "voos" : "padrao")}
                   />
                   Camada de apontamento de voo (integração DroneManagement)
+                </label>
+
+                <label className="campo-form-admin campo-form-admin--checkbox">
+                  <input
+                    type="checkbox"
+                    checked={estiloForm.tipoCamada === "excedente"}
+                    onChange={(e) => atualizarEstiloFormCampo("tipoCamada", e.target.checked ? "excedente" : "padrao")}
+                  />
+                  Camada de plantio excedente (pinta os talhões pela análise)
                 </label>
 
                 {estiloForm.tipoCamada === "voos" && (
