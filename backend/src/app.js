@@ -20,6 +20,7 @@ import { voosRouter } from "./routes/voos.js";
 import { integracaoRouter } from "./routes/integracao.js";
 import { pinsRouter } from "./routes/pins.js";
 import { planejamentosRouter } from "./routes/planejamentos.js";
+import { excedenteRouter } from "./routes/excedente.js";
 import { ponteDmRouter } from "./routes/ponteDm.js";
 
 export const app = express();
@@ -58,6 +59,8 @@ app.use(voosRouter);
 app.use(pinsRouter);
 // Antes do adminRouter pelo mesmo motivo do voosRouter (ver comentário acima).
 app.use(planejamentosRouter);
+// Antes do adminRouter pelo mesmo motivo do voosRouter (ver comentário acima).
+app.use(excedenteRouter);
 app.use(adminRouter);
 
 // Rede de segurança final — sem isso, o erro capturado por
