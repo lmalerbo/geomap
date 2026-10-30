@@ -1266,15 +1266,24 @@ adminRouter.put("/admin/camadas/:id/atributos", async (req, res) => {
   if (!Number.isInteger(camadaId)) {
     return res.status(400).json({ erro: "id de camada inválido" });
   }
-  const { atributos } = req.body;
+  const { atributos, consultavel } = req.body;
   if (!Array.isArray(atributos)) {
     return res.status(400).json({ erro: "atributos precisa ser uma lista" });
   }
+  if (consultavel !== undefined && typeof consultavel !== "boolean") {
+    return res.status(400).json({ erro: "consultavel precisa ser verdadeiro ou falso" });
+  }
 
+  // "Mostrar atributos ao clicar" mora em estilo_config.consultavel (lido por
+  // normalizarEstiloConfig no app), mas é salvo junto com os atributos —
+  // jsonb_set só troca essa chave, sem mexer no resto do estilo.
   const { rows } = await pool.query(
-    `UPDATE camadas SET atributos_config = $1 WHERE id = $2
+    `UPDATE camadas SET atributos_config = $1,
+       estilo_config = CASE WHEN $3::boolean IS NULL THEN estilo_config
+         ELSE jsonb_set(COALESCE(estilo_config, '{}'::jsonb), '{consultavel}', to_jsonb($3::boolean)) END
+     WHERE id = $2
      RETURNING atributos_config`,
-    [JSON.stringify(atributos), camadaId]
+    [JSON.stringify(atributos), camadaId, consultavel ?? null]
   );
   if (!rows[0]) {
     return res.status(404).json({ erro: "camada não encontrada" });

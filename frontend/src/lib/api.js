@@ -349,11 +349,11 @@ export async function buscarConfigAtributos(token, camadaId) {
   return atributos;
 }
 
-export async function salvarConfigAtributos(token, camadaId, atributos) {
+export async function salvarConfigAtributos(token, camadaId, atributos, consultavel) {
   const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/atributos`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ atributos }),
+    body: JSON.stringify({ atributos, consultavel }),
   });
   await tratarResposta(resp);
   const { atributos: salvos } = await resp.json();

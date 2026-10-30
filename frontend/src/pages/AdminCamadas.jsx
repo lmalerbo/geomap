@@ -785,7 +785,7 @@ export default function AdminCamadas() {
         ordem,
       }));
       await botaoAtributos.executar(async () => {
-        await salvarConfigAtributos(sessao.token, camadaSelecionadaId, atributos);
+        await salvarConfigAtributos(sessao.token, camadaSelecionadaId, atributos, estiloForm?.consultavel === true);
         setSujo(false);
       });
     } catch (e) {
@@ -1813,6 +1813,22 @@ export default function AdminCamadas() {
 
               {abaEditor === "atributos" && (
               <div className="cartao-form-admin">
+                {/* Talhões e pontos sempre abrem os atributos no clique; os
+                    demais polígonos/linhas só com esta caixa ligada. */}
+                {estiloForm && !ehPontoAtual && !camposDisponiveis.includes("TALHAO") && (
+                  <label className="campo-form-admin campo-form-admin--checkbox">
+                    <input
+                      type="checkbox"
+                      checked={estiloForm.consultavel === true}
+                      onChange={(e) => {
+                        const marcado = e.target.checked;
+                        setEstiloForm((atual) => ({ ...atual, consultavel: marcado }));
+                        setSujo(true);
+                      }}
+                    />
+                    Mostrar atributos ao clicar na camada no mapa
+                  </label>
+                )}
                 <p className="contagem-atributos">
                   {atributosLinhas.filter((l) => l.visivel).length} de {atributosLinhas.length} visíveis
                 </p>
