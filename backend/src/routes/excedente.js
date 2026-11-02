@@ -15,7 +15,7 @@ excedenteRouter.use("/mapas/:id/excedente", exigirAutenticacao);
 const REGEX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REGEX_DIA = /^\d{4}-\d{2}-\d{2}$/;
 const INTERVALO_SINCRONIZACAO_MS = 2 * 60 * 1000;
-const ultimaSincronizacao = new Map(); // mapaId -> ms
+const ultimaSincronizacao = new Map(); // mapaId -> { em: ms, resultado }
 
 export function esquecerSincronizacoesParaTestes() {
   ultimaSincronizacao.clear();
@@ -32,7 +32,10 @@ async function ehMapaExcedente(mapaId) {
 // Devolve "ok" ou "falhou". Nunca lança: ponte fora não impede ver os casos.
 async function sincronizarCasos(mapaId) {
   const agora = Date.now();
-  if (agora - (ultimaSincronizacao.get(mapaId) || 0) < INTERVALO_SINCRONIZACAO_MS) return "ok";
+  // Dentro do intervalo repete o último resultado: devolver "ok" fixo
+  // esconderia o aviso de falha em toda recarga depois da primeira.
+  const ultima = ultimaSincronizacao.get(mapaId);
+  if (ultima && agora - ultima.em < INTERVALO_SINCRONIZACAO_MS) return ultima.resultado;
   let dados;
   try {
     dados = await obterDadosIndicadores();
@@ -58,8 +61,9 @@ async function sincronizarCasos(mapaId) {
       [mapaId, ids]
     );
   }
-  ultimaSincronizacao.set(mapaId, agora);
-  return dados.desatualizado ? "falhou" : "ok";
+  const resultado = dados.desatualizado ? "falhou" : "ok";
+  ultimaSincronizacao.set(mapaId, { em: agora, resultado });
+  return resultado;
 }
 
 function mapearCaso(r, historico) {

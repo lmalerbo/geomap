@@ -33,7 +33,7 @@ export function confirmarSaidaComPendentes(quantidade, apontamentos = 0) {
   if (quantidade <= 0 && apontamentos <= 0) return true;
   const partes = [];
   if (quantidade > 0) partes.push(`${quantidade} anotação(ões)`);
-  if (apontamentos > 0) partes.push(`${apontamentos} apontamento(s) de voo`);
+  if (apontamentos > 0) partes.push(`${apontamentos} apontamento(s)`);
   return window.confirm(
     `Você tem ${partes.join(" e ")} ainda não enviado(s). Sair agora vai descartá-los. Sair mesmo assim?`
   );

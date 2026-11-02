@@ -152,3 +152,17 @@ mudou), `substituido` (bool — apontamento mais antigo que o já aplicado).
   `page.route`): analista marca vermelho com área e desenho; gestor conclui
   sem sinal e a fila envia ao reconectar; leitor vê só leitura; ponte fora
   mostra o aviso e ainda permite apontar.
+
+## Ajustes feitos no plano (aprovados com o plano)
+
+1. Sem coluna `mapas.tipo`: o mapa é reconhecido pela camada Talhões com
+   `estilo_config.tipoCamada = "excedente"` (mesmo padrão de "voos"). Mapa
+   sem essa camada responde 404 nas rotas do excedente.
+2. "Ajustado" é mostrado por um contorno verde-escuro grosso (`#14532d`,
+   largura 3) em vez de um ✓, porque a fonte offline só cobre 0-255.
+3. Trecho excedente: preenchimento vermelho translúcido + contorno
+   tracejado enquanto o talhão está vermelho; depois de concluído, só o
+   contorno.
+4. Voos novos vêm do cache dos Indicadores (`obterDadosIndicadores`), com
+   no máximo uma sincronização a cada 2 minutos por mapa; dentro desse
+   intervalo o servidor repete o último resultado (inclusive "falhou").

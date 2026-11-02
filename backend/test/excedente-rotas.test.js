@@ -8,6 +8,7 @@ import { esquecerSincronizacoesParaTestes } from "../src/routes/excedente.js";
 let c, srv, tAdmin, tEditor, tLeitor, tSemGrupo;
 let realizados = [];
 let falhar = false;
+let desatualizado = false;
 
 const voo = (id, extra = {}) => ({
   id, dataVoo: "2026-05-10T13:00:00Z", tipo: "Falhas Plantio", secao: "10324", talhao: id.slice(-1),
@@ -28,7 +29,7 @@ before(async () => {
   tSemGrupo = tokenPara(c.semGrupo);
   definirFonteParaTestes(async () => {
     if (falhar) throw new Error("ponte desligada");
-    return { realizados, pendentes: [], atualizadoEm: new Date().toISOString(), desatualizado: false };
+    return { realizados, pendentes: [], atualizadoEm: new Date().toISOString(), desatualizado };
   });
 });
 beforeEach(() => esquecerSincronizacoesParaTestes());
@@ -54,6 +55,15 @@ test("ponte fora no primeiro acesso: 200, lista vazia, atualizacao falhou", asyn
   assert.equal(r.status, 200);
   assert.deepEqual(r.corpo.casos, []);
   assert.equal(r.corpo.atualizacao, "falhou");
+});
+
+test("cache desatualizado: aviso de falha se repete dentro do intervalo", async () => {
+  desatualizado = true;
+  const r1 = await req(urlCasos(), tLeitor);
+  const r2 = await req(urlCasos(), tLeitor);
+  desatualizado = false;
+  assert.equal(r1.corpo.atualizacao, "falhou");
+  assert.equal(r2.corpo.atualizacao, "falhou");
 });
 
 test("cria casos dos voos FLP sem duplicar; leitor vê; sem grupo não vê", async () => {

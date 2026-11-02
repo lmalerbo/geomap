@@ -17,6 +17,7 @@ const CAMADA_TRECHOS_LINHA = "excedente-trechos-contorno";
 const CAMADA_AJUSTADO = "excedente-contorno-ajustado";
 const INTERVALO_REENVIO_MS = 3 * 60 * 1000;
 const chaveExpr = ["concat", ["get", "SECAO"], "-", ["get", "TALHAO"]];
+const FILTRO_NENHUM = ["==", ["literal", 1], ["literal", 2]];
 
 function grupoDoStatus(status) {
   return status === "sem_ajuste" || status === "ajustado" ? "concluidos" : status;
@@ -137,7 +138,7 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
         beforeId,
       );
     }
-    map.setFilter(CAMADA_AJUSTADO, chavesAjustado.length ? ["match", chaveExpr, chavesAjustado, true, false] : ["==", 1, 0]);
+    map.setFilter(CAMADA_AJUSTADO, chavesAjustado.length ? ["match", chaveExpr, chavesAjustado, true, false] : FILTRO_NENHUM);
 
     const features = [];
     for (const c of casoPorChave.values()) {
