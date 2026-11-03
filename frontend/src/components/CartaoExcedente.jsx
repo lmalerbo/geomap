@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { botoesDoStatus, ROTULOS_STATUS, CORES_EXCEDENTE } from "../lib/excedente.js";
 import { useOcupado } from "./movimento/index.js";
+import { areaTrechoHa, lerTrechoDeArquivo } from "../lib/trechoExcedente.js";
 
 function diaLocal(deslocamentoDias = 0) {
   const d = new Date();
@@ -30,11 +31,19 @@ function BotaoAcao({ rotulo, aoAcao, aoDepois, className = "" }) {
 
 const abreFormulario = (status) => status === "precisa_ajuste" || status === "ajustado";
 
+const fmtHa = (n) => Number(n).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+
 // Cartão do talhão no mapa de Plantio Excedente. `trechoDesenhado` chega do
-// Mapa.jsx depois que o usuário desenha o trecho pela medição de área.
-export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenhar, aoDescartarTrecho, aoFechar, trechoDesenhado }) {
+// Mapa.jsx: desenhado pela medição de área ou lido de um .kml/.zip
+// (`aoDefinirTrecho`). A área sai sempre da geometria, nunca digitada.
+export default function CartaoExcedente({
+  caso, podeEditar, aoApontar, aoDesenhar, aoDefinirTrecho, aoDescartarTrecho, aoFechar, trechoDesenhado,
+}) {
   const [acao, setAcao] = useState(null); // status escolhido aguardando os campos
-  const [area, setArea] = useState(caso.areaExcedenteHa ?? "");
+  const [erroArquivo, setErroArquivo] = useState(null);
+  const [lendoArquivo, setLendoArquivo] = useState(false);
+  const entradaArquivo = useRef(null);
+  const areaTrecho = trechoDesenhado ? areaTrechoHa(trechoDesenhado) : null;
   const [observacao, setObservacao] = useState("");
   const [dataAjuste, setDataAjuste] = useState(diaLocal(0));
   const [outroDia, setOutroDia] = useState(false);
@@ -42,8 +51,8 @@ export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenha
   function montarCampos(status) {
     const campos = {};
     if (status === "precisa_ajuste") {
-      campos.areaExcedenteHa = area === "" ? null : Number(area);
-      if (trechoDesenhado) campos.poligonoExcedente = trechoDesenhado;
+      campos.areaExcedenteHa = areaTrecho;
+      campos.poligonoExcedente = trechoDesenhado;
     }
     if (status === "ajustado") campos.dataAjuste = dataAjuste;
     if (observacao.trim()) campos.observacao = observacao.trim();
@@ -54,9 +63,24 @@ export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenha
   const fecharFormulario = () => {
     setAcao(null);
     setObservacao("");
+    setErroArquivo(null);
     aoDescartarTrecho?.(); // senão o próximo "Precisa de ajuste" reaproveitaria o desenho
   };
-  const areaInvalida = area !== "" && !(Number(area) >= 0);
+
+  async function aoEscolherArquivo(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite escolher o mesmo arquivo de novo
+    if (!file) return;
+    setErroArquivo(null);
+    setLendoArquivo(true);
+    try {
+      aoDefinirTrecho(await lerTrechoDeArquivo(file), { enquadrar: true });
+    } catch (err) {
+      setErroArquivo(err.message);
+    } finally {
+      setLendoArquivo(false);
+    }
+  }
 
   return (
     <aside className="painel-flutuante painel-atributos aberto cartao-excedente" aria-label="Análise de plantio excedente">
@@ -72,7 +96,7 @@ export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenha
       </p>
       <p>Voo de Falhas Plantio em {formatarDia(caso.dataVoo)}</p>
       {caso.vooCancelado && <p className="aviso">Voo cancelado no DroneManagement.</p>}
-      {caso.areaExcedenteHa != null && <p>Área excedente estimada: {caso.areaExcedenteHa} ha</p>}
+      {caso.areaExcedenteHa != null && <p>Área excedente: {fmtHa(caso.areaExcedenteHa)} ha</p>}
       {caso.observacao && <p>{caso.observacao}</p>}
       {caso.dataAjuste && <p>Ajuste feito em {formatarDia(caso.dataAjuste)}</p>}
 
@@ -92,22 +116,31 @@ export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenha
 
       {podeEditar && acao === "precisa_ajuste" && (
         <form className="form-excedente" onSubmit={(e) => e.preventDefault()}>
-          <label>
-            Área excedente estimada (ha)
-            <input type="number" min="0" step="0.01" value={area} onChange={(e) => setArea(e.target.value)} />
-          </label>
+          <div className="acoes-excedente">
+            <button type="button" onClick={aoDesenhar}>{trechoDesenhado ? "Desenhar de novo" : "Desenhar trecho"}</button>
+            <button type="button" disabled={lendoArquivo} onClick={() => entradaArquivo.current?.click()}>
+              {lendoArquivo ? "Lendo arquivo…" : "Enviar arquivo (.kml ou .zip)"}
+            </button>
+            <input ref={entradaArquivo} type="file" accept=".kml,.zip" hidden onChange={aoEscolherArquivo} />
+          </div>
+          {erroArquivo && <p className="erro">{erroArquivo}</p>}
+          {trechoDesenhado ? (
+            <p className="area-trecho-excedente">
+              Área excedente: <strong>{fmtHa(areaTrecho)} ha</strong>
+              {trechoDesenhado.type === "MultiPolygon" && ` em ${trechoDesenhado.coordinates.length} partes`}
+            </p>
+          ) : (
+            <p className="dica-trecho-excedente">Desenhe o trecho no mapa ou envie o .kml / .zip do shapefile: a área é calculada pela geometria.</p>
+          )}
           <label>
             Observação
             <textarea value={observacao} maxLength={2000} onChange={(e) => setObservacao(e.target.value)} />
           </label>
-          <button type="button" onClick={aoDesenhar}>{trechoDesenhado ? "Desenhar de novo" : "Desenhar trecho"}</button>
-          {trechoDesenhado && <p>Trecho desenhado.</p>}
-          {areaInvalida && <p className="erro">A área precisa ser um número igual ou maior que zero.</p>}
           <div className="acoes-excedente">
-            {areaInvalida ? (
-              <button type="button" disabled>Confirmar</button>
-            ) : (
+            {trechoDesenhado ? (
               <BotaoAcao rotulo="Confirmar" aoAcao={() => enviar("precisa_ajuste")} aoDepois={fecharFormulario} />
+            ) : (
+              <button type="button" disabled>Confirmar</button>
             )}
             <button type="button" onClick={fecharFormulario}>Cancelar</button>
           </div>

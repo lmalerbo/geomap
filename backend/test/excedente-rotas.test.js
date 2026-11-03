@@ -9,6 +9,8 @@ let c, srv, tAdmin, tEditor, tLeitor, tSemGrupo;
 let realizados = [];
 let falhar = false;
 let desatualizado = false;
+let chamadasFonte = 0;
+let atrasoFonteMs = 0;
 
 const voo = (id, extra = {}) => ({
   id, dataVoo: "2026-05-10T13:00:00Z", tipo: "Falhas Plantio", secao: "10324", talhao: id.slice(-1),
@@ -28,6 +30,8 @@ before(async () => {
   tLeitor = tokenPara(c.leitor);
   tSemGrupo = tokenPara(c.semGrupo);
   definirFonteParaTestes(async () => {
+    chamadasFonte++;
+    if (atrasoFonteMs) await new Promise((r) => setTimeout(r, atrasoFonteMs));
     if (falhar) throw new Error("ponte desligada");
     return { realizados, pendentes: [], atualizadoEm: new Date().toISOString(), desatualizado };
   });
@@ -211,4 +215,40 @@ test("dois aparelhos: o mais recente vale, pela transição que o aparelho viu",
   assert.equal(r.corpo.resultados[0].resultado, "aplicado");
   const depois = (await req(urlCasos(), tLeitor)).corpo.casos.find((x) => x.id === caso.id);
   assert.equal(depois.status, "precisa_ajuste");
+});
+
+test("resposta do apontamento traz os casos já atualizados", async () => {
+  realizados = [voo("v-r1")];
+  const caso = (await req(urlCasos(), tEditor)).corpo.casos.find((x) => x.vooId === "v-r1");
+  const a = apont(caso.id, "sem_ajuste");
+  const r = await req(urlApont(), tEditor, { method: "POST", body: { apontamentos: [a] } });
+  assert.equal(r.status, 200);
+  assert.equal(r.corpo.casos.find((x) => x.id === caso.id).status, a.status);
+});
+
+test("buscas simultâneas fazem uma sincronização só", async () => {
+  chamadasFonte = 0;
+  atrasoFonteMs = 200;
+  const [r1, r2, r3] = await Promise.all([req(urlCasos(), tLeitor), req(urlCasos(), tLeitor), req(urlCasos(), tLeitor)]);
+  atrasoFonteMs = 0;
+  assert.equal(chamadasFonte, 1);
+  assert.ok([r1, r2, r3].every((r) => r.status === 200 && r.corpo.atualizacao === "ok"));
+});
+
+test("trecho de arquivo: várias partes e buraco são aceitos; anel aberto não", async () => {
+  realizados = [voo("v-m1")];
+  const caso = (await req(urlCasos(), tEditor)).corpo.casos.find((x) => x.vooId === "v-m1");
+  const quadrado = (x, y, l) => [[x, y], [x + l, y], [x + l, y + l], [x, y + l], [x, y]];
+  const multi = {
+    type: "MultiPolygon",
+    coordinates: [[quadrado(-47.6, -21.1, 0.02), quadrado(-47.595, -21.095, 0.005)], [quadrado(-47.5, -21.1, 0.01)]],
+  };
+  const ok = apont(caso.id, "precisa_ajuste", { campos: { areaExcedenteHa: 3.2, poligonoExcedente: multi } });
+  const aberto = { type: "Polygon", coordinates: [quadrado(-47.6, -21.1, 0.02).slice(0, -1)] };
+  const ruim = apont(caso.id, "precisa_ajuste", { campos: { areaExcedenteHa: 1, poligonoExcedente: aberto } });
+  const r = await req(urlApont(), tEditor, { method: "POST", body: { apontamentos: [ruim, ok] } });
+  assert.equal(r.status, 200);
+  assert.equal(r.corpo.resultados.find((x) => x.id === ruim.id).resultado, "recusado");
+  assert.equal(r.corpo.resultados.find((x) => x.id === ok.id).resultado, "aplicado");
+  assert.deepEqual(r.corpo.casos.find((x) => x.id === caso.id).poligonoExcedente, multi);
 });

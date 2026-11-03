@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { criarFilaExcedente } from "./filaExcedente.js";
+import { criarFilaExcedente, criarEnvioUnico } from "./filaExcedente.js";
 
 function storeMemoria() {
   const itens = new Map();
@@ -79,5 +79,41 @@ describe("criarFilaExcedente", () => {
     await fila.enfileirar({ mapaId: 7, casoId: "c1", status: "sem_ajuste", statusAnterior: "aguardando", campos: {} });
     await fila.enviarPendentes("tok");
     expect(enviados[0].statusAnterior).toBe("aguardando");
+  });
+});
+describe("casos devolvidos pelo servidor", () => {
+  it("o aviso de enviado traz os casos atualizados de cada mapa", async () => {
+    const store = storeMemoria();
+    const avisos = [];
+    const casos = [{ id: "c1", status: "sem_ajuste" }];
+    const api = { apontar: async (_t, _m, aps) => ({ resultados: [{ id: aps[0].id, resultado: "aplicado" }], casos }) };
+    const fila = criarFilaExcedente({ api, store, gerarId, aoMudar: (d) => avisos.push(d) });
+    await fila.enfileirar({ mapaId: 7, casoId: "c1", status: "sem_ajuste", campos: {} });
+    await fila.enviarPendentes("tok");
+    const enviado = avisos.find((a) => a.tipo === "enviado");
+    expect(enviado.casosPorMapa).toEqual({ 7: casos });
+  });
+});
+
+describe("criarEnvioUnico", () => {
+  it("pedido durante um envio roda de novo depois, sem envios simultâneos", async () => {
+    let rodando = 0;
+    let maximo = 0;
+    let vezes = 0;
+    let liberar;
+    const envio = criarEnvioUnico(async () => {
+      rodando++; maximo = Math.max(maximo, rodando); vezes++;
+      if (vezes === 1) await new Promise((r) => { liberar = r; });
+      rodando--;
+      return { enviados: vezes };
+    });
+    const p1 = envio("tok");
+    const p2 = envio("tok"); // item novo entrou durante o 1º envio
+    const p3 = envio("tok");
+    liberar();
+    await Promise.all([p1, p2, p3]);
+    expect(vezes).toBe(2);
+    expect(maximo).toBe(1);
+    expect((await p2).enviados).toBe(2);
   });
 });
