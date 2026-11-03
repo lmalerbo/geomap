@@ -1071,7 +1071,14 @@ export default function Mapa() {
     () => [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "excedente") || null,
     [versaoCamadas]
   );
-  const excedente = useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, sessao.token);
+  const excedente = useExcedente(
+    mapRef,
+    mapaPronto,
+    excedenteInfo,
+    mapaId,
+    sessao.token,
+    excedenteInfo ? camadasVisiveis.has(excedenteInfo.id) : false,
+  );
   const [trechoExcedente, setTrechoExcedente] = useState(null); // GeoJSON Polygon do desenho em andamento
   const casoExcedenteAberto = excedente.casos.find((c) => c.id === excedente.selecionado) || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
@@ -1582,7 +1589,9 @@ export default function Mapa() {
       // fato existe pra essa camada), e a opacidade "ligada" de cada um
       // vem do que foi configurado (nunca mais um "1" fixo que ignorava
       // contorno.opacidade).
-      if (map.getLayer(info.fillLayerId)) {
+      // Plantio excedente: a pintura por status (useExcedente) cuida do
+      // preenchimento, inclusive quando a camada está desligada.
+      if (info.tipoCamada !== "excedente" && map.getLayer(info.fillLayerId)) {
         map.setPaintProperty(info.fillLayerId, "fill-opacity", visivel ? info.opacidadePreenchimento : 0);
       }
       if (map.getLayer(info.lineLayerId)) {
@@ -1721,7 +1730,7 @@ export default function Mapa() {
         const featuresExcedente = map.queryRenderedFeatures(e.point, { layers: [excedenteInfo.fillLayerId] });
         const propsExcedente = featuresExcedente[0]?.properties;
         const casoClicado = propsExcedente
-          ? excedente.casoPorChave.get(`${propsExcedente.SECAO}-${propsExcedente.TALHAO}`)
+          ? excedente.casoPorChaveVisivel.get(`${propsExcedente.SECAO}-${propsExcedente.TALHAO}`)
           : null;
         if (casoClicado) {
           setSelecao(null);
@@ -1808,7 +1817,7 @@ export default function Mapa() {
     planejamentos.visivel,
     apontamento.pendenciasDoTalhao,
     excedenteInfo,
-    excedente.casoPorChave,
+    excedente.casoPorChaveVisivel,
     podeEditar,
   ]);
 
@@ -1948,7 +1957,7 @@ export default function Mapa() {
   }
 
   async function handleSair() {
-    if (await sairDescartandoPins(pinsPendentes, sair, undefined, filaApontamentos.qtdPendentes + excedente.itensFila.filter((i) => i.estado === "pendente").length)) navigate("/login");
+    if (await sairDescartandoPins(pinsPendentes, sair, undefined, filaApontamentos.qtdPendentes)) navigate("/login");
   }
 
   function selecionarResultadoBusca(resultado) {
@@ -3228,6 +3237,7 @@ export default function Mapa() {
               medicao.setMedindo(true);
               medicao.trocarModoMedicao("area");
             }}
+            aoDescartarTrecho={() => setTrechoExcedente(null)}
             aoFechar={() => {
               excedente.setSelecionado(null);
               setTrechoExcedente(null);

@@ -31,7 +31,9 @@ function primeiroRotuloExistente(map) {
   return undefined;
 }
 
-export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
+// `visivel`: a camada Talhões está ligada no painel de camadas. Como a
+// pintura daqui define a opacidade, o liga/desliga do Mapa.jsx não mexe nela.
+export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token, visivel = true) {
   const [casosServidor, setCasosServidor] = useState(null); // null = nada ainda
   const [itensFila, setItensFila] = useState([]);
   const [filtroStatus, setFiltroStatus] = useState(null);
@@ -103,6 +105,13 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
   const casos = useMemo(() => aplicarPendentes(casosServidor || [], itensFila), [casosServidor, itensFila]);
   const casoPorChave = useMemo(() => casoVigentePorTalhao(casos), [casos]);
   const contagem = useMemo(() => contarPorStatus([...casoPorChave.values()]), [casoPorChave]);
+  // O que está pintado na tela agora (camada ligada e status no filtro): o
+  // clique só abre caso daqui.
+  const casoPorChaveVisivel = useMemo(() => {
+    if (!visivel) return new Map();
+    if (!filtroStatus) return casoPorChave;
+    return new Map([...casoPorChave].filter(([, c]) => filtroStatus.has(grupoDoStatus(c.status))));
+  }, [casoPorChave, filtroStatus, visivel]);
 
   // Pinta a camada Talhões por status + contorno do ajustado + trechos.
   useEffect(() => {
@@ -112,8 +121,7 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
     const ramosCor = [];
     const chavesAjustado = [];
     const porCor = new Map();
-    for (const [k, c] of casoPorChave) {
-      if (filtroStatus && !filtroStatus.has(grupoDoStatus(c.status))) continue;
+    for (const [k, c] of casoPorChaveVisivel) {
       const cor = CORES_EXCEDENTE[c.status];
       if (!porCor.has(cor)) porCor.set(cor, []);
       porCor.get(cor).push(k);
@@ -141,9 +149,8 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
     map.setFilter(CAMADA_AJUSTADO, chavesAjustado.length ? ["match", chaveExpr, chavesAjustado, true, false] : FILTRO_NENHUM);
 
     const features = [];
-    for (const c of casoPorChave.values()) {
+    for (const c of casoPorChaveVisivel.values()) {
       if (!c.poligonoExcedente) continue;
-      if (filtroStatus && !filtroStatus.has(grupoDoStatus(c.status))) continue;
       features.push({ type: "Feature", properties: { casoId: c.id, aberto: c.status === "precisa_ajuste" }, geometry: c.poligonoExcedente });
     }
     const dados = { type: "FeatureCollection", features };
@@ -171,7 +178,7 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
         beforeId,
       );
     }
-  }, [mapRef, mapaPronto, excedenteInfo, casoPorChave, filtroStatus]);
+  }, [mapRef, mapaPronto, excedenteInfo, casoPorChaveVisivel]);
 
   // Mapa remontou a camada (estilo mudou): as camadas próprias somem junto da fonte.
   useEffect(() => {
@@ -184,7 +191,8 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
   }, [mapRef, excedenteInfo?.sourceId]);
 
   async function apontar({ casoId, status, campos }) {
-    await filaExcedente.enfileirar({ mapaId: mapaIdNum, casoId, status, campos });
+    const statusAnterior = casos.find((c) => c.id === casoId)?.status ?? null;
+    await filaExcedente.enfileirar({ mapaId: mapaIdNum, casoId, status, statusAnterior, campos });
     await recarregarFila();
     enviarFila();
   }
@@ -192,6 +200,7 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token) {
   return {
     casos,
     casoPorChave,
+    casoPorChaveVisivel,
     contagem,
     filtroStatus,
     setFiltroStatus,

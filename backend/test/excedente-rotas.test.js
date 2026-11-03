@@ -160,6 +160,55 @@ test("voo que some dos realizados marca cancelado, sem apagar; volta desmarca", 
 });
 
 test("corpo inválido: 400", async () => {
-  const r = await req(urlApont(), tEditor, { method: "POST", body: { apontamentos: [{ id: "x" }] } });
+  const r = await req(urlApont(), tEditor, { method: "POST", body: { apontamentos: "x" } });
   assert.equal(r.status, 400);
+});
+
+test("item inválido é recusado sozinho; os outros do lote seguem", async () => {
+  const caso = (await req(urlCasos(), tEditor)).corpo.casos.find((x) => x.vooId === "v-a1");
+  const aberto = { type: "Polygon", coordinates: [[[-47.6, -21.1], [-47.5, -21.1], [-47.5, -21.0]]] };
+  const ruim = apont(caso.id, "precisa_ajuste", { campos: { poligonoExcedente: aberto } });
+  const bom = apont(caso.id, "aguardando");
+  const r = await req(urlApont(), tEditor, { method: "POST", body: { apontamentos: [ruim, bom] } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.corpo.resultados.map((x) => x.resultado), ["recusado", "aplicado"]);
+  assert.match(r.corpo.resultados[0].erro, /desenho/);
+});
+
+test("data do ajuste no futuro é recusada", async () => {
+  const caso = (await req(urlCasos(), tEditor)).corpo.casos.find((x) => x.vooId === "v-a1");
+  const a = apont(caso.id, "ajustado", { statusAnterior: "precisa_ajuste", campos: { dataAjuste: "2099-01-01" } });
+  const r = await req(urlApont(), tEditor, { method: "POST", body: { apontamentos: [a] } });
+  assert.equal(r.corpo.resultados[0].resultado, "recusado");
+});
+
+test("reabrir apaga área, trecho e data do ajuste", async () => {
+  const caso = (await req(urlCasos(), tEditor)).corpo.casos.find((x) => x.vooId === "v-a1"); // aguardando
+  const poligono = { type: "Polygon", coordinates: [[[-47.6, -21.1], [-47.5, -21.1], [-47.5, -21.0], [-47.6, -21.1]]] };
+  const t = (min) => new Date(Date.now() + min * 1000).toISOString();
+  const lote = [
+    apont(caso.id, "precisa_ajuste", { feitoEm: t(1), campos: { areaExcedenteHa: 2, poligonoExcedente: poligono } }),
+    apont(caso.id, "ajustado", { feitoEm: t(2), campos: { dataAjuste: "2026-10-29" } }),
+    apont(caso.id, "aguardando", { feitoEm: t(3) }),
+  ];
+  const r = await req(urlApont(), tEditor, { method: "POST", body: { apontamentos: lote } });
+  assert.deepEqual(r.corpo.resultados.map((x) => x.resultado), ["aplicado", "aplicado", "aplicado"]);
+  const depois = (await req(urlCasos(), tLeitor)).corpo.casos.find((x) => x.id === caso.id);
+  assert.equal(depois.status, "aguardando");
+  assert.equal(depois.areaExcedenteHa, null);
+  assert.equal(depois.poligonoExcedente, null);
+  assert.equal(depois.dataAjuste, null);
+});
+
+test("dois aparelhos: o mais recente vale, pela transição que o aparelho viu", async () => {
+  const caso = (await req(urlCasos(), tEditor)).corpo.casos.find((x) => x.vooId === "v-a1"); // aguardando
+  const t = (min) => new Date(Date.now() + min * 1000).toISOString();
+  // A (com sinal) marca sem ajuste; B (sem sinal, ainda vendo "aguardando") marca depois.
+  const deA = apont(caso.id, "sem_ajuste", { feitoEm: t(10), statusAnterior: "aguardando" });
+  const deB = apont(caso.id, "precisa_ajuste", { feitoEm: t(20), statusAnterior: "aguardando", campos: { areaExcedenteHa: 1 } });
+  await req(urlApont(), tEditor, { method: "POST", body: { apontamentos: [deA] } });
+  const r = await req(urlApont(), tAdmin, { method: "POST", body: { apontamentos: [deB] } });
+  assert.equal(r.corpo.resultados[0].resultado, "aplicado");
+  const depois = (await req(urlCasos(), tLeitor)).corpo.casos.find((x) => x.id === caso.id);
+  assert.equal(depois.status, "precisa_ajuste");
 });

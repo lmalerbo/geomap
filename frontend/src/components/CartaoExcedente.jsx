@@ -8,6 +8,8 @@ function diaLocal(deslocamentoDias = 0) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 const formatarDia = (dia) => (dia ? dia.split("-").reverse().join("/") : "");
+// feitoEm vem em UTC: cortar a string daria o dia seguinte depois das 21h.
+const formatarMomento = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "");
 
 // Botão de ação com a espera do movimento (ver docs/movimento-esperas.md):
 // o ✓/✕ aparece antes de o cartão mudar. `aoDepois` só roda depois disso.
@@ -30,7 +32,7 @@ const abreFormulario = (status) => status === "precisa_ajuste" || status === "aj
 
 // Cartão do talhão no mapa de Plantio Excedente. `trechoDesenhado` chega do
 // Mapa.jsx depois que o usuário desenha o trecho pela medição de área.
-export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenhar, aoFechar, trechoDesenhado }) {
+export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenhar, aoDescartarTrecho, aoFechar, trechoDesenhado }) {
   const [acao, setAcao] = useState(null); // status escolhido aguardando os campos
   const [area, setArea] = useState(caso.areaExcedenteHa ?? "");
   const [observacao, setObservacao] = useState("");
@@ -52,7 +54,9 @@ export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenha
   const fecharFormulario = () => {
     setAcao(null);
     setObservacao("");
+    aoDescartarTrecho?.(); // senão o próximo "Precisa de ajuste" reaproveitaria o desenho
   };
+  const areaInvalida = area !== "" && !(Number(area) >= 0);
 
   return (
     <aside className="painel-flutuante painel-atributos aberto cartao-excedente" aria-label="Análise de plantio excedente">
@@ -98,8 +102,13 @@ export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenha
           </label>
           <button type="button" onClick={aoDesenhar}>{trechoDesenhado ? "Desenhar de novo" : "Desenhar trecho"}</button>
           {trechoDesenhado && <p>Trecho desenhado.</p>}
+          {areaInvalida && <p className="erro">A área precisa ser um número igual ou maior que zero.</p>}
           <div className="acoes-excedente">
-            <BotaoAcao rotulo="Confirmar" aoAcao={() => enviar("precisa_ajuste")} aoDepois={fecharFormulario} />
+            {areaInvalida ? (
+              <button type="button" disabled>Confirmar</button>
+            ) : (
+              <BotaoAcao rotulo="Confirmar" aoAcao={() => enviar("precisa_ajuste")} aoDepois={fecharFormulario} />
+            )}
             <button type="button" onClick={fecharFormulario}>Cancelar</button>
           </div>
         </form>
@@ -129,7 +138,7 @@ export default function CartaoExcedente({ caso, podeEditar, aoApontar, aoDesenha
       {caso.historico?.length > 0 && (
         <ol className="historico-excedente">
           {caso.historico.filter((h) => !h.substituido).map((h) => (
-            <li key={h.id}>{ROTULOS_STATUS[h.statusNovo]} por {h.usuarioNome || "?"}, {formatarDia(h.feitoEm?.slice(0, 10))}</li>
+            <li key={h.id}>{ROTULOS_STATUS[h.statusNovo]} por {h.usuarioNome || "?"}, {formatarMomento(h.feitoEm)}</li>
           ))}
         </ol>
       )}

@@ -22,14 +22,33 @@ export function chaveTalhao(secao, talhao) {
   return `${secao}-${talhao}`;
 }
 
+// Talhão com vários voos mostra um caso só: voo cancelado só se não houver
+// outro; um "precisa de ajuste" ainda aberto não some porque o talhão foi
+// voado de novo; no resto, o voo mais recente.
+function prioridade(c) {
+  return [c.vooCancelado ? 0 : 1, c.status === "precisa_ajuste" ? 1 : 0, c.dataVoo || ""];
+}
+function vemAntes(a, b) {
+  const [pa, pb] = [prioridade(a), prioridade(b)];
+  for (let i = 0; i < pa.length; i++) if (pa[i] !== pb[i]) return pa[i] > pb[i];
+  return false;
+}
 export function casoVigentePorTalhao(casos) {
   const m = new Map();
   for (const c of casos) {
     const k = chaveTalhao(c.secao, c.talhao);
     const atual = m.get(k);
-    if (!atual || c.dataVoo > atual.dataVoo) m.set(k, c);
+    if (!atual || vemAntes(c, atual)) m.set(k, c);
   }
   return m;
+}
+
+// Mesmo critério do servidor (routes/excedente.js): reabrir e "sem ajuste"
+// apagam o que deixou de valer.
+export function camposDoApontamento(status, campos = {}) {
+  if (status === "aguardando") return { areaExcedenteHa: null, poligonoExcedente: null, dataAjuste: null, ...campos };
+  if (status === "sem_ajuste") return { areaExcedenteHa: null, poligonoExcedente: null, ...campos };
+  return campos;
 }
 
 // Itens da fila do aparelho ainda não enviados valem na tela na hora
@@ -43,7 +62,7 @@ export function aplicarPendentes(casos, itensFila) {
   for (const i of pendentes) {
     const c = porId.get(i.casoId);
     if (!c) continue;
-    Object.assign(c, i.campos, { status: i.status, pendente: true });
+    Object.assign(c, camposDoApontamento(i.status, i.campos), { status: i.status, pendente: true });
   }
   return casos.map((c) => porId.get(c.id));
 }

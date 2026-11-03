@@ -3353,6 +3353,20 @@ Defeitos achados e corrigidos:
 - cartão alto demais no celular (espaçamento dos parágrafos). Não
   conferido de novo no navegador.
 
+Revisão de código (2026-11-03): 6 problemas corrigidos com teste. Estão
+listados na spec, em "Ajustes da revisão de código":
+- fila contada ao sair fora do mapa e enviada no sync geral;
+- 5xx/401 sem travar a fila;
+- conflito entre aparelhos pelo status visto;
+- reabrir limpa os campos;
+- liga/desliga da camada;
+- caso aberto não some com voo novo.
+Ficaram de fora:
+- `sincronizarCasos` faz um `INSERT` por voo (pode virar um único
+  `unnest`);
+- dois envios simultâneos do mesmo id podem dar 500, mas a fila tenta de
+  novo e o reenvio é idempotente.
+
 Ambiente local: o backend precisa de `LOGIN_LOCAL=1`, e a tela de login só
 aceita o Hub; para testar, injete `geoportal_sessao` no `localStorage`
 depois de `POST /login`.

@@ -1,4 +1,9 @@
-import { ehErroTransitorio } from "./filaApontamentos.js";
+// Esta rota não passa pela ponte: sem rede, qualquer 5xx (deploy, Render
+// acordando, banco) e sessão vencida (401) ficam para a próxima tentativa.
+// Só 400/403/404 recusam.
+export function ehErroTransitorioExcedente(erro) {
+  return !erro.status || erro.status >= 500 || erro.status === 401;
+}
 
 // Fila offline dos apontamentos do Plantio Excedente — mesmo espírito de
 // filaApontamentos.js (motor puro, dependências injetadas; instância real em
@@ -7,12 +12,15 @@ import { ehErroTransitorio } from "./filaApontamentos.js";
 // substituído saem da fila, recusado fica com o motivo até o usuário tentar
 // de novo ou descartar.
 export function criarFilaExcedente({ api, store, aoMudar = () => {}, gerarId = () => crypto.randomUUID() }) {
-  async function enfileirar({ mapaId, casoId, status, campos }) {
+  // statusAnterior = o que o aparelho mostrava: o servidor valida a transição
+  // a partir dele (vale o mais recente entre dois aparelhos).
+  async function enfileirar({ mapaId, casoId, status, statusAnterior = null, campos }) {
     const item = {
       id: gerarId(),
       mapaId,
       casoId,
       status,
+      statusAnterior,
       campos: campos || {},
       feitoEm: new Date().toISOString(),
       estado: "pendente",
@@ -40,10 +48,12 @@ export function criarFilaExcedente({ api, store, aoMudar = () => {}, gerarId = (
         resposta = await api.apontar(
           token,
           mapaId,
-          ordenados.map(({ id, casoId, status, campos, feitoEm }) => ({ id, casoId, status, campos, feitoEm }))
+          ordenados.map(({ id, casoId, status, statusAnterior, campos, feitoEm }) => ({
+            id, casoId, status, statusAnterior: statusAnterior ?? undefined, campos, feitoEm,
+          }))
         );
       } catch (erro) {
-        if (ehErroTransitorio(erro)) {
+        if (ehErroTransitorioExcedente(erro)) {
           restantes = true;
           break;
         }

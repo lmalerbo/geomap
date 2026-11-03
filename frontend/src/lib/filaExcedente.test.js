@@ -59,4 +59,25 @@ describe("criarFilaExcedente", () => {
     expect((await fila.enviarPendentes("tok")).recusados).toBe(1);
     expect([...store.itens.values()][0]).toMatchObject({ estado: "recusado", erro: "sem permissão" });
   });
+
+  it("5xx e sessão vencida (401) mantêm a fila pendente para tentar de novo", async () => {
+    for (const status of [500, 502, 504, 401]) {
+      const store = storeMemoria();
+      const erro = Object.assign(new Error("falhou"), { status });
+      const fila = criarFilaExcedente({ api: { apontar: async () => { throw erro; } }, store, gerarId });
+      await fila.enfileirar({ mapaId: 7, casoId: "c1", status: "sem_ajuste", campos: {} });
+      expect(await fila.enviarPendentes("tok")).toEqual({ enviados: 0, recusados: 0, restantes: true });
+      expect([...store.itens.values()][0].estado).toBe("pendente");
+    }
+  });
+
+  it("manda o status que o aparelho viu", async () => {
+    const store = storeMemoria();
+    let enviados;
+    const api = { apontar: async (_t, _m, aps) => ((enviados = aps), { resultados: aps.map((a) => ({ id: a.id, resultado: "aplicado" })) }) };
+    const fila = criarFilaExcedente({ api, store, gerarId });
+    await fila.enfileirar({ mapaId: 7, casoId: "c1", status: "sem_ajuste", statusAnterior: "aguardando", campos: {} });
+    await fila.enviarPendentes("tok");
+    expect(enviados[0].statusAnterior).toBe("aguardando");
+  });
 });

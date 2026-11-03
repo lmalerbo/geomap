@@ -166,3 +166,21 @@ mudou), `substituido` (bool — apontamento mais antigo que o já aplicado).
 4. Voos novos vêm do cache dos Indicadores (`obterDadosIndicadores`), com
    no máximo uma sincronização a cada 2 minutos por mapa; dentro desse
    intervalo o servidor repete o último resultado (inclusive "falhou").
+
+## Ajustes da revisão de código (2026-11-03)
+
+5. Dois aparelhos: o aparelho manda `statusAnterior` (o que ele mostrava) e
+   o servidor valida a transição a partir dele. O mais recente vale mesmo se
+   o outro aparelho já mudou o status no servidor.
+6. Reabrir apaga área, trecho e data do ajuste; "sem ajuste" apaga área e
+   trecho. Os valores antigos ficam no histórico.
+7. Talhão com vários voos mostra um caso só. Um voo cancelado só aparece se
+   não houver outro; um "precisa de ajuste" aberto continua aparecendo mesmo
+   se o talhão for voado de novo; no resto vale o voo mais recente.
+8. Fila do aparelho: 5xx e 401 ficam para a próxima tentativa; só
+   400/403/404 recusam. Um item inválido é recusado sozinho, sem travar o
+   lote. A fila também é enviada no sync geral e contada ao sair da conta
+   em qualquer tela.
+9. Desligar a camada Talhões no painel esconde as cores, o contorno de
+   ajustado e os trechos, e o clique deixa de abrir o caso. O clique também
+   ignora casos fora do filtro de status.

@@ -143,6 +143,34 @@ excedenteRouter.get("/mapas/:id/excedente", async (req, res) => {
   res.json({ casos: await listarCasos(mapaId), atualizacao });
 });
 
+const MAX_VERTICES = 2000;
+// Só um anel externo de [lng, lat] numéricos, fechado: vai para a fonte
+// GeoJSON de todos os aparelhos que veem o mapa.
+function poligonoValido(v) {
+  if (v?.type !== "Polygon" || !Array.isArray(v.coordinates) || v.coordinates.length !== 1) return false;
+  const anel = v.coordinates[0];
+  if (!Array.isArray(anel) || anel.length < 4 || anel.length > MAX_VERTICES) return false;
+  const pontosOk = anel.every(
+    (p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite) && Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90
+  );
+  const [primeiro, ultimo] = [anel[0], anel[anel.length - 1]];
+  return pontosOk && primeiro[0] === ultimo[0] && primeiro[1] === ultimo[1];
+}
+
+// Amanhã no fuso de Brasília: folga para o relógio do aparelho, sem aceitar
+// ajuste datado no futuro.
+function diaMaximoAjuste() {
+  return new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+}
+
+// Reabrir e "sem ajuste" apagam o que deixou de valer (o histórico guarda o
+// valor antigo); senão o trecho vermelho continuaria num talhão verde.
+function camposLimpos(status) {
+  if (status === "aguardando") return { areaExcedenteHa: null, poligonoExcedente: null, dataAjuste: null };
+  if (status === "sem_ajuste") return { areaExcedenteHa: null, poligonoExcedente: null };
+  return {};
+}
+
 function validarCampos(campos) {
   if (campos === undefined || campos === null) return { dados: {} };
   if (typeof campos !== "object" || Array.isArray(campos)) return { erro: "campos inválidos" };
@@ -159,12 +187,14 @@ function validarCampos(campos) {
   }
   if ("poligonoExcedente" in campos) {
     const v = campos.poligonoExcedente;
-    if (v !== null && (v?.type !== "Polygon" || !Array.isArray(v.coordinates))) return { erro: "desenho inválido" };
+    if (v !== null && !poligonoValido(v)) return { erro: "desenho inválido" };
     dados.poligonoExcedente = v;
   }
   if ("dataAjuste" in campos) {
     const v = campos.dataAjuste;
-    if (v !== null && (typeof v !== "string" || !REGEX_DIA.test(v))) return { erro: "data do ajuste inválida" };
+    if (v !== null && (typeof v !== "string" || !REGEX_DIA.test(v) || v > diaMaximoAjuste())) {
+      return { erro: "data do ajuste inválida" };
+    }
     dados.dataAjuste = v;
   }
   return { dados };
@@ -173,11 +203,21 @@ function validarCampos(campos) {
 function validarApontamento(a) {
   if (!REGEX_UUID.test(a?.id || "") || !REGEX_UUID.test(a?.casoId || "")) return { erro: "ids inválidos" };
   if (!STATUS_EXCEDENTE.includes(a.status)) return { erro: "status inválido" };
+  if (a.statusAnterior != null && !STATUS_EXCEDENTE.includes(a.statusAnterior)) return { erro: "status anterior inválido" };
   const feitoEm = new Date(a.feitoEm);
   if (typeof a.feitoEm !== "string" || Number.isNaN(feitoEm.getTime())) return { erro: "feitoEm inválido" };
   const campos = validarCampos(a.campos);
   if (campos.erro) return campos;
-  return { dados: { id: a.id, casoId: a.casoId, status: a.status, feitoEm: limitarFeitoEm(feitoEm), campos: campos.dados } };
+  return {
+    dados: {
+      id: a.id,
+      casoId: a.casoId,
+      status: a.status,
+      statusAnterior: a.statusAnterior ?? null,
+      feitoEm: limitarFeitoEm(feitoEm),
+      campos: { ...camposLimpos(a.status), ...campos.dados },
+    },
+  };
 }
 
 const COLUNAS = {
@@ -199,8 +239,12 @@ async function aplicarApontamento(cliente, mapaId, usuarioId, a) {
   if (!caso) return { id: a.id, resultado: "recusado", erro: "caso não encontrado neste mapa" };
 
   const maisAntigo = caso.atualizado_em && a.feitoEm <= caso.atualizado_em;
-  if (!maisAntigo && !transicaoPermitida(caso.status, a.status)) {
-    return { id: a.id, resultado: "recusado", erro: `não dá para ir de "${caso.status}" para "${a.status}"` };
+  // A transição vale a partir do que o aparelho viu: com dois aparelhos no
+  // mesmo caso vale o mais recente (spec), mesmo que o outro já tenha mudado
+  // o status no servidor.
+  const visto = a.statusAnterior ?? caso.status;
+  if (!maisAntigo && !transicaoPermitida(visto, a.status)) {
+    return { id: a.id, resultado: "recusado", erro: `não dá para ir de "${visto}" para "${a.status}"` };
   }
   await cliente.query(
     `INSERT INTO historico_excedente (id, analise_id, usuario_id, feito_em, status_anterior, status_novo, campos, substituido)
@@ -226,14 +270,15 @@ excedenteRouter.post("/mapas/:id/excedente/apontamentos", async (req, res) => {
   if (!Array.isArray(lista) || lista.length === 0 || lista.length > 500) {
     return res.status(400).json({ erro: "apontamentos deve ser uma lista de 1 a 500 itens" });
   }
-  const validados = [];
-  for (const a of lista) {
-    const v = validarApontamento(a);
-    if (v.erro) return res.status(400).json({ erro: v.erro });
-    validados.push(v.dados);
-  }
+  // Item inválido é recusado sozinho: não trava os outros da fila do aparelho.
   const resultados = [];
-  for (const a of validados) {
+  for (const bruto of lista) {
+    const v = validarApontamento(bruto);
+    if (v.erro) {
+      resultados.push({ id: typeof bruto?.id === "string" ? bruto.id : null, resultado: "recusado", erro: v.erro });
+      continue;
+    }
+    const a = v.dados;
     const cliente = await pool.connect();
     try {
       await cliente.query("BEGIN");
