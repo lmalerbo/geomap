@@ -6160,7 +6160,6 @@ input[type="file"]::file-selector-button:hover {
 .form-excedente { display: grid; gap: 10px; margin: 12px 0; }
 .form-excedente label { display: grid; gap: 4px; }
 .historico-excedente { margin: 12px 0 0; padding-left: 18px; font-size: 0.85rem; opacity: 0.8; }
-.chips-excedente { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip-excedente { border: 2px solid var(--cor-status); background: transparent; color: inherit; opacity: 0.55; }
-.chip-excedente.ativo { opacity: 1; }
-.aviso-discreto { font-size: 0.85rem; opacity: 0.8; }
+.area-trecho-excedente { margin: 0; }
+.dica-trecho-excedente { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+.contagem-chip { margin-left: 6px; font-weight: 700; font-variant-numeric: tabular-nums; }

@@ -1071,6 +1071,9 @@ export default function Mapa() {
     () => [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "excedente") || null,
     [versaoCamadas]
   );
+  // Trecho em edição no cartão do excedente: Polygon do desenho ou
+  // Polygon/MultiPolygon de um .kml/.zip.
+  const [trechoExcedente, setTrechoExcedente] = useState(null);
   const excedente = useExcedente(
     mapRef,
     mapaPronto,
@@ -1078,8 +1081,8 @@ export default function Mapa() {
     mapaId,
     sessao.token,
     excedenteInfo ? camadasVisiveis.has(excedenteInfo.id) : false,
+    trechoExcedente,
   );
-  const [trechoExcedente, setTrechoExcedente] = useState(null); // GeoJSON Polygon do desenho em andamento
   const casoExcedenteAberto = excedente.casos.find((c) => c.id === excedente.selecionado) || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
   const planejamentos = usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
@@ -3236,6 +3239,18 @@ export default function Mapa() {
             aoDesenhar={() => {
               medicao.setMedindo(true);
               medicao.trocarModoMedicao("area");
+            }}
+            aoDefinirTrecho={(geometria, { enquadrar } = {}) => {
+              setTrechoExcedente(geometria);
+              if (enquadrar && mapRef.current) {
+                const pontos = geometria.coordinates.flat(geometria.type === "MultiPolygon" ? 2 : 1);
+                const lngs = pontos.map((p) => p[0]);
+                const lats = pontos.map((p) => p[1]);
+                mapRef.current.fitBounds(
+                  [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+                  { padding: 80, maxZoom: 17, duration: 800 }
+                );
+              }
             }}
             aoDescartarTrecho={() => setTrechoExcedente(null)}
             aoFechar={() => {

@@ -16,9 +16,11 @@ const REGEX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const REGEX_DIA = /^\d{4}-\d{2}-\d{2}$/;
 const INTERVALO_SINCRONIZACAO_MS = 2 * 60 * 1000;
 const ultimaSincronizacao = new Map(); // mapaId -> { em: ms, resultado }
+const sincronizacaoEmAndamento = new Map(); // mapaId -> Promise
 
 export function esquecerSincronizacoesParaTestes() {
   ultimaSincronizacao.clear();
+  sincronizacaoEmAndamento.clear();
 }
 
 async function ehMapaExcedente(mapaId) {
@@ -30,12 +32,22 @@ async function ehMapaExcedente(mapaId) {
 }
 
 // Devolve "ok" ou "falhou". Nunca lança: ponte fora não impede ver os casos.
-async function sincronizarCasos(mapaId) {
-  const agora = Date.now();
+// Buscas que chegam durante uma sincronização esperam a mesma (sem isso, cada
+// recarga abria outra consulta pela ponte e todas ficavam lentas).
+function sincronizarCasos(mapaId) {
   // Dentro do intervalo repete o último resultado: devolver "ok" fixo
   // esconderia o aviso de falha em toda recarga depois da primeira.
   const ultima = ultimaSincronizacao.get(mapaId);
-  if (ultima && agora - ultima.em < INTERVALO_SINCRONIZACAO_MS) return ultima.resultado;
+  if (ultima && Date.now() - ultima.em < INTERVALO_SINCRONIZACAO_MS) return Promise.resolve(ultima.resultado);
+  if (!sincronizacaoEmAndamento.has(mapaId)) {
+    const p = executarSincronizacao(mapaId).finally(() => sincronizacaoEmAndamento.delete(mapaId));
+    sincronizacaoEmAndamento.set(mapaId, p);
+  }
+  return sincronizacaoEmAndamento.get(mapaId);
+}
+
+async function executarSincronizacao(mapaId) {
+  const agora = Date.now();
   let dados;
   try {
     dados = await obterDadosIndicadores();
@@ -44,12 +56,24 @@ async function sincronizarCasos(mapaId) {
     return "falhou";
   }
   const voos = selecionarVoosFLP(dados.realizados || []);
-  for (const v of voos) {
+  // Uma consulta só para todos os voos (eram centenas, uma por voo).
+  if (voos.length) {
     await pool.query(
       `INSERT INTO analises_excedente (id, mapa_id, voo_id, secao, talhao, fazenda, fornecedor, data_voo)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       SELECT id, $1, voo_id, secao, talhao, fazenda, fornecedor, data_voo
+       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[], $6::text[], $7::boolean[], $8::date[])
+         AS t(id, voo_id, secao, talhao, fazenda, fornecedor, data_voo)
        ON CONFLICT (mapa_id, voo_id) DO NOTHING`,
-      [randomUUID(), mapaId, v.vooId, v.secao, v.talhao, v.fazenda, v.fornecedor, v.dataVoo]
+      [
+        mapaId,
+        voos.map(() => randomUUID()),
+        voos.map((v) => v.vooId),
+        voos.map((v) => v.secao),
+        voos.map((v) => v.talhao),
+        voos.map((v) => v.fazenda),
+        voos.map((v) => v.fornecedor),
+        voos.map((v) => v.dataVoo),
+      ]
     );
   }
   // Cache antigo (desatualizado) pode não ter voo novo nem cancelamento —
@@ -143,18 +167,30 @@ excedenteRouter.get("/mapas/:id/excedente", async (req, res) => {
   res.json({ casos: await listarCasos(mapaId), atualizacao });
 });
 
-const MAX_VERTICES = 2000;
-// Só um anel externo de [lng, lat] numéricos, fechado: vai para a fonte
-// GeoJSON de todos os aparelhos que veem o mapa.
-function poligonoValido(v) {
-  if (v?.type !== "Polygon" || !Array.isArray(v.coordinates) || v.coordinates.length !== 1) return false;
-  const anel = v.coordinates[0];
-  if (!Array.isArray(anel) || anel.length < 4 || anel.length > MAX_VERTICES) return false;
+const MAX_VERTICES = 5000;
+function anelValido(anel) {
+  if (!Array.isArray(anel) || anel.length < 4) return false;
   const pontosOk = anel.every(
     (p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite) && Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90
   );
   const [primeiro, ultimo] = [anel[0], anel[anel.length - 1]];
   return pontosOk && primeiro[0] === ultimo[0] && primeiro[1] === ultimo[1];
+}
+// Polygon (com buracos) ou MultiPolygon de [lng, lat] numéricos, anéis
+// fechados: o trecho pode vir de um .kml/.shp. Vai para a fonte GeoJSON de
+// todos os aparelhos que veem o mapa, por isso o limite de vértices.
+function poligonoValido(v) {
+  let poligonos;
+  if (v?.type === "Polygon") poligonos = [v.coordinates];
+  else if (v?.type === "MultiPolygon" && Array.isArray(v.coordinates)) poligonos = v.coordinates;
+  else return false;
+  if (poligonos.length === 0) return false;
+  let total = 0;
+  for (const aneis of poligonos) {
+    if (!Array.isArray(aneis) || aneis.length === 0 || !aneis.every(anelValido)) return false;
+    for (const anel of aneis) total += anel.length;
+  }
+  return total <= MAX_VERTICES;
 }
 
 // Amanhã no fuso de Brasília: folga para o relógio do aparelho, sem aceitar
@@ -291,5 +327,6 @@ excedenteRouter.post("/mapas/:id/excedente/apontamentos", async (req, res) => {
       cliente.release();
     }
   }
-  res.json({ resultados });
+  // Casos já atualizados: o aparelho troca a cópia sem esperar outra busca.
+  res.json({ resultados, casos: await listarCasos(mapaId) });
 });

@@ -41,6 +41,7 @@ export function criarFilaExcedente({ api, store, aoMudar = () => {}, gerarId = (
     let enviados = 0;
     let recusados = 0;
     let restantes = false;
+    const casosPorMapa = {};
     for (const [mapaId, itens] of porMapa) {
       const ordenados = [...itens].sort((a, b) => a.feitoEm.localeCompare(b.feitoEm));
       let resposta;
@@ -61,6 +62,7 @@ export function criarFilaExcedente({ api, store, aoMudar = () => {}, gerarId = (
         recusados += ordenados.length;
         continue;
       }
+      if (Array.isArray(resposta.casos)) casosPorMapa[mapaId] = resposta.casos;
       const porId = new Map((resposta.resultados || []).map((r) => [r.id, r]));
       for (const i of ordenados) {
         const r = porId.get(i.id);
@@ -73,7 +75,9 @@ export function criarFilaExcedente({ api, store, aoMudar = () => {}, gerarId = (
         }
       }
     }
-    if (enviados || recusados) aoMudar({ tipo: "enviado", enviados, recusados });
+    // casosPorMapa: a resposta já traz os casos atualizados (a tela troca a
+    // cópia sem esperar outra busca, que pode demorar por causa da ponte).
+    if (enviados || recusados) aoMudar({ tipo: "enviado", enviados, recusados, casosPorMapa });
     return { enviados, recusados, restantes };
   }
 
@@ -90,4 +94,25 @@ export function criarFilaExcedente({ api, store, aoMudar = () => {}, gerarId = (
   }
 
   return { enfileirar, enviarPendentes, retentar, descartar };
+}
+// Um envio por vez. Um pedido que chega durante um envio roda de novo logo
+// depois dele: o item novo pode ter entrado depois da leitura da fila.
+export function criarEnvioUnico(fn) {
+  let atual = null;
+  let proximo = null;
+  return function enviar(...args) {
+    if (!atual) {
+      atual = fn(...args).finally(() => {
+        atual = null;
+      });
+      return atual;
+    }
+    if (!proximo) {
+      proximo = atual.catch(() => {}).then(() => {
+        proximo = null;
+        return enviar(...args);
+      });
+    }
+    return proximo;
+  };
 }

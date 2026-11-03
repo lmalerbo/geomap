@@ -3363,7 +3363,7 @@ listados na spec, em "Ajustes da revisão de código":
 - caso aberto não some com voo novo.
 Ficaram de fora:
 - `sincronizarCasos` faz um `INSERT` por voo (pode virar um único
-  `unnest`);
+  `unnest`) — feito em 03/11, ver abaixo;
 - dois envios simultâneos do mesmo id podem dar 500, mas a fila tenta de
   novo e o reenvio é idempotente.
 
@@ -3376,3 +3376,23 @@ depois de `POST /login`.
 - criar o mapa "Plantio Excedente" com Talhões e Limites;
 - marcar a camada Talhões dele como "Camada de plantio excedente";
 - dar `pode_editar` ao grupo dos analistas e gestores.
+
+Publicado em 03/11 (mapa 74, camadas 352/353, grupos 1/23/57).
+
+**Ajustes do primeiro uso (2026-11-03)**, branch `fix/excedente-ajustes`:
+- **"Reabrir" só funcionava com Ctrl+F5**: o envio tirava o item da fila e
+  a tela voltava à cópia antiga até a busca seguinte, que demorava porque o
+  servidor sincronizava os voos pela ponte antes de responder (e cada
+  clique disparava outra sincronização). Agora o POST de apontamentos
+  devolve `casos` (a tela e o IndexedDB trocam a cópia na hora), buscas
+  simultâneas esperam uma sincronização só (por mapa) e os voos entram num
+  único `INSERT ... unnest`. `criarEnvioUnico` (`lib/filaExcedente.js`): um
+  apontamento feito durante um envio sai logo depois dele, não 3 min depois.
+- **Painel** no molde do Voos (destaque, filtros com quadrado de cor,
+  cartões da fila).
+- **Área sempre da geometria** (decisão do Leo): sem campo de digitar.
+  Trecho desenhado ou enviado por arquivo (`.kml` ou `.zip` do shapefile,
+  com `.prj`), lido por `lib/trechoExcedente.js` (`@turf/area`, até 5.000
+  pontos, Polygon/MultiPolygon com buracos, sem altitude). O servidor aceita
+  Polygon e MultiPolygon. Sem trecho, o Confirmar fica desabilitado. Casos
+  antigos continuam com a área digitada.

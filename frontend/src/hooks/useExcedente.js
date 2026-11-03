@@ -33,7 +33,9 @@ function primeiroRotuloExistente(map) {
 
 // `visivel`: a camada Talhões está ligada no painel de camadas. Como a
 // pintura daqui define a opacidade, o liga/desliga do Mapa.jsx não mexe nela.
-export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token, visivel = true) {
+// `rascunho`: trecho em edição no cartão (desenhado ou de arquivo), mostrado
+// junto dos trechos já gravados.
+export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token, visivel = true, rascunho = null) {
   const [casosServidor, setCasosServidor] = useState(null); // null = nada ainda
   const [itensFila, setItensFila] = useState([]);
   const [filtroStatus, setFiltroStatus] = useState(null);
@@ -90,7 +92,13 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token, v
   // Envio ao reconectar, a cada 3 min enquanto houver fila, e quando a fila muda.
   useEffect(() => {
     if (!ativo) return undefined;
-    const cancelarAssinatura = assinarFilaExcedente(() => recarregarFila());
+    const cancelarAssinatura = assinarFilaExcedente((detalhe) => {
+      // Casos atualizados na resposta do envio: troca a cópia antes de tirar
+      // o item da fila da tela, senão o status antigo volta por um instante.
+      const doMapa = detalhe?.casosPorMapa?.[mapaIdNum];
+      if (doMapa) setCasosServidor(doMapa);
+      recarregarFila();
+    });
     const aoVoltar = () => enviarFila();
     window.addEventListener("online", aoVoltar);
     const intervalo = setInterval(() => enviarFila(), INTERVALO_REENVIO_MS);
@@ -100,7 +108,7 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token, v
       window.removeEventListener("online", aoVoltar);
       clearInterval(intervalo);
     };
-  }, [ativo, enviarFila, recarregarFila]);
+  }, [ativo, enviarFila, recarregarFila, mapaIdNum]);
 
   const casos = useMemo(() => aplicarPendentes(casosServidor || [], itensFila), [casosServidor, itensFila]);
   const casoPorChave = useMemo(() => casoVigentePorTalhao(casos), [casos]);
@@ -153,6 +161,7 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token, v
       if (!c.poligonoExcedente) continue;
       features.push({ type: "Feature", properties: { casoId: c.id, aberto: c.status === "precisa_ajuste" }, geometry: c.poligonoExcedente });
     }
+    if (rascunho) features.push({ type: "Feature", properties: { casoId: null, aberto: true }, geometry: rascunho });
     const dados = { type: "FeatureCollection", features };
     if (map.getSource(FONTE_TRECHOS)) {
       map.getSource(FONTE_TRECHOS).setData(dados);
@@ -178,7 +187,7 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token, v
         beforeId,
       );
     }
-  }, [mapRef, mapaPronto, excedenteInfo, casoPorChaveVisivel]);
+  }, [mapRef, mapaPronto, excedenteInfo, casoPorChaveVisivel, rascunho]);
 
   // Mapa remontou a camada (estilo mudou): as camadas próprias somem junto da fonte.
   useEffect(() => {
@@ -209,7 +218,10 @@ export function useExcedente(mapRef, mapaPronto, excedenteInfo, mapaId, token, v
     avisoAtualizacao,
     itensFila,
     apontar,
-    retentar: filaExcedente.retentar,
+    retentar: async (itemId) => {
+      await filaExcedente.retentar(itemId);
+      enviarFila();
+    },
     descartar: filaExcedente.descartar,
     selecionado,
     setSelecionado,
