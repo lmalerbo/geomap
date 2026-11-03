@@ -49,6 +49,9 @@ import DockFerramentas, {
   IconeDockImportar,
 } from "../components/DockFerramentas.jsx";
 import PainelVoos from "../components/PainelVoos.jsx";
+import PainelExcedente from "../components/PainelExcedente.jsx";
+import CartaoExcedente from "../components/CartaoExcedente.jsx";
+import { useExcedente } from "../hooks/useExcedente.js";
 import BarraApontamento from "../components/BarraApontamento.jsx";
 import { useEhCelular } from "../hooks/useEhCelular.js";
 import IconeEstadoVazio from "../components/IconeEstadoVazio.jsx";
@@ -976,6 +979,7 @@ export default function Mapa() {
   // Recolhido por padrão, aberto pela barra de ferramentas — mutuamente
   // exclusivo com o painel de camadas.
   const [painelVoosAberto, setPainelVoosAberto] = useState(false);
+  const [painelExcedenteAberto, setPainelExcedenteAberto] = useState(false);
   // Quais camadas têm a legenda completa expandida (categorizado/graduado/
   // gradiente/forma por atributo) — só existe a setinha de expandir pra
   // camada que tem algo além do swatch simples (ver temLegendaDetalhada).
@@ -1062,6 +1066,21 @@ export default function Mapa() {
     () => [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "voos") || null,
     [versaoCamadas]
   );
+  // Plantio excedente: só existe no mapa com a camada de tipo "excedente".
+  const excedenteInfo = useMemo(
+    () => [...camadasCarregadasRef.current.values()].find((info) => info.tipoCamada === "excedente") || null,
+    [versaoCamadas]
+  );
+  const excedente = useExcedente(
+    mapRef,
+    mapaPronto,
+    excedenteInfo,
+    mapaId,
+    sessao.token,
+    excedenteInfo ? camadasVisiveis.has(excedenteInfo.id) : false,
+  );
+  const [trechoExcedente, setTrechoExcedente] = useState(null); // GeoJSON Polygon do desenho em andamento
+  const casoExcedenteAberto = excedente.casos.find((c) => c.id === excedente.selecionado) || null;
   const apontamento = useApontamentoVoo(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
   const planejamentos = usePlanejamentos(mapRef, mapaPronto, voosInfo, mapaId, sessao.token);
   const ehAdmin = sessao?.usuario?.papel === "admin";
@@ -1271,7 +1290,7 @@ export default function Mapa() {
     setSelecao(null);
     setPontoSelecionado(null);
     fecharTalhoesFazenda();
-    setPainelVoosAberto(false);
+    setPainelVoosAberto(false); setPainelExcedenteAberto(false);
     setGavetaAberta(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apontamento.modoApontamento]);
@@ -1570,7 +1589,9 @@ export default function Mapa() {
       // fato existe pra essa camada), e a opacidade "ligada" de cada um
       // vem do que foi configurado (nunca mais um "1" fixo que ignorava
       // contorno.opacidade).
-      if (map.getLayer(info.fillLayerId)) {
+      // Plantio excedente: a pintura por status (useExcedente) cuida do
+      // preenchimento, inclusive quando a camada está desligada.
+      if (info.tipoCamada !== "excedente" && map.getLayer(info.fillLayerId)) {
         map.setPaintProperty(info.fillLayerId, "fill-opacity", visivel ? info.opacidadePreenchimento : 0);
       }
       if (map.getLayer(info.lineLayerId)) {
@@ -1675,7 +1696,7 @@ export default function Mapa() {
           setSelecao(null);
           setPontoSelecionado(null);
           setPainelCamadasAberto(false);
-          setPainelVoosAberto(false);
+          setPainelVoosAberto(false); setPainelExcedenteAberto(false);
           pins.selecionarPin(clicados[0].properties.id);
           return;
         }
@@ -1696,13 +1717,36 @@ export default function Mapa() {
           setSelecao(null);
           setPontoSelecionado(null);
           setPainelCamadasAberto(false);
-          setPainelVoosAberto(false);
+          setPainelVoosAberto(false); setPainelExcedenteAberto(false);
           planejamentos.selecionarPorId(noPoligono[0].properties.id);
           return;
         }
       }
       planejamentos.setSelecionado(null);
 
+      // Plantio excedente: talhão com caso abre o cartão dele; talhão sem caso
+      // segue o caminho normal de atributos (a medição já desviou acima).
+      if (excedenteInfo?.fillLayerId && map.getLayer(excedenteInfo.fillLayerId)) {
+        const featuresExcedente = map.queryRenderedFeatures(e.point, { layers: [excedenteInfo.fillLayerId] });
+        const propsExcedente = featuresExcedente[0]?.properties;
+        const casoClicado = propsExcedente
+          ? excedente.casoPorChaveVisivel.get(`${propsExcedente.SECAO}-${propsExcedente.TALHAO}`)
+          : null;
+        if (casoClicado) {
+          setSelecao(null);
+          setPontoSelecionado(null);
+          setPainelCamadasAberto(false);
+          setPainelVoosAberto(false);
+          setPainelExcedenteAberto(false);
+          pins.fecharPin?.();
+          setTrechoExcedente(null);
+          excedente.setSelecionado(casoClicado.id);
+          return;
+        }
+      }
+      // Qualquer outro clique abre outro cartão (atributos/ponto): fecha o do excedente.
+      excedente.setSelecionado(null);
+      setTrechoExcedente(null);
       const layerIds = [...camadasCarregadasRef.current.entries()]
         .filter(([id, info]) => camadasVisiveis.has(id) && info.consultavel)
         .flatMap(([, info]) => [info.fillLayerId, info.circleLayerId].filter(Boolean))
@@ -1717,7 +1761,7 @@ export default function Mapa() {
         // Task 7, preservado aqui).
         if (!apontamento.modoApontamento) {
           setPainelCamadasAberto(false);
-          setPainelVoosAberto(false);
+          setPainelVoosAberto(false); setPainelExcedenteAberto(false);
           setPontoSelecionado({ lngLat: e.lngLat });
         }
         return;
@@ -1752,7 +1796,7 @@ export default function Mapa() {
       // sobrepondo de verdade, não só poluindo visualmente. No máximo 1
       // card de informação aberto por vez.
       setPainelCamadasAberto(false);
-      setPainelVoosAberto(false);
+      setPainelVoosAberto(false); setPainelExcedenteAberto(false);
       setSelecao({ lngLat: e.lngLat, itens, indice: 0 });
     }
 
@@ -1772,6 +1816,8 @@ export default function Mapa() {
     planejamentos.rascunho,
     planejamentos.visivel,
     apontamento.pendenciasDoTalhao,
+    excedenteInfo,
+    excedente.casoPorChaveVisivel,
     podeEditar,
   ]);
 
@@ -2137,6 +2183,8 @@ export default function Mapa() {
   // antes (2026-08-21 / 2026-09-22), só que agora disparada pela barra de
   // ferramentas em vez dos botões circulares.
   function fecharCartoesDeInformacao() {
+    excedente.setSelecionado(null);
+    setTrechoExcedente(null);
     planejamentos.setSelecionado(null);
     setSelecao(null);
     setPontoSelecionado(null);
@@ -2157,7 +2205,7 @@ export default function Mapa() {
             return;
           }
           setPainelCamadasAberto(true);
-          setPainelVoosAberto(false);
+          setPainelVoosAberto(false); setPainelExcedenteAberto(false);
           fecharCartoesDeInformacao();
         },
       },
@@ -2170,11 +2218,30 @@ export default function Mapa() {
         ativo: painelVoosAberto,
         aoClicar: () => {
           if (painelVoosAberto) {
-            setPainelVoosAberto(false);
+            setPainelVoosAberto(false); setPainelExcedenteAberto(false);
             return;
           }
           setPainelVoosAberto(true);
+          setPainelExcedenteAberto(false);
           setPainelCamadasAberto(false);
+          fecharCartoesDeInformacao();
+        },
+      },
+      {
+        id: "excedente",
+        rotulo: "Excedente",
+        rotuloCompleto: "Análise de plantio excedente",
+        icone: <IconeDockTipoVoo />,
+        visivel: Boolean(excedenteInfo),
+        ativo: painelExcedenteAberto,
+        aoClicar: () => {
+          if (painelExcedenteAberto) {
+            setPainelExcedenteAberto(false);
+            return;
+          }
+          setPainelExcedenteAberto(true);
+          setPainelCamadasAberto(false);
+          setPainelVoosAberto(false);
           fecharCartoesDeInformacao();
         },
       },
@@ -2457,12 +2524,19 @@ export default function Mapa() {
     !medicao.medindo &&
     !track.mostrarPainelTrack &&
     !barraAnotarAberta &&
-    !apontamento.modoApontamento;
+    !apontamento.modoApontamento &&
+    !casoExcedenteAberto;
 
   const qtdCamadasVisiveis = mapasLocais.filter((m) => camadasVisiveis.has(m.id)).length;
   // Mapa de voos: a 1ª aba é Voos (resumo + filtro por tipo, que já é a
   // legenda das cores) no lugar de Legenda.
-  const abasGaveta = voosInfo
+  const abasGaveta = excedenteInfo
+    ? [
+        { id: "excedente", rotulo: "Excedente" },
+        { id: "camadas", rotulo: "Camadas" },
+        { id: "ferramentas", rotulo: "Ferramentas" },
+      ]
+    : voosInfo
     ? [
         { id: "voos", rotulo: "Voos" },
         { id: "camadas", rotulo: "Camadas" },
@@ -2840,6 +2914,22 @@ export default function Mapa() {
             <PainelVoos apontamento={apontamento} aoApontar={entrarNoApontamento} />
           </aside>
         )}
+        {!ehCelular && excedenteInfo && painelExcedenteAberto && (
+          <aside className="painel-camadas painel-voos-lateral" aria-label="Plantio excedente">
+            <button
+              type="button"
+              className="cabecalho-painel-camadas"
+              onClick={() => setPainelExcedenteAberto(false)}
+              aria-expanded={painelExcedenteAberto}
+            >
+              <span>Plantio excedente</span>
+              <span className="seta seta--aberta" aria-hidden="true">
+                ›
+              </span>
+            </button>
+            <PainelExcedente excedente={excedente} />
+          </aside>
+        )}
         </div>
 
         {mostrarGaveta && (
@@ -2875,6 +2965,7 @@ export default function Mapa() {
             </div>
             {gavetaAberta ? (
               <div className="conteudo-gaveta" role="tabpanel">
+                {abaGavetaAtual === "excedente" && <PainelExcedente excedente={excedente} />}
                 {abaGavetaAtual === "voos" && (
                   <PainelVoos apontamento={apontamento} aoApontar={entrarNoApontamento} />
                 )}
@@ -2934,6 +3025,15 @@ export default function Mapa() {
                 podePlanejar
                   ? () => {
                       planejamentos.abrirRascunho(medicao.pontosMedicao);
+                      medicao.setMedindo(false);
+                    }
+                  : undefined
+              }
+              aoSalvarTrecho={
+                casoExcedenteAberto
+                  ? () => {
+                      const p = medicao.pontosMedicao;
+                      setTrechoExcedente({ type: "Polygon", coordinates: [[...p, p[0]]] });
                       medicao.setMedindo(false);
                     }
                   : undefined
@@ -3126,6 +3226,24 @@ export default function Mapa() {
           aoFechar={() => setPontoSelecionado(null)}
         />
 
+        {casoExcedenteAberto && (
+          <CartaoExcedente
+            key={casoExcedenteAberto.id}
+            caso={casoExcedenteAberto}
+            podeEditar={podeEditar}
+            trechoDesenhado={trechoExcedente}
+            aoApontar={excedente.apontar}
+            aoDesenhar={() => {
+              medicao.setMedindo(true);
+              medicao.trocarModoMedicao("area");
+            }}
+            aoDescartarTrecho={() => setTrechoExcedente(null)}
+            aoFechar={() => {
+              excedente.setSelecionado(null);
+              setTrechoExcedente(null);
+            }}
+          />
+        )}
         <CartaoPlanejamento
           planejamento={planejamentos.selecionado}
           pendentes={apontamento.pendentes}

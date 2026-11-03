@@ -46,4 +46,13 @@ describe("sairDescartandoPins", () => {
     expect(s).not.toHaveBeenCalled();
     expect(window.alert).toHaveBeenCalledTimes(1);
   });
+
+  it("conta a fila do Plantio Excedente mesmo saindo fora daquele mapa", async () => {
+    window.confirm.mockReturnValue(false);
+    const l = limpar();
+    const s = sair();
+    expect(await sairDescartandoPins(0, s, l, 0, async () => 2)).toBe(false);
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("2 apontamento(s)"));
+    expect(l).not.toHaveBeenCalled();
+  });
 });

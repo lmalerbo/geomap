@@ -9,10 +9,18 @@ const STORE_PINS_CURSOR = "pins_cursor";
 const STORE_FILA_APONTAMENTOS = "apontamentos_fila";
 const STORE_PENDENCIAS_VOO = "pendencias_voo";
 const STORE_PLANEJAMENTOS = "planejamentos_voo";
+const STORE_CASOS_EXCEDENTE = "casos_excedente";
+const STORE_FILA_EXCEDENTE = "fila_excedente";
 
 function abrirDb() {
-  return openDB(DB_NAME, 6, {
+  return openDB(DB_NAME, 7, {
     upgrade(db, versaoAnterior) {
+      if (versaoAnterior < 7) {
+        // Plantio Excedente: cópia dos casos por mapa (1 registro por
+        // mapaId) e a fila offline de apontamentos (ver lib/filaExcedente.js).
+        db.createObjectStore(STORE_CASOS_EXCEDENTE, { keyPath: "mapaId" });
+        db.createObjectStore(STORE_FILA_EXCEDENTE, { keyPath: "id" });
+      }
       if (versaoAnterior < 6) {
         // Planejamento de voos (ver usePlanejamentos): cópia local por mapa
         // (1 registro por mapaId), pra o mapa mostrar os polígonos sem sinal.
@@ -100,11 +108,16 @@ export async function buscarPlanejamentosLocal(mapaId) {
 // (o próximo usuário pode nem ter acesso ao mapa de voos).
 export async function limparApontamentosLocais() {
   const db = await abrirDb();
-  const tx = db.transaction([STORE_FILA_APONTAMENTOS, STORE_PENDENCIAS_VOO, STORE_PLANEJAMENTOS], "readwrite");
+  const tx = db.transaction(
+    [STORE_FILA_APONTAMENTOS, STORE_PENDENCIAS_VOO, STORE_PLANEJAMENTOS, STORE_CASOS_EXCEDENTE, STORE_FILA_EXCEDENTE],
+    "readwrite",
+  );
   await Promise.all([
     tx.objectStore(STORE_FILA_APONTAMENTOS).clear(),
     tx.objectStore(STORE_PENDENCIAS_VOO).clear(),
     tx.objectStore(STORE_PLANEJAMENTOS).clear(),
+    tx.objectStore(STORE_CASOS_EXCEDENTE).clear(),
+    tx.objectStore(STORE_FILA_EXCEDENTE).clear(),
     tx.done,
   ]);
 }
@@ -250,4 +263,34 @@ export async function limparPinsLocais() {
   const db = await abrirDb();
   const tx = db.transaction([STORE_PINS, STORE_PINS_CURSOR], "readwrite");
   await Promise.all([tx.objectStore(STORE_PINS).clear(), tx.objectStore(STORE_PINS_CURSOR).clear(), tx.done]);
+}
+
+export async function salvarCasosExcedente(mapaId, casos) {
+  const db = await abrirDb();
+  await db.put(STORE_CASOS_EXCEDENTE, { mapaId, casos, salvoEm: new Date().toISOString() });
+}
+
+export async function lerCasosExcedente(mapaId) {
+  const db = await abrirDb();
+  return (await db.get(STORE_CASOS_EXCEDENTE, mapaId))?.casos ?? null;
+}
+
+export async function salvarItemFilaExcedente(item) {
+  const db = await abrirDb();
+  await db.put(STORE_FILA_EXCEDENTE, item);
+}
+
+export async function removerItemFilaExcedente(id) {
+  const db = await abrirDb();
+  await db.delete(STORE_FILA_EXCEDENTE, id);
+}
+
+export async function listarFilaExcedente() {
+  const db = await abrirDb();
+  return db.getAll(STORE_FILA_EXCEDENTE);
+}
+
+export async function limparFilaExcedente() {
+  const db = await abrirDb();
+  await db.clear(STORE_FILA_EXCEDENTE);
 }

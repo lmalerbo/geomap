@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listarPinsPendentes, limparPinsLocais, limparApontamentosLocais } from "../lib/db.js";
+import { listarPinsPendentes, limparPinsLocais, limparApontamentosLocais, listarFilaExcedente } from "../lib/db.js";
 import { EVENTO_PINS_ATUALIZADOS } from "../lib/syncPinsApp.js";
 
 // Quantas anotações ainda não foram enviadas (todos os mapas) — usado no
@@ -33,7 +33,7 @@ export function confirmarSaidaComPendentes(quantidade, apontamentos = 0) {
   if (quantidade <= 0 && apontamentos <= 0) return true;
   const partes = [];
   if (quantidade > 0) partes.push(`${quantidade} anotação(ões)`);
-  if (apontamentos > 0) partes.push(`${apontamentos} apontamento(s) de voo`);
+  if (apontamentos > 0) partes.push(`${apontamentos} apontamento(s)`);
   return window.confirm(
     `Você tem ${partes.join(" e ")} ainda não enviado(s). Sair agora vai descartá-los. Sair mesmo assim?`
   );
@@ -46,18 +46,31 @@ async function limparDadosLocaisDoUsuario() {
   await limparApontamentosLocais();
 }
 
-// Logout compartilhado de Mapa.jsx/Inicio.jsx: confirma (se houver
-// pendentes), apaga os pins locais e só então chama `sair` do AuthContext.
-// Se não der pra apagar, não sai — senão os pendentes iriam pro servidor
-// com a identidade do próximo usuário (achado de revisão final 2026-09-25).
-// Devolve true quando saiu de fato (quem chama só navega nesse caso).
+// Fila do Plantio Excedente de todos os mapas (pendentes e recusados — os
+// dois se perdem ao sair). Contada aqui, e não em quem chama, porque o
+// logout também acontece fora do mapa de excedente (início, admin).
+async function contarFilaExcedente() {
+  try {
+    return (await listarFilaExcedente()).length;
+  } catch {
+    return 0;
+  }
+}
+
+// Logout compartilhado de Mapa.jsx/Inicio.jsx/LayoutAdmin.jsx: confirma (se
+// houver pendentes), apaga os pins locais e só então chama `sair` do
+// AuthContext. Se não der pra apagar, não sai — senão os pendentes iriam pro
+// servidor com a identidade do próximo usuário (achado de revisão final
+// 2026-09-25). Devolve true quando saiu de fato (quem chama só navega nesse caso).
 export async function sairDescartandoPins(
   quantidadePendentes,
   sair,
   limpar = limparDadosLocaisDoUsuario,
-  quantidadeApontamentos = 0
+  quantidadeApontamentos = 0,
+  contarExcedente = contarFilaExcedente
 ) {
-  if (!confirmarSaidaComPendentes(quantidadePendentes, quantidadeApontamentos)) return false;
+  const total = quantidadeApontamentos + (await contarExcedente());
+  if (!confirmarSaidaComPendentes(quantidadePendentes, total)) return false;
   try {
     await limpar();
   } catch (erro) {

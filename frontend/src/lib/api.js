@@ -559,3 +559,23 @@ export async function vincularPilotoAdmin(token, usuarioId, login) {
   await tratarResposta(resp);
   return resp.json();
 }
+
+// Plantio Excedente (ver backend/src/routes/excedente.js).
+export async function buscarCasosExcedente(token, mapaId) {
+  const resp = await fetch(`${API_URL}/mapas/${mapaId}/excedente`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function apontarExcedente(token, mapaId, apontamentos) {
+  const resp = await fetch(`${API_URL}/mapas/${mapaId}/excedente/apontamentos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ apontamentos }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}

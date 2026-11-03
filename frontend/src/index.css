@@ -6150,3 +6150,17 @@ input[type="file"]::file-selector-button:hover {
 .painel-admin-conteudo.mo-carregando {
   min-height: 320px;
 }
+
+/* Plantio Excedente */
+.cartao-excedente p { margin: 6px 0; }
+.cartao-excedente .cabecalho-atributos p { margin: 0; }
+.selo-status-excedente { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.selo-status-excedente::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--cor-status); }
+.acoes-excedente { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.form-excedente { display: grid; gap: 10px; margin: 12px 0; }
+.form-excedente label { display: grid; gap: 4px; }
+.historico-excedente { margin: 12px 0 0; padding-left: 18px; font-size: 0.85rem; opacity: 0.8; }
+.chips-excedente { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-excedente { border: 2px solid var(--cor-status); background: transparent; color: inherit; opacity: 0.55; }
+.chip-excedente.ativo { opacity: 1; }
+.aviso-discreto { font-size: 0.85rem; opacity: 0.8; }

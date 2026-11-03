@@ -8,6 +8,7 @@ import {
 } from "./db.js";
 import { syncPins, enviarPinsPendentes, avisarPinsAtualizados } from "./syncPinsApp.js";
 import { enviarApontamentosPendentes } from "./filaApontamentosApp.js";
+import { enviarExcedentePendentes } from "./filaExcedenteApp.js";
 import { criarProgressoSync } from "./progressoSync.js";
 
 // local.blob só é ArrayBuffer se foi baixado depois da correção do bug de
@@ -124,6 +125,12 @@ export async function sincronizarMapas(token, { aoProgredir } = {}) {
     await enviarApontamentosPendentes(token);
   } catch (erro) {
     console.warn("Falha ao enviar apontamentos guardados:", erro);
+  }
+  // Idem para os do Plantio Excedente, mesmo sem abrir aquele mapa.
+  try {
+    await enviarExcedentePendentes(token);
+  } catch (erro) {
+    console.warn("Falha ao enviar apontamentos do excedente guardados:", erro);
   }
 
   const atualizadas = await listarMapasBaixados();

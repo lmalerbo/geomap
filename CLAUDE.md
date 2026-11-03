@@ -3301,3 +3301,78 @@ dois problemas reportados pelo Leo.
   migration. `PUT /admin/camadas/:id/atributos` aceita `consultavel` e grava
   com `jsonb_set`, sem mexer no resto do estilo. Nenhuma camada muda
   sozinha: a caixa precisa ser ligada na Ambiental pelo admin.
+
+**Plantio Excedente (2026-11-02)**: mapa novo para acompanhar talhões com
+voo de Falhas Plantio (FLP) desde 01/04/2026. Spec e plano em
+`docs/superpowers/{specs,plans}/2026-10-30-plantio-excedente*`.
+
+- **Fluxo**: todo talhão com voo FLP aparece amarelo (aguardando). Quem tem
+  `pode_editar` marca "precisa de ajuste" (vermelho, com área excedente
+  estimada, observação e desenho opcional do trecho) ou "sem ajuste"
+  (verde). Depois do ajuste em campo, "ajuste concluído" (verde com
+  contorno verde-escuro grosso), com a data. "Reabrir" volta a aguardando.
+  Sem papéis separados de analista e gestor (decisão do Leo).
+- **Reconhecimento do mapa**: a camada Talhões com
+  `estilo_config.tipoCamada = "excedente"` (caixa "Camada de plantio
+  excedente" em Admin → Camadas). Sem coluna nova em `mapas`.
+- **Dados**: migration 021, tabelas `analises_excedente` (um caso por mapa
+  e voo) e `historico_excedente` (cada apontamento, `id` = uuid gerado no
+  aparelho, por isso reenviar é inofensivo). Regras puras em
+  `backend/src/lib/casosExcedente.js`; rotas em
+  `backend/src/routes/excedente.js` (`GET /mapas/:id/excedente`,
+  `POST /mapas/:id/excedente/apontamentos`).
+- **Voos novos**: vêm do cache dos Indicadores (`obterDadosIndicadores`),
+  no máximo uma sincronização a cada 2 min por mapa. Sem DroneManagement,
+  os casos já gravados continuam aparecendo, com o aviso "Não foi possível
+  buscar voos novos agora."
+- **Offline**: todo apontamento vai pela fila do aparelho
+  (`lib/filaExcedente.js` + `lib/filaExcedenteApp.js`, stores
+  `casos_excedente` e `fila_excedente`, IndexedDB versão 7), enviada na hora
+  se houver sinal, ao voltar a rede e a cada 3 min. Conflito: vale o
+  apontamento feito por último no aparelho (`feitoEm`, limitado a agora +
+  5 min); o mais antigo fica no histórico como substituído.
+- **Tela**: `hooks/useExcedente.js` (pintura por status, trechos,
+  contorno de ajustado), `components/PainelExcedente.jsx` (contagem e
+  filtro) e `components/CartaoExcedente.jsx`. O trecho é desenhado com a
+  medição de área ("Usar como trecho excedente").
+
+Verificado com Playwright no dev local (banco local, DroneManagement nunca
+consultado), em duas rodadas. Para a camada Talhões carregar, as camadas
+locais 3 e 4 apontaram temporariamente para os arquivos atuais do mapa
+Geral no R2 (só leitura; restaurado no fim). Confirmado:
+- amarelo → vermelho com área e trecho → verde;
+- conclusão sem sinal e envio da fila ao reconectar, com histórico;
+- leitor vê as cores sem botões, inclusive com o backend bloqueado;
+- aba da gaveta no celular.
+
+Defeitos achados e corrigidos:
+- filtro vazio inválido do contorno de ajustado (`["==", 1, 0]`), que dava
+  17 erros de console por carga;
+- o intervalo de 2 min devolvia "ok" fixo e escondia o aviso de falha a
+  partir da segunda recarga (teste novo);
+- cartão alto demais no celular (espaçamento dos parágrafos). Não
+  conferido de novo no navegador.
+
+Revisão de código (2026-11-03): 6 problemas corrigidos com teste. Estão
+listados na spec, em "Ajustes da revisão de código":
+- fila contada ao sair fora do mapa e enviada no sync geral;
+- 5xx/401 sem travar a fila;
+- conflito entre aparelhos pelo status visto;
+- reabrir limpa os campos;
+- liga/desliga da camada;
+- caso aberto não some com voo novo.
+Ficaram de fora:
+- `sincronizarCasos` faz um `INSERT` por voo (pode virar um único
+  `unnest`);
+- dois envios simultâneos do mesmo id podem dar 500, mas a fila tenta de
+  novo e o reenvio é idempotente.
+
+Ambiente local: o backend precisa de `LOGIN_LOCAL=1`, e a tela de login só
+aceita o Hub; para testar, injete `geoportal_sessao` no `localStorage`
+depois de `POST /login`.
+
+**Antes de publicar**:
+- aplicar a migration 021 em produção;
+- criar o mapa "Plantio Excedente" com Talhões e Limites;
+- marcar a camada Talhões dele como "Camada de plantio excedente";
+- dar `pode_editar` ao grupo dos analistas e gestores.
