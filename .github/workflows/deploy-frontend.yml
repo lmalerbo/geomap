@@ -33,6 +33,16 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # Teste ou lint vermelho = não publica (plano pilares CON1). O vitest carrega o
+      # plugin do Storybook, que precisa de require(esm): Node 20.19+ ou 22.12+.
+      - name: Testes unitários
+        working-directory: frontend
+        run: npm run test:unit
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
       - name: Build (aponta pro backend em produção)
         working-directory: frontend
         env:

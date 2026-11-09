@@ -1,0 +1,30 @@
+# Testes unitários e lint do frontend em todo push fora da master, para conferir
+# o branch antes do merge. Na master quem roda é o deploy-frontend.yml (antes do build).
+name: Testes frontend
+
+on:
+  push:
+    branches-ignore: [master]
+    paths: ["frontend/**", ".github/workflows/testes-frontend.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: frontend
+        run: npm run test:unit
+      - working-directory: frontend
+        run: npm run lint
