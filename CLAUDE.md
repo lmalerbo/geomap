@@ -3396,3 +3396,32 @@ Publicado em 03/11 (mapa 74, camadas 352/353, grupos 1/23/57).
   pontos, Polygon/MultiPolygon com buracos, sem altitude). O servidor aceita
   Polygon e MultiPolygon. Sem trecho, o Confirmar fica desabilitado. Casos
   antigos continuam com a área digitada.
+
+**Camadas espelho — sincronização automática entre mapas (2026-11-16)**:
+permite que cópias de camadas em diferentes mapas (ex.: Talhões e Limites
+duplicados em Geral, Temático, Irrigação, ICOL, Plantio Excedente) acompanhem
+automaticamente as atualizações da camada original, sem precisar registrar novos
+IDs em `automacao/vigiar-talhoes-limites/mapeamento-camadas.json` nem dar commit/push
+no servidor geo.
+
+- **Banco**: migration 022, coluna `camadas.origem_id` (FK para `camadas(id) ON DELETE SET NULL`)
+  com restrição não recursiva (`origem_id <> id`).
+- **Backend**:
+  - `propagarAtualizacaoParaEspelhos`: ao concluir conversão de nova versão na camada de
+    origem (ou ao restaurar versão), copia o `.pmtiles` no R2 (`duplicarArquivo`) para cada
+    camada espelho, arquiva versão anterior em `versoes_camada`, atualiza versão no banco
+    e apaga o `.pmtiles` antigo do espelho;
+  - `PUT /admin/camadas/:id/espelho`: vincula ou desvincula uma camada (ao vincular, sincroniza
+    o arquivo da origem imediatamente); não permite encadear espelhos (espelho de espelho);
+  - `POST /admin/camadas/:id/duplicar`: aceita `manterEspelho: boolean`, criando a cópia já vinculada;
+  - `PUT /admin/camadas/:id/arquivo`: rejeita upload direto em camada espelho (400) para evitar
+    inconsistência acidental;
+  - `saudeAutomacao.js`: camadas espelho de origens mantidas pela automação contam como camadas
+    da automação e refletem a saúde/atualização da origem.
+- **Frontend**:
+  - `AdminCamadas.jsx`: lista lateral com indicador `🔗` nas camadas espelho;
+  - Aba "Arquivo e nome": banner destacado quando a camada for espelho, com botão "Desvincular espelho"
+    e proteção contra upload manual; seletor para vincular camadas autônomas a origens existentes;
+  - Duplicação de camada: checkbox "Manter sincronizada como espelho" marcado por padrão.
+- **Antes de publicar**:
+  - Aplicar migration 022 no banco de produção.

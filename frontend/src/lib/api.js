@@ -151,11 +151,24 @@ export async function atualizarOrdemCamadasAdmin(token, mapaId, camadaIds) {
 
 // Duplica uma única camada (diferente de duplicarMapaAdmin acima) —
 // mapaDestinoId é opcional, sem ele duplica pro mesmo mapa da origem.
-export async function duplicarCamadaAdmin(token, camadaId, mapaDestinoId) {
+export async function duplicarCamadaAdmin(token, camadaId, mapaDestinoId, manterEspelho) {
   const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/duplicar`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(mapaDestinoId !== undefined ? { mapaId: mapaDestinoId } : {}),
+    body: JSON.stringify({
+      ...(mapaDestinoId !== undefined ? { mapaId: mapaDestinoId } : {}),
+      ...(manterEspelho !== undefined ? { manterEspelho } : {}),
+    }),
+  });
+  await tratarResposta(resp);
+  return resp.json();
+}
+
+export async function atualizarEspelhoCamadaAdmin(token, camadaId, origemId) {
+  const resp = await fetch(`${API_URL}/admin/camadas/${camadaId}/espelho`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ origemId }),
   });
   await tratarResposta(resp);
   return resp.json();
