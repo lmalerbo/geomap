@@ -72,17 +72,28 @@ export function resumirAutomacao({ agora, automacaoId, logins, jobs, camadas }) 
   }
 
   const camadasResumo = camadas.map((c) => {
+    const ehEspelho = c.origemId != null;
+    const origem = ehEspelho ? camadas.find((x) => x.id === c.origemId) : null;
+    const automacaoOrigem = ehEspelho && (idsAutomacao.has(c.origemId) || false);
     const daCamada = jobs.filter((j) => j.camadaId === c.id);
     const ultimaOk = daCamada
       .filter((j) => j.status === "concluido")
       .map((j) => j.atualizadoEm)
       .sort((a, b) => new Date(b) - new Date(a))[0];
-    const ultimaAtualizacao = ultimaOk || c.publicadoEm || null;
+    
+    // Se for espelho e não tiver job próprio direto, herda a data da origem se existir
+    const ultimaAtualizacaoOrigem = ehEspelho && origem
+      ? jobs.filter((j) => j.camadaId === origem.id && j.status === "concluido")
+          .map((j) => j.atualizadoEm)
+          .sort((a, b) => new Date(b) - new Date(a))[0] || origem.publicadoEm
+      : null;
+
+    const ultimaAtualizacao = ultimaOk || ultimaAtualizacaoOrigem || c.publicadoEm || null;
     const processando = daCamada.some(
       (j) => j.status === "processando" && tAgora - new Date(j.criadoEm).getTime() < JOB_VIVO_MS
     );
     const ultimoJob = daCamada.sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm))[0];
-    const automacao = idsAutomacao.has(c.id);
+    const automacao = idsAutomacao.has(c.id) || automacaoOrigem;
     let situacao = automacao ? "em_dia" : "manual";
     let diasAtraso = 0;
     if (processando) situacao = "atualizando";
@@ -100,6 +111,8 @@ export function resumirAutomacao({ agora, automacaoId, logins, jobs, camadas }) 
       nome: c.nome,
       mapaNome: c.mapaNome,
       versao: c.versao,
+      origemId: c.origemId ?? null,
+      ehEspelho,
       automacao,
       situacao,
       diasAtraso,

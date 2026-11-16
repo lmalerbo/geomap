@@ -761,7 +761,7 @@ adminRouter.post("/admin/camadas/:id/duplicar", async (req, res) => {
   }
 
   const { rows: camadaRows } = await pool.query(
-    `SELECT mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config
+    `SELECT mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config, origem_id
      FROM camadas WHERE id = $1`,
     [camadaId]
   );
@@ -782,13 +782,17 @@ adminRouter.post("/admin/camadas/:id/duplicar", async (req, res) => {
     }
   }
 
+  const manterEspelho = req.body?.manterEspelho === true;
+  // Se for manter espelho, aponta para a origem raiz (evita encadeamento)
+  const novoOrigemId = manterEspelho ? (camadaOrigem.origem_id || camadaId) : null;
+
   const novaChave = `${crypto.randomUUID()}.pmtiles`;
   await duplicarArquivo(camadaOrigem.arquivo_path, novaChave);
 
   const { rows: novaCamadaRows } = await pool.query(
-    `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config, ordem)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE((SELECT MAX(ordem) + 1 FROM camadas WHERE mapa_id = $1), 0))
-     RETURNING id, mapa_id, nome, versao, categoria, publicado_em`,
+    `INSERT INTO camadas (mapa_id, nome, versao, categoria, arquivo_path, atributos_config, estilo_config, ordem, origem_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE((SELECT MAX(ordem) + 1 FROM camadas WHERE mapa_id = $1), 0), $8)
+     RETURNING id, mapa_id, nome, versao, categoria, publicado_em, origem_id`,
     [
       mapaDestinoId,
       `${camadaOrigem.nome} (cópia)`,
@@ -797,6 +801,7 @@ adminRouter.post("/admin/camadas/:id/duplicar", async (req, res) => {
       novaChave,
       camadaOrigem.atributos_config === null ? null : JSON.stringify(camadaOrigem.atributos_config),
       camadaOrigem.estilo_config === null ? null : JSON.stringify(camadaOrigem.estilo_config),
+      novoOrigemId,
     ]
   );
   const novaCamada = novaCamadaRows[0];
@@ -804,7 +809,7 @@ adminRouter.post("/admin/camadas/:id/duplicar", async (req, res) => {
   await registrarAuditoria(
     req.usuarioId,
     "duplicar_camada",
-    `camada ${camadaId} (${camadaOrigem.nome}) → camada ${novaCamada.id}, mapa destino ${mapaDestinoId}`,
+    `camada ${camadaId} (${camadaOrigem.nome}) → camada ${novaCamada.id}, mapa destino ${mapaDestinoId}${novoOrigemId ? ` (espelho de ${novoOrigemId})` : ""}`,
     req.ip
   );
 
@@ -853,7 +858,7 @@ adminRouter.get("/admin/estatisticas", async (req, res) => {
 
 adminRouter.get("/admin/camadas", async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, mapa_id, nome, versao, categoria, publicado_em, estilo_config, ordem
+    `SELECT id, mapa_id, nome, versao, categoria, publicado_em, estilo_config, ordem, origem_id
      FROM camadas ORDER BY mapa_id, ordem`
   );
   res.json(rows);
@@ -1072,6 +1077,36 @@ async function guardarVersaoAnterior(camadaId, { chave, versao, usuarioId }) {
   }
 }
 
+async function propagarAtualizacaoParaEspelhos(origemId, novoArquivoPath, novaVersao, usuarioId) {
+  const { rows: espelhos } = await pool.query(
+    "SELECT id, arquivo_path, versao, nome, mapa_id FROM camadas WHERE origem_id = $1",
+    [origemId]
+  );
+  for (const espelho of espelhos) {
+    try {
+      await guardarVersaoAnterior(espelho.id, {
+        chave: espelho.arquivo_path,
+        versao: espelho.versao,
+        usuarioId,
+      });
+      const novaChave = `${crypto.randomUUID()}.pmtiles`;
+      await duplicarArquivo(novoArquivoPath, novaChave);
+      await pool.query(
+        "UPDATE camadas SET arquivo_path = $1, versao = $2 WHERE id = $3",
+        [novaChave, novaVersao, espelho.id]
+      );
+      await apagarArquivo(espelho.arquivo_path);
+      await registrarAuditoria(
+        usuarioId,
+        "atualizacao_espelho",
+        `camada ${espelho.id} (${espelho.nome}) atualizada automaticamente da origem ${origemId} para versão ${novaVersao}`
+      );
+    } catch (err) {
+      console.error(`Falha ao propagar atualização para camada espelho ${espelho.id}:`, err);
+    }
+  }
+}
+
 async function processarAtualizacaoEmSegundoPlano(jobId, camadaId, { arquivoUnico, arquivosShapefile, versao, nomeCamadaAtual, arquivoPathAtual, versaoAtual, usuarioId }) {
   let nomeArquivoFinal;
   try {
@@ -1090,6 +1125,7 @@ async function processarAtualizacaoEmSegundoPlano(jobId, camadaId, { arquivoUnic
     versao,
     camadaId,
   ]);
+  await propagarAtualizacaoParaEspelhos(camadaId, nomeArquivoFinal, versao, usuarioId);
   await concluirJob(jobId, camadaId);
 }
 
@@ -1111,10 +1147,15 @@ adminRouter.put("/admin/camadas/:id/arquivo", uploadArquivoCamada, async (req, r
     return res.status(400).json({ erro: "versão é obrigatória" });
   }
 
-  const { rows } = await pool.query("SELECT arquivo_path, nome, versao FROM camadas WHERE id = $1", [camadaId]);
+  const { rows } = await pool.query("SELECT arquivo_path, nome, versao, origem_id FROM camadas WHERE id = $1", [camadaId]);
   const camadaAtual = rows[0];
   if (!camadaAtual) {
     return res.status(404).json({ erro: "camada não encontrada" });
+  }
+  if (camadaAtual.origem_id != null) {
+    return res.status(400).json({
+      erro: "Esta camada é um espelho sincronizado de outra camada. Desvincule-a antes de enviar um arquivo manual.",
+    });
   }
 
   const jobId = await criarJob("atualizar_arquivo", camadaId, req.usuarioId);
@@ -1176,6 +1217,7 @@ adminRouter.post("/admin/camadas/:id/versoes/:versaoId/restaurar", async (req, r
   const novaVersao = `${anterior.versao || "anterior"} (restaurada ${agora})`;
   await pool.query("UPDATE camadas SET arquivo_path = $1, versao = $2 WHERE id = $3", [novaChave, novaVersao, camadaId]);
   await apagarArquivo(camada.arquivo_path);
+  await propagarAtualizacaoParaEspelhos(camadaId, novaChave, novaVersao, req.usuarioId);
   await registrarAuditoria(req.usuarioId, "restaurar_versao", `camada ${camadaId}: ${novaVersao}`, req.ip);
   res.json({ ok: true, versao: novaVersao });
 });
@@ -1190,7 +1232,7 @@ adminRouter.get("/admin/visao-geral", async (req, res) => {
   const [{ rows: autoRows }, { rows: camadas }, { rows: contagens }, { rows: atividade }] = await Promise.all([
     pool.query("SELECT id FROM usuarios WHERE lower(email) = lower($1)", [AUTOMACAO_EMAIL]),
     pool.query(
-      `SELECT c.id, c.nome, c.versao, c.publicado_em AS "publicadoEm", c.mapa_id AS "mapaId", m.nome AS "mapaNome"
+      `SELECT c.id, c.nome, c.versao, c.publicado_em AS "publicadoEm", c.mapa_id AS "mapaId", m.nome AS "mapaNome", c.origem_id AS "origemId"
        FROM camadas c JOIN mapas m ON m.id = c.mapa_id ORDER BY m.nome, c.ordem`
     ),
     pool.query(
@@ -1310,6 +1352,83 @@ adminRouter.put("/admin/camadas/:id", async (req, res) => {
     return res.status(404).json({ erro: "camada não encontrada" });
   }
   res.json(rows[0]);
+});
+
+// Gerenciar vínculo de camada espelho (vincular ou desvincular).
+adminRouter.put("/admin/camadas/:id/espelho", async (req, res) => {
+  const camadaId = Number(req.params.id);
+  if (!Number.isInteger(camadaId)) {
+    return res.status(400).json({ erro: "id de camada inválido" });
+  }
+
+  const { rows: camadaRows } = await pool.query(
+    "SELECT id, nome, arquivo_path, versao, origem_id FROM camadas WHERE id = $1",
+    [camadaId]
+  );
+  const camadaDestino = camadaRows[0];
+  if (!camadaDestino) {
+    return res.status(404).json({ erro: "camada não encontrada" });
+  }
+
+  const origemId = req.body?.origemId != null ? Number(req.body.origemId) : null;
+
+  // Desvincular
+  if (origemId === null) {
+    await pool.query("UPDATE camadas SET origem_id = NULL WHERE id = $1", [camadaId]);
+    await registrarAuditoria(
+      req.usuarioId,
+      "desvincular_espelho",
+      `camada ${camadaId} (${camadaDestino.nome}) desvinculada do espelho`,
+      req.ip
+    );
+    return res.json({ ok: true, origemId: null });
+  }
+
+  // Vincular
+  if (!Number.isInteger(origemId)) {
+    return res.status(400).json({ erro: "origemId inválido" });
+  }
+  if (origemId === camadaId) {
+    return res.status(400).json({ erro: "Uma camada não pode ser espelho de si mesma" });
+  }
+
+  const { rows: origemRows } = await pool.query(
+    "SELECT id, nome, arquivo_path, versao, origem_id FROM camadas WHERE id = $1",
+    [origemId]
+  );
+  const camadaOrigem = origemRows[0];
+  if (!camadaOrigem) {
+    return res.status(404).json({ erro: "camada de origem não encontrada" });
+  }
+  if (camadaOrigem.origem_id != null) {
+    return res.status(400).json({
+      erro: "A camada de origem escolhida já é um espelho. Vincule diretamente à camada original.",
+    });
+  }
+
+  // Sincroniza imediatamente o arquivo e a versão atuais da origem para o espelho
+  const novaChave = `${crypto.randomUUID()}.pmtiles`;
+  await duplicarArquivo(camadaOrigem.arquivo_path, novaChave);
+  await guardarVersaoAnterior(camadaId, {
+    chave: camadaDestino.arquivo_path,
+    versao: camadaDestino.versao,
+    usuarioId: req.usuarioId,
+  });
+
+  await pool.query(
+    "UPDATE camadas SET origem_id = $1, arquivo_path = $2, versao = $3 WHERE id = $4",
+    [origemId, novaChave, camadaOrigem.versao, camadaId]
+  );
+  await apagarArquivo(camadaDestino.arquivo_path);
+
+  await registrarAuditoria(
+    req.usuarioId,
+    "vincular_espelho",
+    `camada ${camadaId} (${camadaDestino.nome}) vinculada como espelho de ${origemId} (${camadaOrigem.nome}) na versão ${camadaOrigem.versao}`,
+    req.ip
+  );
+
+  res.json({ ok: true, origemId, versao: camadaOrigem.versao });
 });
 
 // Simbologia/rótulo — cor, opacidade de preenchimento, exibir rótulo e o

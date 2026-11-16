@@ -14,6 +14,7 @@ import {
   buscarConfigAtributos,
   salvarConfigAtributos,
   duplicarCamadaAdmin,
+  atualizarEspelhoCamadaAdmin,
   listarVersoesCamadaAdmin,
   restaurarVersaoCamadaAdmin,
 } from "../lib/api.js";
@@ -133,6 +134,8 @@ export default function AdminCamadas() {
   const [novaVersao, setNovaVersao] = useState("");
   const [novoArquivo, setNovoArquivo] = useState([]);
   const [mapaDestinoDuplicar, setMapaDestinoDuplicar] = useState(null);
+  const [duplicarComoEspelho, setDuplicarComoEspelho] = useState(true);
+  const [origemSelecionadaParaVincular, setOrigemSelecionadaParaVincular] = useState("");
 
   // estiloForm guarda o objeto normalizado inteiro (preenchimento/contorno/
   // rotulo/visibilidade) — ver lib/estiloCamada.js.
@@ -239,6 +242,7 @@ export default function AdminCamadas() {
 
   const envioCamada = useOcupado();
   const envioArquivo = useOcupado();
+  const botaoEspelho = useOcupado();
   const botaoNome = useOcupado();
   const botaoDuplicar = useOcupado();
   const botaoRemover = useOcupado();
@@ -523,9 +527,67 @@ export default function AdminCamadas() {
     setErroDetalhe(null);
     try {
       await botaoDuplicar.executar(
-        () => duplicarCamadaAdmin(sessao.token, camadaSelecionadaId, destino != null ? Number(destino) : undefined),
+        () => duplicarCamadaAdmin(sessao.token, camadaSelecionadaId, destino != null ? Number(destino) : undefined, duplicarComoEspelho),
         { texto: "Duplicando…" }
       );
+      await carregarCamadas();
+    } catch (e) {
+      setErroDetalhe(e.message);
+    }
+  }
+
+  async function vincularComoEspelho() {
+    if (!origemSelecionadaParaVincular) return;
+    const camada = camadas.find((c) => c.id === camadaSelecionadaId);
+    const origem = camadas.find((c) => c.id === Number(origemSelecionadaParaVincular));
+    if (
+      !window.confirm(
+        `Vincular "${camada?.nome}" como espelho de "${origem?.nome}"? O arquivo atual será substituído pelo arquivo da origem e passará a acompanhar futuras atualizações automaticamente.`
+      )
+    ) {
+      return;
+    }
+    setErroDetalhe(null);
+    try {
+      await botaoEspelho.executar(async () => {
+        const res = await atualizarEspelhoCamadaAdmin(
+          sessao.token,
+          camadaSelecionadaId,
+          Number(origemSelecionadaParaVincular)
+        );
+        setCamadas((atual) =>
+          atual.map((c) =>
+            c.id === camadaSelecionadaId
+              ? { ...c, origem_id: res.origemId, versao: res.versao }
+              : c
+          )
+        );
+        setNovaVersao(res.versao);
+        setOrigemSelecionadaParaVincular("");
+      });
+      await carregarCamadas();
+    } catch (e) {
+      setErroDetalhe(e.message);
+    }
+  }
+
+  async function desvincularEspelho() {
+    const camada = camadas.find((c) => c.id === camadaSelecionadaId);
+    if (
+      !window.confirm(
+        `Desvincular "${camada?.nome}" do espelho? Ela não receberá mais atualizações automáticas e você poderá enviar novos arquivos manuais.`
+      )
+    ) {
+      return;
+    }
+    setErroDetalhe(null);
+    try {
+      await botaoEspelho.executar(async () => {
+        await atualizarEspelhoCamadaAdmin(sessao.token, camadaSelecionadaId, null);
+        setCamadas((atual) =>
+          atual.map((c) => (c.id === camadaSelecionadaId ? { ...c, origem_id: null } : c))
+        );
+      });
       await carregarCamadas();
     } catch (e) {
       setErroDetalhe(e.message);
@@ -925,7 +987,10 @@ export default function AdminCamadas() {
                           />
                           <span className="info-item-camada">
                             <strong>{c.nome}</strong>
-                            <span className="detalhe-mapa-admin">v{c.versao}</span>
+                            <span className="detalhe-mapa-admin">
+                              v{c.versao}
+                              {c.origem_id && <span title="Camada espelho (sincronizada)" style={{ marginLeft: "4px" }}>🔗</span>}
+                            </span>
                           </span>
                         </button>
                       </li>
@@ -1039,6 +1104,9 @@ export default function AdminCamadas() {
                   {ehPontoAtual && <span className="adm-etiqueta">Pontos</span>}
                   {estiloForm?.tipoCamada === "voos" && <span className="adm-etiqueta">Apontamento de voo</span>}
                   {estiloForm?.tipoCamada === "excedente" && <span className="adm-etiqueta">Plantio excedente</span>}
+                  {camadas.find((c) => c.id === camadaSelecionadaId)?.origem_id && (
+                    <span className="adm-etiqueta" title="Camada espelho sincronizada automaticamente">🔗 Espelho</span>
+                  )}
                   {situacaoSelecionada && SITUACAO_CAMADA[situacaoSelecionada.situacao] && (
                     <span className={`adm-chip adm-chip--${SITUACAO_CAMADA[situacaoSelecionada.situacao].classe}`}>
                       {SITUACAO_CAMADA[situacaoSelecionada.situacao].rotulo}
@@ -1061,84 +1129,167 @@ export default function AdminCamadas() {
                   </button>
                 ))}
               </div>
-              {abaEditor === "arquivo" && (
-              <div className="cartao-form-admin">
-                <label className="campo-form-admin">
-                  Nomenclatura
-                  <input
-                    type="text"
-                    value={arquivoForm.nome}
-                    onChange={(e) => atualizarArquivoFormCampo(e.target.value)}
-                  />
-                </label>
-                <div className="acoes-admin-atributos">
-                  <button {...botaoNome.propsBotao({ type: "button", onClick: salvarArquivo })}>
-                    {botaoNome.conteudo("Salvar nome")}
-                  </button>
-                </div>
+              {abaEditor === "arquivo" && (() => {
+                const camadaAtual = camadas.find((c) => c.id === camadaSelecionadaId);
+                const camadaOrigem = camadaAtual?.origem_id ? camadas.find((c) => c.id === camadaAtual.origem_id) : null;
+                const mapaOrigem = camadaOrigem ? mapas.find((m) => m.id === camadaOrigem.mapa_id) : null;
+                const camadasDisponiveisParaOrigem = camadas.filter(
+                  (c) => c.id !== camadaSelecionadaId && !c.origem_id
+                );
 
-                <form className="form-atualizar-arquivo form-atualizar-arquivo--workspace" onSubmit={enviarNovoArquivo}>
-                  <input
-                    type="text"
-                    value={novaVersao}
-                    onChange={(e) => {
-                      setNovaVersao(e.target.value);
-                      setSujo(true);
-                    }}
-                    aria-label="Nova versão"
-                    placeholder="Versão"
-                    required
-                  />
-                  <input
-                    type="file"
-                    multiple
-                    accept=".pmtiles,.shp,.dbf,.shx,.prj,.cpg,.qmd"
-                    onChange={(e) => {
-                      setNovoArquivo(Array.from(e.target.files));
-                      setSujo(true);
-                    }}
-                    aria-label="Novo arquivo (.pmtiles pronto ou os arquivos do shapefile)"
-                  />
-                  <button {...envioArquivo.propsBotao({ type: "submit", disabled: botaoNome.estado !== "parado" })}>
-                    {envioArquivo.conteudo("Atualizar arquivo")}
-                  </button>
-                </form>
+                return (
+                  <div className="cartao-form-admin">
+                    <label className="campo-form-admin">
+                      Nomenclatura
+                      <input
+                        type="text"
+                        value={arquivoForm.nome}
+                        onChange={(e) => atualizarArquivoFormCampo(e.target.value)}
+                      />
+                    </label>
+                    <div className="acoes-admin-atributos">
+                      <button {...botaoNome.propsBotao({ type: "button", onClick: salvarArquivo })}>
+                        {botaoNome.conteudo("Salvar nome")}
+                      </button>
+                    </div>
 
-                <div className="linha-duplicar-camada">
-                  <select
-                    aria-label="Mapa de destino da cópia"
-                    value={mapaDestinoDuplicar ?? camadas.find((c) => c.id === camadaSelecionadaId)?.mapa_id ?? ""}
-                    onChange={(e) => setMapaDestinoDuplicar(e.target.value)}
-                  >
-                    {mapas.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.nome}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    {...botaoDuplicar.propsBotao({
-                      type: "button",
-                      className: "botao-secundario",
-                      onClick: duplicarCamadaSelecionada,
-                      title: "Cria uma cópia desta camada (arquivo incluso) no mapa escolhido",
-                    })}
-                  >
-                    {botaoDuplicar.conteudo("Duplicar camada")}
-                  </button>
-                </div>
+                    {camadaAtual?.origem_id ? (
+                      <div className="adm-faixa adm-faixa--ok" style={{ margin: "16px 0", padding: "14px", borderRadius: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+                          <div>
+                            <strong>🔗 Camada espelho (sincronizada)</strong>
+                            <p style={{ margin: "4px 0 0 0", fontSize: "0.9em", color: "var(--cor-texto-suave, #555)" }}>
+                              Acompanha automaticamente: <strong>{camadaOrigem ? camadaOrigem.nome : `Camada #${camadaAtual.origem_id}`}</strong>
+                              {mapaOrigem ? ` no mapa "${mapaOrigem.nome}"` : ""}.
+                              <br />
+                              Sempre que a origem for atualizada, esta camada recebe o novo arquivo e versão sozinhos.
+                            </p>
+                          </div>
+                          <button
+                            {...botaoEspelho.propsBotao({
+                              type: "button",
+                              className: "botao-secundario",
+                              onClick: desvincularEspelho,
+                              title: "Desvincula esta camada para que ela possa receber uploads manuais independentes",
+                            })}
+                          >
+                            {botaoEspelho.conteudo("Desvincular espelho")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <form className="form-atualizar-arquivo form-atualizar-arquivo--workspace" onSubmit={enviarNovoArquivo}>
+                          <input
+                            type="text"
+                            value={novaVersao}
+                            onChange={(e) => {
+                              setNovaVersao(e.target.value);
+                              setSujo(true);
+                            }}
+                            aria-label="Nova versão"
+                            placeholder="Versão"
+                            required
+                          />
+                          <input
+                            type="file"
+                            multiple
+                            accept=".pmtiles,.shp,.dbf,.shx,.prj,.cpg,.qmd"
+                            onChange={(e) => {
+                              setNovoArquivo(Array.from(e.target.files));
+                              setSujo(true);
+                            }}
+                            aria-label="Novo arquivo (.pmtiles pronto ou os arquivos do shapefile)"
+                          />
+                          <button {...envioArquivo.propsBotao({ type: "submit", disabled: botaoNome.estado !== "parado" })}>
+                            {envioArquivo.conteudo("Atualizar arquivo")}
+                          </button>
+                        </form>
 
-                <button
-                  {...botaoRemover.propsBotao({
-                    type: "button",
-                    className: "botao-remover-mapa botao-remover-camada-workspace",
-                    onClick: removerCamadaSelecionada,
-                  })}
-                >
-                  {botaoRemover.conteudo("Remover camada")}
-                </button>
-              </div>
-              )}
+                        <div className="cartao-vincular-espelho" style={{ margin: "16px 0", padding: "14px", border: "1px dashed var(--cor-borda, #ccc)", borderRadius: "8px" }}>
+                          <label className="campo-form-admin" style={{ marginBottom: "8px" }}>
+                            <strong>Acompanhar camada de outro mapa (Espelho)</strong>
+                            <span style={{ fontSize: "0.85em", color: "var(--cor-texto-suave, #666)", display: "block", marginBottom: "6px" }}>
+                              Ao vincular, esta camada passará a receber atualizações automáticas da camada selecionada.
+                            </span>
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                              <select
+                                value={origemSelecionadaParaVincular}
+                                onChange={(e) => setOrigemSelecionadaParaVincular(e.target.value)}
+                                style={{ flex: 1, minWidth: "220px" }}
+                              >
+                                <option value="">Selecione a camada de origem…</option>
+                                {camadasDisponiveisParaOrigem.map((co) => {
+                                  const mapa = mapas.find((m) => m.id === co.mapa_id);
+                                  return (
+                                    <option key={co.id} value={co.id}>
+                                      {co.nome} ({mapa ? mapa.nome : `Mapa ${co.mapa_id}`}) · v{co.versao}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              <button
+                                {...botaoEspelho.propsBotao({
+                                  type: "button",
+                                  className: "botao-secundario",
+                                  disabled: !origemSelecionadaParaVincular,
+                                  onClick: vincularComoEspelho,
+                                })}
+                              >
+                                {botaoEspelho.conteudo("Vincular como espelho")}
+                              </button>
+                            </div>
+                          </label>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="bloco-duplicar-camada" style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid var(--cor-borda, #eee)" }}>
+                      <div className="linha-duplicar-camada">
+                        <select
+                          aria-label="Mapa de destino da cópia"
+                          value={mapaDestinoDuplicar ?? camadas.find((c) => c.id === camadaSelecionadaId)?.mapa_id ?? ""}
+                          onChange={(e) => setMapaDestinoDuplicar(e.target.value)}
+                        >
+                          {mapas.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.nome}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          {...botaoDuplicar.propsBotao({
+                            type: "button",
+                            className: "botao-secundario",
+                            onClick: duplicarCamadaSelecionada,
+                            title: "Cria uma cópia desta camada (arquivo incluso) no mapa escolhido",
+                          })}
+                        >
+                          {botaoDuplicar.conteudo("Duplicar camada")}
+                        </button>
+                      </div>
+                      <label className="campo-form-admin campo-form-admin--checkbox" style={{ marginTop: "6px", fontSize: "0.9em" }}>
+                        <input
+                          type="checkbox"
+                          checked={duplicarComoEspelho}
+                          onChange={(e) => setDuplicarComoEspelho(e.target.checked)}
+                        />
+                        Manter sincronizada como espelho (receberá atualizações futuras automaticamente)
+                      </label>
+                    </div>
+
+                    <button
+                      {...botaoRemover.propsBotao({
+                        type: "button",
+                        className: "botao-remover-mapa botao-remover-camada-workspace",
+                        onClick: removerCamadaSelecionada,
+                      })}
+                    >
+                      {botaoRemover.conteudo("Remover camada")}
+                    </button>
+                  </div>
+                );
+              })()}
 
               {abaEditor === "estilo" && (
               <div className="cartao-form-admin">
